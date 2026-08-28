@@ -72,6 +72,21 @@ export class GoogleDriveClient implements DriveClient {
     return records;
   }
 
+  async download(fileId: string): Promise<Uint8Array> {
+    const accessToken = await this.getAccessToken();
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Drive files.get failed with status ${response.status}`);
+    }
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
   async rename(fileId: string, newName: string): Promise<void> {
     const accessToken = await this.getAccessToken();
     const response = await fetch(

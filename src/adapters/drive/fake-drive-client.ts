@@ -4,7 +4,10 @@ import type { DriveClient } from "./port";
 let fakeIdCounter = 0;
 
 export class FakeDriveClient implements DriveClient {
-  constructor(private readonly files: DriveFileRecord[]) {}
+  constructor(
+    private readonly files: DriveFileRecord[],
+    private readonly fileContents: Record<string, Uint8Array> = {},
+  ) {}
 
   async list(): Promise<DriveFileRecord[]> {
     return this.files.map((file) => ({
@@ -14,6 +17,14 @@ export class FakeDriveClient implements DriveClient {
         ? { ...file.capabilities }
         : undefined,
     }));
+  }
+
+  async download(fileId: string): Promise<Uint8Array> {
+    const bytes = this.fileContents[fileId];
+    if (!bytes) {
+      throw new Error(`Drive file content not found: ${fileId}`);
+    }
+    return new Uint8Array(bytes);
   }
 
   async rename(fileId: string, newName: string): Promise<void> {

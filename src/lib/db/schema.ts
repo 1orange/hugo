@@ -61,6 +61,52 @@ export const monthFolders = sqliteTable("month_folders", {
   canRename: integer("can_rename", { mode: "boolean" }).notNull().default(true),
 });
 
+export const payments = sqliteTable("payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  monthKey: text("month_key").notNull(),
+  source: text("source").notNull(),
+  blocekFileId: text("blocek_file_id")
+    .notNull()
+    .references(() => files.driveFileId)
+    .unique(),
+  amountCents: integer("amount_cents"),
+  amountLiteral: text("amount_literal"),
+  currency: text("currency").notNull().default("EUR"),
+  receiptAt: text("receipt_at"),
+  receiptTimestampRaw: text("receipt_timestamp_raw"),
+  ekasaUid: text("ekasa_uid"),
+  ekasaPayload: text("ekasa_payload"),
+  decodeStatus: text("decode_status").notNull().default("complete"),
+  confirmedAt: text("confirmed_at"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const receiptManualQueue = sqliteTable("receipt_manual_queue", {
+  driveFileId: text("drive_file_id")
+    .primaryKey()
+    .references(() => files.driveFileId),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  monthKey: text("month_key").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const receiptDecodeJobs = sqliteTable("receipt_decode_jobs", {
+  driveFileId: text("drive_file_id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  monthKey: text("month_key").notNull(),
+  status: text("status").notNull(),
+  failureReason: text("failure_reason"),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const driveMutations = sqliteTable("drive_mutations", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   kind: text("kind").notNull(),
