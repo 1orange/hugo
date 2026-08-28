@@ -7,6 +7,12 @@ import {
   applyFolderRename,
   undoFolderRename,
 } from "@/lib/drive-mutations/apply-rename";
+import {
+  assertMonthEditable,
+  closeCompanyMonth,
+  reopenCompanyMonth,
+  ensureAllOpenMonthsScaffolded,
+} from "@/lib/month-lifecycle/service";
 import { runSweep } from "@/lib/sweep/run-sweep";
 import { revalidatePath } from "next/cache";
 
@@ -17,7 +23,9 @@ export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
   }
 
   setDriveParentFolderId(parentFolderId);
-  const result = await runSweep(createDriveClient());
+  const driveClient = createDriveClient();
+  const result = await runSweep(driveClient);
+  await ensureAllOpenMonthsScaffolded(driveClient);
   revalidatePath("/companies");
   return { sweepAt: result.sweepAt };
 }
@@ -32,6 +40,11 @@ export async function confirmFolderRenameAction(input: {
   driveFolderId: string;
   targetName: string;
 }): Promise<MutationActionResult> {
+  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  if (readOnly) {
+    return readOnly;
+  }
+
   const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
   if (!parentFolderId) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
@@ -72,6 +85,11 @@ export async function undoFolderRenameAction(input: {
   monthKey: string;
   mutationId: number;
 }): Promise<MutationActionResult> {
+  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  if (readOnly) {
+    return readOnly;
+  }
+
   const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
   if (!parentFolderId) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
@@ -80,6 +98,44 @@ export async function undoFolderRenameAction(input: {
   setDriveParentFolderId(parentFolderId);
   const driveClient = createDriveClient();
   const result = await undoFolderRename(driveClient, input.mutationId);
+  if (!result.ok) {
+    return result;
+  }
+
+  revalidatePath(`/companies/${input.companyId}/${input.monthKey}`);
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
+export async function closeMonthAction(input: {
+  companyId: number;
+  monthKey: string;
+}): Promise<MutationActionResult> {
+  const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
+  if (!parentFolderId) {
+    return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
+  }
+
+  setDriveParentFolderId(parentFolderId);
+  const result = await closeCompanyMonth(
+    createDriveClient(),
+    input.companyId,
+    input.monthKey,
+  );
+  if (!result.ok) {
+    return result;
+  }
+
+  revalidatePath(`/companies/${input.companyId}/${input.monthKey}`);
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
+export async function reopenMonthAction(input: {
+  companyId: number;
+  monthKey: string;
+}): Promise<MutationActionResult> {
+  const result = await reopenCompanyMonth(input.companyId, input.monthKey);
   if (!result.ok) {
     return result;
   }

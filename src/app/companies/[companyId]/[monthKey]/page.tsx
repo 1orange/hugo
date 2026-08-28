@@ -6,6 +6,7 @@ import { buildMonthView } from "@/lib/sweep/views";
 import { getSettings } from "@/adapters/store/settings";
 import { RefreshButton } from "../../refresh-button";
 import { FolderRepairPanel } from "./folder-repair-panel";
+import { MonthLifecyclePanel } from "./month-lifecycle-panel";
 
 type MonthPageProps = {
   params: Promise<{ companyId: string; monthKey: string }>;
@@ -53,6 +54,13 @@ export default async function MonthPage({ params }: MonthPageProps) {
         <RefreshButton lastSweepAt={settings.lastSweepAt} />
       </header>
 
+      <MonthLifecyclePanel
+        companyId={companyIdNum}
+        monthKey={monthKey}
+        readOnly={view.readOnly}
+        isOpenMonth={view.isOpenMonth}
+      />
+
       <div className="grid gap-6">
         {view.groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">No documents in this month.</p>
@@ -70,7 +78,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
                   input documents.
                 </p>
               ) : null}
-              {group.kind === "repair-candidate" ||
+              {view.readOnly ? null : group.kind === "repair-candidate" ||
               group.kind === "unknown" ||
               (group.kind === "canonical" && group.activeMutationId) ? (
                 <FolderRepairPanel

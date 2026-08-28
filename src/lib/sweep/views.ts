@@ -2,14 +2,23 @@ import { getCompanyById, listCompanies } from "@/adapters/store/companies";
 import { getActiveMutationForFolder } from "@/adapters/store/drive-mutations";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { listMonthFolders } from "@/adapters/store/month-folders";
-import { getOpenMonthKey } from "@/adapters/store/months";
+import {
+  getMonthByKey,
+  getOpenMonthKey,
+} from "@/adapters/store/months";
 import { getSettings } from "@/adapters/store/settings";
 import { classifyFolder } from "@/modules/folder-taxonomy";
+import {
+  deriveCompanyStage,
+  type CompanyStage,
+} from "@/modules/month-lifecycle";
 
 export type CompanyListItem = {
   id: number;
   name: string;
   openMonth: string | null;
+  stage: CompanyStage;
+  untickedCount: number | null;
 };
 
 export type MonthDocumentGroup = {
@@ -29,11 +38,21 @@ export type MonthDocumentGroup = {
 };
 
 export function listCompanySummaries(): CompanyListItem[] {
-  return listCompanies().map((company) => ({
-    id: company.id,
-    name: company.name,
-    openMonth: getOpenMonthKey(company.id),
-  }));
+  return listCompanies().map((company) => {
+    const openMonth = getOpenMonthKey(company.id);
+    const stageView = deriveCompanyStage({
+      openMonthKey: openMonth,
+      untickedCount: null,
+      hasPayments: false,
+    });
+    return {
+      id: company.id,
+      name: company.name,
+      openMonth,
+      stage: stageView.stage,
+      untickedCount: stageView.untickedCount,
+    };
+  });
 }
 
 function renameBlockedReason(canRename: boolean): string | null {
@@ -50,6 +69,9 @@ export function buildMonthView(
   companyName: string;
   monthKey: string;
   canonicalFolderNames: string[];
+  readOnly: boolean;
+  isOpenMonth: boolean;
+  closedAt: string | null;
   groups: MonthDocumentGroup[];
 } | null {
   const company = getCompanyById(companyId);
@@ -57,6 +79,12 @@ export function buildMonthView(
     return null;
   }
 
+  const month = getMonthByKey(companyId, monthKey);
+  if (!month) {
+    return null;
+  }
+
+  const openMonthKey = getOpenMonthKey(companyId);
   const settings = getSettings();
   const files = listFilesForMonth(companyId, monthKey);
   const monthFolders = listMonthFolders(companyId, monthKey);
@@ -170,6 +198,9 @@ export function buildMonthView(
     companyName: company.name,
     monthKey,
     canonicalFolderNames: settings.canonicalFolderNames,
+    readOnly: month.closedAt !== null,
+    isOpenMonth: openMonthKey === monthKey,
+    closedAt: month.closedAt,
     groups: [...groups.values()],
   };
 }

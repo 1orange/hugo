@@ -1,5 +1,5 @@
 import { createSign } from "node:crypto";
-import type { DriveFileRecord } from "@/modules/drive-tree";
+import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
 import type { DriveClient } from "./port";
 
 type GoogleCredentials = {
@@ -88,6 +88,33 @@ export class GoogleDriveClient implements DriveClient {
     if (!response.ok) {
       throw new Error(`Drive files.update failed with status ${response.status}`);
     }
+  }
+
+  async createFolder(name: string, parentId: string): Promise<string> {
+    const accessToken = await this.getAccessToken();
+    const response = await fetch(
+      "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          mimeType: FOLDER_MIME,
+          parents: [parentId],
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Drive files.create failed with status ${response.status}`);
+    }
+    const json = (await response.json()) as { id?: string };
+    if (!json.id) {
+      throw new Error("Drive files.create returned no id");
+    }
+    return json.id;
   }
 }
 

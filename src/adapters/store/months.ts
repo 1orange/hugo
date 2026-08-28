@@ -61,3 +61,70 @@ export function getOpenMonthKey(companyId: number): string | null {
   }
   return monthRows[monthRows.length - 1]!.monthKey;
 }
+
+export function getMonthByKey(
+  companyId: number,
+  monthKey: string,
+): MonthRow | null {
+  const db = getDb();
+  return (
+    db
+      .select()
+      .from(months)
+      .where(
+        and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
+      )
+      .get() ?? null
+  );
+}
+
+export function closeMonth(
+  companyId: number,
+  monthKey: string,
+  closedAt: string,
+): MonthRow | null {
+  const db = getDb();
+  const updated = db
+    .update(months)
+    .set({ closedAt })
+    .where(
+      and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
+    )
+    .returning()
+    .get();
+  return updated ?? null;
+}
+
+export function reopenMonth(
+  companyId: number,
+  monthKey: string,
+): MonthRow | null {
+  const db = getDb();
+  const updated = db
+    .update(months)
+    .set({ closedAt: null })
+    .where(
+      and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
+    )
+    .returning()
+    .get();
+  return updated ?? null;
+}
+
+export function isMonthClosed(companyId: number, monthKey: string): boolean {
+  const month = getMonthByKey(companyId, monthKey);
+  return month?.closedAt !== null && month?.closedAt !== undefined;
+}
+
+export function getMonthByDriveFolderId(
+  driveFolderId: string,
+): MonthRow | null {
+  const db = getDb();
+  return (
+    db
+      .select()
+      .from(months)
+      .where(eq(months.driveFolderId, driveFolderId))
+      .get() ?? null
+  );
+}

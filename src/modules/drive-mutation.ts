@@ -72,3 +72,35 @@ export function buildRenameMutation(
 ): RenameMutationInput {
   return { ...input };
 }
+
+export type CreateFolderMutationInput = {
+  folderName: string;
+  parentId: string;
+  allowMonthFolder?: boolean;
+};
+
+/**
+ * Folder names sent to Drive are validated here, not trusted from callers.
+ * Month folders use YYYY_MM; subfolders must be on the canonical list.
+ */
+export function checkCreateFolderTarget(input: {
+  folderName: string;
+  canonicalFolderNames: readonly string[];
+  allowMonthFolder?: boolean;
+}): CapabilityCheckResult {
+  if (input.allowMonthFolder && /^\d{4}_\d{2}$/.test(input.folderName)) {
+    const month = Number(input.folderName.slice(5, 7));
+    if (month >= 1 && month <= 12) {
+      return { allowed: true };
+    }
+  }
+
+  if (!input.canonicalFolderNames.includes(input.folderName)) {
+    return {
+      allowed: false,
+      message: `"${input.folderName}" is not one of the canonical folder names.`,
+    };
+  }
+
+  return { allowed: true };
+}

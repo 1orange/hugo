@@ -8,6 +8,8 @@ import {
   markMutationUndone,
 } from "@/adapters/store/drive-mutations";
 import { getMonthFolder } from "@/adapters/store/month-folders";
+import { getMonthByDriveFolderId } from "@/adapters/store/months";
+import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import {
   checkRenameAllowed,
   checkRenameTarget,
@@ -25,6 +27,22 @@ export async function applyFolderRename(
   companyId: number,
   input: RenameMutationInput,
 ): Promise<ApplyRenameResult> {
+  const month = getMonthByDriveFolderId(input.parentId);
+  if (month) {
+    const editable = assertMonthEditable(companyId, month.monthKey);
+    if (editable) {
+      return { ok: false, message: editable.message };
+    }
+  } else {
+    const folder = getMonthFolder(input.driveFileId);
+    if (folder) {
+      const editable = assertMonthEditable(companyId, folder.monthKey);
+      if (editable) {
+        return { ok: false, message: editable.message };
+      }
+    }
+  }
+
   const capability = checkRenameAllowed(input);
   if (!capability.allowed) {
     return { ok: false, message: capability.message };

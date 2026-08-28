@@ -16,6 +16,17 @@ import { listCompanySummaries } from "@/lib/sweep/views";
 import { getSettings } from "@/adapters/store/settings";
 import { RefreshButton } from "./refresh-button";
 
+function formatStage(stage: string): string {
+  return stage;
+}
+
+function formatUnticked(count: number | null): string {
+  if (count === null) {
+    return "— unticked";
+  }
+  return `${count} unticked`;
+}
+
 export default async function CompaniesPage() {
   const session = await auth();
   const allowlist = loadAllowlistFromEnv();
@@ -89,11 +100,16 @@ export default async function CompaniesPage() {
               >
                 <div className="flex items-center justify-between gap-4">
                   <span className="font-medium">{company.name}</span>
-                  <span className="text-sm text-muted-foreground">
+                <div className="flex flex-col items-end gap-1 text-sm text-muted-foreground">
+                  <span data-testid={`company-stage-${company.id}`}>
+                    {formatStage(company.stage)} · {formatUnticked(company.untickedCount)}
+                  </span>
+                  <span>
                     {company.openMonth
                       ? `Open month: ${company.openMonth}`
                       : "No open month"}
                   </span>
+                </div>
                 </div>
               </Link>
             </li>

@@ -1,5 +1,7 @@
-import type { DriveFileRecord } from "@/modules/drive-tree";
+import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
 import type { DriveClient } from "./port";
+
+let fakeIdCounter = 0;
 
 export class FakeDriveClient implements DriveClient {
   constructor(private readonly files: DriveFileRecord[]) {}
@@ -23,5 +25,17 @@ export class FakeDriveClient implements DriveClient {
       throw new Error("Drive refused rename: canRename is false");
     }
     file.name = newName;
+  }
+
+  async createFolder(name: string, parentId: string): Promise<string> {
+    const id = `fake-created-${fakeIdCounter += 1}`;
+    this.files.push({
+      id,
+      name,
+      parents: [parentId],
+      createdTime: new Date().toISOString(),
+      mimeType: FOLDER_MIME,
+    });
+    return id;
   }
 }
