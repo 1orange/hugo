@@ -75,3 +75,8 @@ export function listFilesForMonth(
     .where(and(eq(files.companyId, companyId), eq(files.monthKey, monthKey)))
     .all();
 }
+
+export function getFileByDriveId(driveFileId: string): PersistedFileRow | undefined {
+  const db = getDb();
+  return db.select().from(files).where(eq(files.driveFileId, driveFileId)).get();
+}

@@ -57,6 +57,10 @@ export default async function MonthPage({ params }: MonthPageProps) {
           <p className="text-sm text-muted-foreground">
             Month {view.monthKey}
             {" · "}
+            <Link className="underline" href={`/companies/${companyId}/${monthKey}/reconcile`}>
+              Reconciliation
+            </Link>
+            {" · "}
             <Link className="underline" href={`/companies/${companyId}/activity`}>
               Activity log
             </Link>

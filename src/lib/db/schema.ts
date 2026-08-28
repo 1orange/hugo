@@ -69,10 +69,7 @@ export const payments = sqliteTable("payments", {
     .references(() => companies.id),
   monthKey: text("month_key").notNull(),
   source: text("source").notNull(),
-  blocekFileId: text("blocek_file_id")
-    .notNull()
-    .references(() => files.driveFileId)
-    .unique(),
+  blocekFileId: text("blocek_file_id").references(() => files.driveFileId).unique(),
   amountCents: integer("amount_cents"),
   amountLiteral: text("amount_literal"),
   currency: text("currency").notNull().default("EUR"),
@@ -93,7 +90,35 @@ export const payments = sqliteTable("payments", {
   recapVatLiteral: text("recap_vat_literal"),
   decodeStatus: text("decode_status").notNull().default("complete"),
   confirmedAt: text("confirmed_at"),
+  note: text("note"),
   createdAt: text("created_at").notNull(),
+});
+
+export const proofs = sqliteTable("proofs", {
+  driveFileId: text("drive_file_id")
+    .primaryKey()
+    .references(() => files.driveFileId),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  monthKey: text("month_key").notNull(),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const pairings = sqliteTable("pairings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  paymentId: integer("payment_id")
+    .notNull()
+    .references(() => payments.id),
+  proofDriveFileId: text("proof_drive_file_id")
+    .notNull()
+    .references(() => proofs.driveFileId),
+  createdBy: text("created_by").notNull(),
+  confidence: text("confidence"),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull(),
+  unpairedAt: text("unpaired_at"),
 });
 
 export const paymentLineItems = sqliteTable("payment_line_items", {

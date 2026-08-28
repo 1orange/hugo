@@ -99,7 +99,7 @@ export default async function CompaniesPage() {
                 className="block rounded-lg border border-border p-4 hover:bg-muted"
                 href={
                   company.openMonth
-                    ? `/companies/${company.id}/${company.openMonth}`
+                    ? `/companies/${company.id}/${company.openMonth}/reconcile`
                     : `/companies/${company.id}`
                 }
                 data-testid={`company-${company.id}`}

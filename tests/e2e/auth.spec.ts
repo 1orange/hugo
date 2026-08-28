@@ -38,8 +38,9 @@ test("month view groups documents and marks VAT outputs", async ({ page }) => {
   await page.goto("/sign-in");
   await page.getByTestId("e2e-email").fill("allowed@example.com");
   await page.getByTestId("e2e-submit").click();
+  await expect(page).toHaveURL(/\/companies$/);
 
-  await page.getByTestId("company-1").click();
+  await page.goto("/companies/1/2026_01");
   await expect(page).toHaveURL(/\/companies\/1\/2026_01$/);
   await expect(page.getByText("02 Prijaté faktúry")).toBeVisible();
   await expect(page.getByText("supplier-invoice.pdf")).toBeVisible();

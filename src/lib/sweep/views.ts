@@ -37,7 +37,7 @@ export type MonthPaymentItem = {
   amountDisplay: string;
   receiptAt: string | null;
   receiptDisplay: string;
-  blocekFileId: string;
+  blocekFileId: string | null;
   documentName: string;
   decodeStatus: string;
 };
@@ -159,7 +159,9 @@ export function buildMonthView(
     receiptAt: payment.receiptAt,
     receiptDisplay: formatReceiptAt(payment.receiptAt),
     blocekFileId: payment.blocekFileId,
-    documentName: fileNameById.get(payment.blocekFileId) ?? payment.blocekFileId,
+    documentName: payment.blocekFileId
+      ? fileNameById.get(payment.blocekFileId) ?? payment.blocekFileId
+      : "Bank payment",
     decodeStatus: payment.decodeStatus,
   }));
   const manualQueue = listManualQueueForMonth(companyId, monthKey)

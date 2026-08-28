@@ -35,7 +35,7 @@ export type PaymentRow = {
   companyId: number;
   monthKey: string;
   source: string;
-  blocekFileId: string;
+  blocekFileId: string | null;
   amountCents: number | null;
   amountLiteral: string | null;
   currency: string;
@@ -55,6 +55,7 @@ export type PaymentRow = {
   recapVatLiteral: string | null;
   decodeStatus: string;
   confirmedAt: string | null;
+  note: string | null;
   createdAt: string;
 };
 
@@ -122,6 +123,18 @@ export function getPaymentByBlocekFileId(
     .get();
 }
 
+export function listPaymentsForMonth(
+  companyId: number,
+  monthKey: string,
+): PaymentRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.companyId, companyId), eq(payments.monthKey, monthKey)))
+    .all();
+}
+
 export function listCashPaymentsForMonth(
   companyId: number,
   monthKey: string,
@@ -154,6 +167,28 @@ export function countUntickedPayments(companyId: number, monthKey: string): numb
     )
     .get();
   return row?.count ?? 0;
+}
+
+export function getPaymentById(paymentId: number): PaymentRow | undefined {
+  const db = getDb();
+  return db.select().from(payments).where(eq(payments.id, paymentId)).get();
+}
+
+export function setPaymentConfirmedAt(
+  paymentId: number,
+  confirmedAt: string | null,
+): PaymentRow | undefined {
+  const db = getDb();
+  db.update(payments)
+    .set({ confirmedAt })
+    .where(eq(payments.id, paymentId))
+    .run();
+  return getPaymentById(paymentId);
+}
+
+export function updatePaymentNote(paymentId: number, note: string | null): void {
+  const db = getDb();
+  db.update(payments).set({ note }).where(eq(payments.id, paymentId)).run();
 }
 
 export function companyHasPayments(companyId: number): boolean {

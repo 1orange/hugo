@@ -17,6 +17,13 @@ import {
   reopenCompanyMonth,
   ensureAllOpenMonthsScaffolded,
 } from "@/lib/month-lifecycle/service";
+import {
+  confirmPayment,
+  pairPaymentWithProof,
+  savePaymentNote,
+  saveProofNote,
+  unpairPaymentFromProof,
+} from "@/lib/reconciliation/service";
 import { runSweep } from "@/lib/sweep/run-sweep";
 import { revalidatePath } from "next/cache";
 
@@ -37,6 +44,12 @@ export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
 type MutationActionResult =
   | { ok: true }
   | { ok: false; message: string };
+
+function revalidateReconciliation(companyId: number, monthKey: string): void {
+  revalidatePath(`/companies/${companyId}/${monthKey}/reconcile`);
+  revalidatePath(`/companies/${companyId}/${monthKey}`);
+  revalidatePath("/companies");
+}
 
 export async function confirmFolderRenameAction(input: {
   companyId: number;
@@ -62,9 +75,6 @@ export async function confirmFolderRenameAction(input: {
   }
 
   const driveClient = createDriveClient();
-  // The name to revert to on undo comes from the last sweep, never from the
-  // browser: a stale page would otherwise record a previous name that never
-  // existed and make undo restore the wrong thing.
   const result = await applyFolderRename(driveClient, input.companyId, {
     driveFileId: input.driveFolderId,
     currentName: folder.name,
@@ -141,4 +151,90 @@ export async function reopenMonthAction(input: {
   revalidatePath(`/companies/${input.companyId}/${input.monthKey}`);
   revalidatePath("/companies");
   return { ok: true };
+}
+
+export async function pairPaymentAction(input: {
+  companyId: number;
+  monthKey: string;
+  paymentId: number;
+  proofDriveFileId: string;
+}): Promise<MutationActionResult> {
+  const result = pairPaymentWithProof(input);
+  if (result.ok) {
+    revalidateReconciliation(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function pairPaymentFormAction(
+  formData: FormData,
+): Promise<void> {
+  await pairPaymentAction({
+    companyId: Number(formData.get("companyId")),
+    monthKey: String(formData.get("monthKey") ?? ""),
+    paymentId: Number(formData.get("paymentId")),
+    proofDriveFileId: String(formData.get("proofDriveFileId") ?? ""),
+  });
+}
+
+export async function unpairPaymentAction(input: {
+  companyId: number;
+  monthKey: string;
+  pairingId: number;
+}): Promise<MutationActionResult> {
+  const result = unpairPaymentFromProof(input);
+  if (result.ok) {
+    revalidateReconciliation(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function confirmPaymentAction(input: {
+  companyId: number;
+  monthKey: string;
+  paymentId: number;
+  confirmed: boolean;
+}): Promise<MutationActionResult> {
+  const result = confirmPayment(input);
+  if (result.ok) {
+    revalidateReconciliation(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function confirmPaymentFormAction(
+  formData: FormData,
+): Promise<void> {
+  await confirmPaymentAction({
+    companyId: Number(formData.get("companyId")),
+    monthKey: String(formData.get("monthKey") ?? ""),
+    paymentId: Number(formData.get("paymentId")),
+    confirmed: formData.get("confirmed") === "true",
+  });
+}
+
+export async function savePaymentNoteAction(input: {
+  companyId: number;
+  monthKey: string;
+  paymentId: number;
+  note: string;
+}): Promise<MutationActionResult> {
+  const result = savePaymentNote(input);
+  if (result.ok) {
+    revalidateReconciliation(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function saveProofNoteAction(input: {
+  companyId: number;
+  monthKey: string;
+  proofDriveFileId: string;
+  note: string;
+}): Promise<MutationActionResult> {
+  const result = saveProofNote(input);
+  if (result.ok) {
+    revalidateReconciliation(input.companyId, input.monthKey);
+  }
+  return result;
 }
