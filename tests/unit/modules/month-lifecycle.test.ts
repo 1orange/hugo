@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  describeMissingSlots,
   deriveCompanyStage,
   nextMonthKey,
   planMonthScaffolding,
@@ -58,6 +59,53 @@ test("planMonthScaffolding does not duplicate unknown folders in the same slot",
     CANONICAL_FOLDER_NAMES,
   );
   assert.ok(!plan.includes("04 Bločky_hotovosť"));
+});
+
+test("describeMissingSlots explains a slot blocked by a deliberate folder", () => {
+  const missing = describeMissingSlots(
+    [{ name: "04 Pokladňa", classification: { kind: "unknown", name: "04 Pokladňa" } }],
+    CANONICAL_FOLDER_NAMES,
+  );
+
+  const cash = missing.find((slot) => slot.canonicalName === "04 Bločky_hotovosť");
+  assert.deepEqual(cash, {
+    canonicalName: "04 Bločky_hotovosť",
+    blockedByFolderName: "04 Pokladňa",
+  });
+
+  // Slots with nothing in the way are missing but not blocked.
+  const payroll = missing.find((slot) => slot.canonicalName === "07 Mzdy");
+  assert.equal(payroll?.blockedByFolderName, null);
+});
+
+test("describeMissingSlots reports nothing once every slot exists", () => {
+  const missing = describeMissingSlots(
+    CANONICAL_FOLDER_NAMES.map((name) => ({
+      name,
+      classification: { kind: "canonical" as const, name },
+    })),
+    CANONICAL_FOLDER_NAMES,
+  );
+  assert.deepEqual(missing, []);
+});
+
+test("describeMissingSlots does not report a slot a repair candidate will become", () => {
+  const missing = describeMissingSlots(
+    [
+      {
+        name: "04 Bločky_hotorvosť",
+        classification: {
+          kind: "repair-candidate",
+          observedName: "04 Bločky_hotorvosť",
+          targetName: "04 Bločky_hotovosť",
+        },
+      },
+    ],
+    CANONICAL_FOLDER_NAMES,
+  );
+  assert.ok(
+    !missing.some((slot) => slot.canonicalName === "04 Bločky_hotovosť"),
+  );
 });
 
 test("deriveCompanyStage reports collect with unknown unticked count", () => {

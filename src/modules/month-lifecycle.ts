@@ -40,10 +40,22 @@ function folderSlotPrefix(name: string): string | null {
   return match ? match[1]! : null;
 }
 
-function slotIsOccupied(
+export type SlotOccupancy =
+  /** The folder exists, or a repair candidate will become it. */
+  | { state: "present" }
+  /** Nothing occupies the slot; scaffolding will create it. */
+  | { state: "absent" }
+  /**
+   * A folder sharing the slot's number exists but is not that folder. Creating
+   * the canonical name anyway would leave two folders competing for one slot,
+   * so scaffolding stays out and she decides.
+   */
+  | { state: "blocked"; byFolderName: string };
+
+function slotOccupancy(
   canonicalName: string,
   existingFolders: ExistingMonthFolder[],
-): boolean {
+): SlotOccupancy {
   const canonicalPrefix = folderSlotPrefix(canonicalName);
 
   for (const folder of existingFolders) {
@@ -53,28 +65,30 @@ function slotIsOccupied(
       classification.kind === "canonical" &&
       classification.name === canonicalName
     ) {
-      return true;
+      return { state: "present" };
     }
 
     if (
       classification.kind === "repair-candidate" &&
       classification.targetName === canonicalName
     ) {
-      return true;
+      return { state: "present" };
     }
+  }
 
+  for (const folder of existingFolders) {
     if (
-      classification.kind === "unknown" ||
-      classification.kind === "repair-candidate"
+      folder.classification.kind === "unknown" ||
+      folder.classification.kind === "repair-candidate"
     ) {
       const existingPrefix = folderSlotPrefix(folder.name);
       if (canonicalPrefix && existingPrefix === canonicalPrefix) {
-        return true;
+        return { state: "blocked", byFolderName: folder.name };
       }
     }
   }
 
-  return false;
+  return { state: "absent" };
 }
 
 export function planMonthScaffolding(
@@ -82,8 +96,42 @@ export function planMonthScaffolding(
   canonicalFolderNames: readonly string[],
 ): string[] {
   return canonicalFolderNames.filter(
-    (canonicalName) => !slotIsOccupied(canonicalName, existingFolders),
+    (canonicalName) =>
+      slotOccupancy(canonicalName, existingFolders).state === "absent",
   );
+}
+
+export type MissingSlot = {
+  canonicalName: string;
+  blockedByFolderName: string | null;
+};
+
+/**
+ * Canonical slots that have no folder. Without this the blocked case is
+ * invisible: scaffolding declines to create the folder and the month view only
+ * lists folders that exist, so documents would have nowhere to go and nothing
+ * would say why.
+ */
+export function describeMissingSlots(
+  existingFolders: ExistingMonthFolder[],
+  canonicalFolderNames: readonly string[],
+): MissingSlot[] {
+  const missing: MissingSlot[] = [];
+
+  for (const canonicalName of canonicalFolderNames) {
+    const occupancy = slotOccupancy(canonicalName, existingFolders);
+    if (occupancy.state === "present") {
+      continue;
+    }
+
+    missing.push({
+      canonicalName,
+      blockedByFolderName:
+        occupancy.state === "blocked" ? occupancy.byFolderName : null,
+    });
+  }
+
+  return missing;
 }
 
 export function deriveCompanyStage(input: {

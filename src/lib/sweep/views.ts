@@ -17,8 +17,10 @@ import { getSettings } from "@/adapters/store/settings";
 import { formatEuroFromCents } from "@/modules/money";
 import { classifyFolder } from "@/modules/folder-taxonomy";
 import {
+  describeMissingSlots,
   deriveCompanyStage,
   type CompanyStage,
+  type MissingSlot,
 } from "@/modules/month-lifecycle";
 
 export type CompanyListItem = {
@@ -126,6 +128,7 @@ export function buildMonthView(
   cashPayments: MonthPaymentItem[];
   pendingDecodeCount: number;
   manualQueue: MonthManualQueueItem[];
+  missingSlots: MissingSlot[];
   groups: MonthDocumentGroup[];
 } | null {
   const company = getCompanyById(companyId);
@@ -277,6 +280,15 @@ export function buildMonthView(
     cashPayments,
     pendingDecodeCount,
     manualQueue,
+    missingSlots: describeMissingSlots(
+      monthFolders.map((folder) => ({
+        name: folder.name,
+        classification: classifyFolder(folder.name, {
+          canonicalFolderNames: settings.canonicalFolderNames,
+        }),
+      })),
+      settings.canonicalFolderNames,
+    ),
     groups: [...groups.values()],
   };
 }

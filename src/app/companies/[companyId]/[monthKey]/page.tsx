@@ -116,6 +116,30 @@ export default async function MonthPage({ params }: MonthPageProps) {
         </section>
       ) : null}
 
+      {view.missingSlots.length > 0 ? (
+        <section
+          className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4"
+          data-testid="missing-slots"
+        >
+          <h2 className="mb-3 text-lg font-medium">Expected folders missing</h2>
+          <ul className="space-y-2">
+            {view.missingSlots.map((slot) => (
+              <li
+                key={slot.canonicalName}
+                className="rounded-md border border-border/60 p-3 text-sm"
+              >
+                <p className="font-medium">{slot.canonicalName}</p>
+                <p className="text-muted-foreground">
+                  {slot.blockedByFolderName
+                    ? `Not created because "${slot.blockedByFolderName}" already uses this number. Repair or rename that folder, then refresh.`
+                    : "Not present yet. It is created when the month is scaffolded."}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <div className="grid gap-6">
         {view.groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">No documents in this month.</p>
