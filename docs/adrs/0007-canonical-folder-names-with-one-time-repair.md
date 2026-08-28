@@ -44,6 +44,22 @@ then requires an edit distance of at most 2 on the folded text. Ties propose not
 Anything else stays unrecognised and is surfaced for her to handle, which is the honest outcome:
 `04 Bločky_hotorvosť` is a typo worth one click, `04 Pokladňa` is a decision only she can make.
 
+### Amendment, 2026-08-28: exact matching requires Unicode normalisation
+
+"Match folders on their exact canonical name" is not implementable as literal string equality. Every
+diacritic-bearing folder name in the real sample is **NFD**; the canonical list in code is NFC. Six
+of the seven canonical folders therefore matched nothing and were classified as repair candidates
+proposing a rename to a name that is *visually identical*. The no-op guard did not catch it, because
+the byte sequences genuinely differ, so she would have confirmed a Drive rename that did nothing.
+
+Both sides are now normalised to NFC: Drive names as they enter the sweep, and the canonical list at
+comparison time. This matters more once the list is editable rather than a constant — she will paste
+names copied out of Drive, which on macOS arrive as NFD.
+
+Normalisation is not the same as the folded comparison used to pick a repair target. Folding strips
+diacritics entirely and is only ever used to *suggest*; normalisation makes two spellings of the same
+name equal, which is a correctness requirement for matching.
+
 This is bounded fuzziness in service of a *suggestion*, not the fallback chain this ADR rejected.
 Slot assignment remains exact-name-only: a repair candidate keeps its observed name until she
 confirms the rename, so no document is ever filed into a canonical slot on the strength of a guess.

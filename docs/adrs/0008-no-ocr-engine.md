@@ -30,14 +30,17 @@ receipt UID, or OKP (44 chars) + register code (16–17) + timestamp as `YYMMDDH
 number + **total amount**. Amount and timestamp — exactly the pairing key — come from the fiscal
 code, not from reading anything.
 
+> **Superseded.** The last paragraph is wrong about the real corpus: every eBloček she has carries
+> the UID-only variant, which contains no amount and no timestamp. See the amendment below.
+
 ## Decision
 
 **No OCR engine.** Three paths, none of which reads pixels:
 
 1. `02 Prijaté faktúry` — extract text locally with `pdfjs-dist` (free), send the text to a small
    model for field structuring, validate with base + VAT == total.
-2. `04` / `05` Bločky — decode the eKasa QR from the PDF for amount and timestamp. No model
-   involved.
+2. `04` / `05` Bločky — parse the eBloček **text layer** for amount, timestamp and line items. No
+   model involved, and no QR decoding. (Originally specified as QR decoding; see the amendment.)
 3. The rare scan — she enters it by hand.
 
 No PaddleOCR, no RapidOCR, no Python sidecar, no second runtime on the VPS. The Node application
@@ -64,22 +67,74 @@ What the six real eBločeks in the spring sample show:
 
 The QR was therefore redundant with a strictly weaker version of data already present as text.
 
-**Revised path 2:** parse the eBloček text layer with `pdfjs-dist`, grouping text items into lines
-by y-coordinate. No QR decoding, no page rendering, no `zxing-wasm`, no `@napi-rs/canvas`. This also
-restores the single-runtime property below, which the canvas dependency had quietly broken.
+**Path 2 is now: parse the eBloček text layer** with `pdfjs-dist`, grouping text items into lines by
+y-coordinate. No QR decoding, no page rendering, no `zxing-wasm`, no `@napi-rs/canvas` — which also
+restores the single-runtime property below that the canvas dependency had quietly broken.
 
-Two independent arithmetic self-checks are available and hold on all six samples: the item line
-totals sum to the payable total, and base + VAT equals it as well. This is a stronger guarantee than
-the QR ever offered, and it is what this ADR asks for in its final consequence.
+This is implemented and verified against the real corpus: **all six eBločeks parse, with both
+arithmetic checks passing**, and the fourteen non-receipts in those folders are detected and queued
+rather than half-parsed.
 
-Two further findings, neither of which the original analysis anticipated:
+### What the layout actually looks like
+
+The receipt is a labelled structure, not free text. `NA ÚHRADU <CURRENCY> | <total>` carries the
+payable amount with its currency; `SPOLU` is the base/VAT split and is *not* the amount payable.
+`Dátum a čas` gives a four-digit-year local timestamp. Each item contributes a name, a VAT rate, a
+line total, a quantity and a unit price, followed by a VAT recapitulation with one row per rate.
+
+Four details cost real debugging time and are worth stating, because anything touching this format
+will hit them again:
+
+- **Text items must be grouped into lines by y-coordinate.** Flattening `getTextContent()` into one
+  string destroys the columns and makes the recapitulation unparseable.
+- **Item rows and recapitulation rows are distinguished only by formatting**: an item's rate has no
+  space before `%` and its line carries `€` (`23.0% | 4.95 €`); a recap row has a space and no `€`
+  (`23.0 % | 28.25 | 6.5`). Position alone is not reliable.
+- **The recapitulation drops trailing zeros** — `6.5` where `SPOLU` shows `6.50`. Comparisons must be
+  by value in minor units, never by string.
+- **Layout varies between vendors.** Some receipts put the rate on the item's own line; some spread
+  an item name across several lines, with a name fragment appearing *after* the rate line; OKP hex is
+  sometimes lowercase. The parser handles all of these; they were found by running it over the real
+  files rather than by reading the specification.
+
+### Unicode normalisation is a correctness concern, not a detail
+
+Every diacritic-bearing folder name in the sample is **NFD**. Compared against NFC canonical names,
+six of the seven canonical folders matched nothing and were classified as needing a rename — to a
+name that is visually identical. The no-op guard could not catch it either, because the byte
+sequences genuinely differ, so she would have confirmed a Drive rename that appeared to do nothing.
+
+Names are therefore normalised to NFC at both boundaries: Drive records as they enter the sweep, and
+PDF text as it leaves the extractor. The eBloček parser matches Slovak labels as NFC literals, so an
+NFD-emitting PDF producer would otherwise silently match nothing and queue every receipt.
+
+### Two arithmetic self-checks, both verified
+
+The item line totals sum to the payable total, and `SPOLU` base + VAT equals it as well:
+`3.09+0.71=3.80`, `35.20+8.10=43.30`, `28.25+6.50=34.75`, `14.72+3.39=18.11`, `8.95+2.06=11.01`,
+`0.98+0.22=1.20`. A receipt failing either check produces **no payment** and is queued with the
+discrepancy stated. This is a stronger guarantee than the QR ever offered, and it is what this ADR
+asks for in its final consequence.
+
+Timestamps are resolved for Europe/Bratislava explicitly and verified across the DST boundary:
+`14:36:15` in January becomes `13:36:15Z` (CET) while `14:05:59` in April becomes `12:05:59Z`
+(CEST). A fixed offset would have moved a late-evening receipt into the wrong month.
+
+### Still unverified
+
+**Multi-rate receipts.** Slovakia has 23%, 19% and 5% rates, and the parser supports multiple
+recapitulation rows, but every receipt in the sample is single-rate 23%. This path has no real
+document behind it yet.
+
+### Two further findings the original analysis did not anticipate
 
 - **The `04` and `05` folders are not receipt-only.** Six of twenty PDFs are eBločeks; the rest are
   airline, train and bus tickets, ride-hailing invoices and fuel receipts, and two have no text
-  layer at all. Anything that is not an eBloček must be detected and queued, never half-parsed.
+  layer at all. Anything that is not an eBloček is detected and queued, never half-parsed.
 - **Not everything is in euros.** A FlixBus ticket is priced in Czech koruna. Non-EUR documents
   carry their currency and are flagged for her to supply the euro value; the app does not invent an
-  exchange rate. This was not covered anywhere in the PRD.
+  exchange rate. This was not covered anywhere in the PRD. Whether the rate and rate date must be
+  recorded alongside the euro value for the tax authority is open — PRD open question 10.
 
 The invoice path (1) and the scan path (3) are unaffected — the 60-of-61 text-layer finding for
 received invoices still stands.
@@ -89,7 +144,10 @@ received invoices still stands.
 - The deployment stays single-runtime. This is a large simplification of ADR 0004's box.
 - The only paid step is text-to-fields structuring, running on cheap text tokens rather than
   images.
-- Receipt amounts are authoritative rather than inferred, because they come from the fiscal code.
+- Receipt amounts are read deterministically from the receipt's own printed total, not inferred by a
+  model, and two independent arithmetic checks must agree before a payment exists. (Originally
+  claimed as authoritative "because they come from the fiscal code" — the fiscal code turned out to
+  carry no amount; see the amendment.)
 - There is no public API for third-party eKasa lookup — verification exists only as the
   `Over doklad` web app and the ePeňaženka mobile app — so a receipt's VAT breakdown and supplier
   must still come from its own text layer. See PRD open question 6.
