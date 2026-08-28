@@ -28,18 +28,23 @@ while events explain what happened.
 Event payloads are effectively an interface — renaming a type breaks the readability of history — so
 this slice is also the point at which the vocabulary gets fixed and documented.
 
+## Status
+
+Done. Per-company log at `/companies/[companyId]/activity`, global settings events at `/activity`,
+vocabulary in `src/modules/activity-log.ts`. See the amendment in ADR 0012.
+
 ## Acceptance criteria
 
-- [ ] Per-company activity view lists events in reverse chronological order
-- [ ] Filterable by event type and by month
-- [ ] Each entry states the actor as system or user
-- [ ] Drive mutations show what changed, including the previous name or parent
-- [ ] A document's first-seen time is directly answerable from the log
-- [ ] The view is a query over `events` with no additional persistence
-- [ ] Undo continues to read from `drive_mutations`, not from the event log
-- [ ] The event type vocabulary is documented in one place
-- [ ] A repeated sweep over unchanged input adds no entries, keeping the log readable
-- [ ] Integration test: a sequence of actions produces the expected ordered event stream
+- [x] Per-company activity view lists events in reverse chronological order
+- [x] Filterable by event type and by month
+- [x] Each entry states the actor as system or user
+- [x] Drive mutations show what changed, including the previous name or parent
+- [x] A document's first-seen time is directly answerable from the log
+- [x] The view is a query over `events` with no additional persistence
+- [x] Undo continues to read from `drive_mutations`, not from the event log
+- [x] The event type vocabulary is documented in one place, and emit sites are type-narrowed to it
+- [x] A repeated sweep over unchanged input adds no entries, keeping the log readable
+- [x] Integration test: a sequence of actions produces the expected ordered event stream
 
 ## Blocked by
 

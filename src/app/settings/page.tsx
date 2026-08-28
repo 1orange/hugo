@@ -28,12 +28,20 @@ export default async function SettingsPage() {
             Global folder taxonomy and Drive configuration.
           </p>
         </div>
-        <Link
-          className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-muted"
-          href="/companies"
-        >
-          Back to companies
-        </Link>
+        <div className="flex gap-3">
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-muted"
+            href="/activity"
+          >
+            All activity
+          </Link>
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-muted"
+            href="/companies"
+          >
+            Back to companies
+          </Link>
+        </div>
       </header>
 
       <SettingsForm

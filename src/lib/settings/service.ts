@@ -9,6 +9,7 @@ import {
   type SettingsRow,
   type SettingsUpdateResult,
 } from "@/adapters/store/settings";
+import type { GlobalEventType } from "@/modules/activity-log";
 import {
   previewCanonicalListImpact,
   validateCanonicalFolderNames,
@@ -58,7 +59,7 @@ export function previewCanonicalFolderNamesChange(
 }
 
 function recordSettingsEvent(
-  type: string,
+  type: GlobalEventType,
   previous: unknown,
   next: unknown,
 ): void {

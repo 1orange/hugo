@@ -54,7 +54,13 @@ export default async function MonthPage({ params }: MonthPageProps) {
           <h1 className="text-3xl font-semibold tracking-tight">
             {view.companyName}
           </h1>
-          <p className="text-sm text-muted-foreground">Month {view.monthKey}</p>
+          <p className="text-sm text-muted-foreground">
+            Month {view.monthKey}
+            {" · "}
+            <Link className="underline" href={`/companies/${companyId}/activity`}>
+              Activity log
+            </Link>
+          </p>
         </div>
         <RefreshButton lastSweepAt={settings.lastSweepAt} />
       </header>

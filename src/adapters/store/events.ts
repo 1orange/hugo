@@ -1,6 +1,10 @@
 import { events } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/migrate";
 import type { DomainEvent } from "@/modules/drive-tree";
+import type {
+  GlobalEventType,
+  UserCompanyEventType,
+} from "@/modules/activity-log";
 
 export function appendEvents(
   timestamp: string,
@@ -21,10 +25,15 @@ export function appendEvents(
   }
 }
 
+/**
+ * `type` is narrowed to the vocabulary so a new slice cannot emit a type the
+ * activity log has no label for — that renders as a bare identifier in history,
+ * which the label test alone cannot catch.
+ */
 export function appendUserEvent(
   timestamp: string,
   companyId: number,
-  type: string,
+  type: UserCompanyEventType,
   payload: Record<string, unknown>,
 ): void {
   const db = getDb();
@@ -41,7 +50,7 @@ export function appendUserEvent(
 
 export function appendGlobalUserEvent(
   timestamp: string,
-  type: string,
+  type: GlobalEventType,
   payload: Record<string, unknown>,
 ): void {
   const db = getDb();

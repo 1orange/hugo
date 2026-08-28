@@ -32,6 +32,27 @@ The event log is the audit trail. It is *not* the undo mechanism: undo reads the
 and previous name from `drive_mutations` (ADR 0006), which is purpose-built for reversal. The
 events explain what happened; `drive_mutations` is what makes it reversible.
 
+### Amendment, 2026-08-28: the vocabulary lives in code, and the compiler enforces it
+
+The list above is incomplete — slice 14a added `CanonicalFolderNamesChanged`,
+`MovableFolderNamesChanged` and `DriveParentFolderIdChanged`, which are global rather than
+per-company and so carry a null company. That it went stale within a day of being written is the
+point: a type list in prose cannot be the source of truth for something this ADR itself calls a de
+facto interface.
+
+The vocabulary is therefore `src/modules/activity-log.ts`, which holds the types alongside their
+human-readable labels and payload summaries. This document describes the decision; that module is
+the list.
+
+Two checks keep the two halves honest. A test fails if a type has no label, so history cannot
+render a bare identifier. More usefully, the emit functions accept the vocabulary type rather than
+`string`, so a slice that invents a type outside the list fails the build at the emit site — the
+label test alone could not catch that direction, and it is the direction a future slice will
+actually take.
+
+Global events surface in an "All activity" view. Scoping the log per company, as originally
+specified, would have silently hidden every settings change she makes.
+
 ## Consequences
 
 - The per-company activity log costs a query rather than new machinery.
