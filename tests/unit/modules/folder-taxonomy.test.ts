@@ -59,6 +59,27 @@ test("classifyFolder flags typo as repair-candidate with correct target", () => 
   });
 });
 
+test("classifyFolder treats an NFD folder name as canonical, not as a repair", () => {
+  // Every diacritic-bearing folder in the real sample is NFD. Proposing a
+  // rename here would ask her to confirm a visually identical name.
+  for (const canonical of CANONICAL_FOLDER_NAMES) {
+    const asNfd = canonical.normalize("NFD");
+    assert.deepEqual(
+      classifyFolder(asNfd, settings),
+      { kind: "canonical", name: canonical },
+      `expected NFD form of ${canonical} to be canonical`,
+    );
+  }
+});
+
+test("classifyFolder matches when the canonical list itself is NFD", () => {
+  const nfdSettings = {
+    canonicalFolderNames: CANONICAL_FOLDER_NAMES.map((n) => n.normalize("NFD")),
+  };
+  const result = classifyFolder("04 Bločky_hotovosť", nfdSettings);
+  assert.equal(result.kind, "canonical");
+});
+
 test("classifyFolder repairs names that differ only by diacritics or separator", () => {
   assert.deepEqual(classifyFolder("03 Bankove vypisy", settings), {
     kind: "repair-candidate",

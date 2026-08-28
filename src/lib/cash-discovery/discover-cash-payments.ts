@@ -1,10 +1,11 @@
 import { CANONICAL_FOLDER_NAMES } from "@/modules/folder-taxonomy";
 import {
-  ekasaReceiptHasAmount,
-  parseEkasaQr,
-} from "@/modules/ekasa-qr";
+  isEkasaReceipt,
+  parseEkasaText,
+  validateEkasaArithmetic,
+} from "@/modules/ekasa-text";
 import type { DriveClient } from "@/adapters/drive/port";
-import type { PdfAccess, QrDecoder } from "@/adapters/pdf/port";
+import type { PdfAccess } from "@/adapters/pdf/port";
 import {
   getDecodeJob,
   getManualQueueEntry,
@@ -21,52 +22,29 @@ export const CASH_RECEIPTS_FOLDER = CANONICAL_FOLDER_NAMES[3];
 export type CashDiscoveryDeps = {
   driveClient: DriveClient;
   pdfAccess: PdfAccess;
-  qrDecoder: QrDecoder;
   now?: () => string;
 };
 
-async function decodeQrPayloadFromPdf(
+export async function extractReceiptTextLines(
   pdfBytes: Uint8Array,
   pdfAccess: PdfAccess,
-  qrDecoder: QrDecoder,
-): Promise<string | null> {
-  const embeddedImages = await pdfAccess.extractEmbeddedImages(pdfBytes);
-  for (const image of embeddedImages) {
-    const payload = await qrDecoder.decodeFromImage(image);
-    if (payload) {
-      return payload;
-    }
-  }
-
-  const rendered = await pdfAccess.renderPage(pdfBytes, { pageNumber: 1, scale: 3 });
-  return qrDecoder.decodeFromImage(rendered);
-}
-
-export async function decodeReceiptPdf(
-  pdfBytes: Uint8Array,
-  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "qrDecoder">,
 ): Promise<
-  | { ok: true; payload: string }
+  | { ok: true; lines: string[] }
   | { ok: false; reason: string }
 > {
   try {
-    const payload = await decodeQrPayloadFromPdf(
-      pdfBytes,
-      deps.pdfAccess,
-      deps.qrDecoder,
-    );
-    if (!payload) {
+    const lines = await pdfAccess.extractTextLines(pdfBytes);
+    if (lines.length === 0) {
       return {
         ok: false,
-        reason: "No readable eKasa QR code was found in the PDF.",
+        reason: "The PDF has no extractable text layer.",
       };
     }
-
-    return { ok: true, payload: payload.trim() };
+    return { ok: true, lines };
   } catch {
     return {
       ok: false,
-      reason: "The PDF could not be opened for QR extraction.",
+      reason: "The PDF could not be opened for text extraction.",
     };
   }
 }
@@ -78,7 +56,7 @@ export async function processCashReceiptFile(
     driveFileId: string;
     pdfBytes: Uint8Array;
   },
-  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "qrDecoder" | "now">,
+  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "now">,
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
   const editable = assertMonthEditable(input.companyId, input.monthKey);
@@ -110,13 +88,13 @@ export async function processCashReceiptFile(
     return;
   }
 
-  const decoded = await decodeReceiptPdf(input.pdfBytes, deps);
-  if (!decoded.ok) {
+  const extracted = await extractReceiptTextLines(input.pdfBytes, deps.pdfAccess);
+  if (!extracted.ok) {
     upsertManualQueueEntry({
       driveFileId: input.driveFileId,
       companyId: input.companyId,
       monthKey: input.monthKey,
-      reason: decoded.reason,
+      reason: extracted.reason,
       createdAt: now,
     });
     setDecodeJobStatus(
@@ -124,13 +102,33 @@ export async function processCashReceiptFile(
       input.companyId,
       input.monthKey,
       "failed",
-      decoded.reason,
+      extracted.reason,
       now,
     );
     return;
   }
 
-  const parsed = parseEkasaQr(decoded.payload);
+  if (!isEkasaReceipt(extracted.lines)) {
+    const reason = "Document is not an eBloček (missing UID, OKP or NA ÚHRADU markers).";
+    upsertManualQueueEntry({
+      driveFileId: input.driveFileId,
+      companyId: input.companyId,
+      monthKey: input.monthKey,
+      reason,
+      createdAt: now,
+    });
+    setDecodeJobStatus(
+      input.driveFileId,
+      input.companyId,
+      input.monthKey,
+      "failed",
+      reason,
+      now,
+    );
+    return;
+  }
+
+  const parsed = parseEkasaText(extracted.lines);
   if ("ok" in parsed) {
     upsertManualQueueEntry({
       driveFileId: input.driveFileId,
@@ -150,26 +148,75 @@ export async function processCashReceiptFile(
     return;
   }
 
-  if (!ekasaReceiptHasAmount(parsed)) {
+  const arithmetic = validateEkasaArithmetic(parsed);
+  if (!arithmetic.ok) {
+    upsertManualQueueEntry({
+      driveFileId: input.driveFileId,
+      companyId: input.companyId,
+      monthKey: input.monthKey,
+      reason: arithmetic.reason,
+      createdAt: now,
+    });
+    setDecodeJobStatus(
+      input.driveFileId,
+      input.companyId,
+      input.monthKey,
+      "failed",
+      arithmetic.reason,
+      now,
+    );
+    return;
+  }
+
+  const lineItems = parsed.lineItems.map((item, index) => ({
+    sortOrder: index,
+    name: item.name,
+    vatRateLiteral: item.vatRateLiteral,
+    quantityLiteral: item.quantityLiteral,
+    unitPriceLiteral: item.unitPriceLiteral,
+    lineTotalLiteral: item.lineTotalLiteral,
+    lineTotalCents: item.lineTotalCents,
+  }));
+  const vatRecap = parsed.recapRows.map((row) => ({
+    rateLiteral: row.rateLiteral,
+    baseLiteral: row.baseLiteral,
+    baseCents: row.baseCents,
+    vatLiteral: row.vatLiteral,
+    vatCents: row.vatCents,
+  }));
+
+  if (parsed.currency !== "EUR") {
     upsertCashPayment({
       companyId: input.companyId,
       monthKey: input.monthKey,
       blocekFileId: input.driveFileId,
-      amountCents: null,
-      amountLiteral: null,
-      receiptAt: null,
-      receiptTimestampRaw: null,
+      amountCents: parsed.totalCents,
+      amountLiteral: parsed.totalLiteral,
+      currency: parsed.currency,
+      receiptAt: parsed.receiptAtUtc,
+      receiptTimestampRaw: parsed.timestampRaw,
       ekasaUid: parsed.uid,
-      ekasaPayload: parsed.payload,
+      ekasaOkp: parsed.okp,
+      supplierName: parsed.supplierName,
+      dic: parsed.dic,
+      ico: parsed.ico,
+      icDph: parsed.icDph,
+      kp: parsed.kp,
+      receiptNumber: parsed.receiptNumber,
+      recapBaseCents: parsed.recapSpoluBaseCents,
+      recapBaseLiteral: parsed.recapSpoluBaseLiteral,
+      recapVatCents: parsed.recapSpoluVatCents,
+      recapVatLiteral: parsed.recapSpoluVatLiteral,
       decodeStatus: "manual",
+      lineItems,
+      vatRecap,
       createdAt: now,
     });
     upsertManualQueueEntry({
       driveFileId: input.driveFileId,
       companyId: input.companyId,
       monthKey: input.monthKey,
-      reason:
-        "UID-only QR encodes the receipt identifier but not amount or timestamp — enter them manually.",
+      reason: `Receipt is in ${parsed.currency} — enter the EUR amount manually.`,
       createdAt: now,
     });
     setDecodeJobStatus(
@@ -187,13 +234,26 @@ export async function processCashReceiptFile(
     companyId: input.companyId,
     monthKey: input.monthKey,
     blocekFileId: input.driveFileId,
-    amountCents: parsed.amountCents,
-    amountLiteral: parsed.amountLiteral,
+    amountCents: parsed.totalCents,
+    amountLiteral: parsed.totalLiteral,
+    currency: parsed.currency,
     receiptAt: parsed.receiptAtUtc,
-    receiptTimestampRaw: parsed.timestamp.raw,
-    ekasaUid: null,
-    ekasaPayload: parsed.payload,
+    receiptTimestampRaw: parsed.timestampRaw,
+    ekasaUid: parsed.uid,
+    ekasaOkp: parsed.okp,
+    supplierName: parsed.supplierName,
+    dic: parsed.dic,
+    ico: parsed.ico,
+    icDph: parsed.icDph,
+    kp: parsed.kp,
+    receiptNumber: parsed.receiptNumber,
+    recapBaseCents: parsed.recapSpoluBaseCents,
+    recapBaseLiteral: parsed.recapSpoluBaseLiteral,
+    recapVatCents: parsed.recapSpoluVatCents,
+    recapVatLiteral: parsed.recapSpoluVatLiteral,
     decodeStatus: "complete",
+    lineItems,
+    vatRecap,
     createdAt: now,
   });
   setDecodeJobStatus(

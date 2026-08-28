@@ -13,10 +13,10 @@ export type MoneyParseResult = ParsedMoney | MoneyParseError;
 const AMOUNT_PATTERN = /^(\d{1,10})(?:\.(\d{1,2}))?$/;
 
 /**
- * Parse a decimal euro amount into integer eurocents. The literal source string
- * is preserved exactly — never round-trip through a float.
+ * Parse a decimal amount into integer minor units (cents). The literal source
+ * string is preserved exactly — never round-trip through a float.
  */
-export function parseEuroAmount(input: string): MoneyParseResult {
+export function parseDecimalAmount(input: string): MoneyParseResult {
   const literal = input.trim();
   if (literal.length < 1 || literal.length > 12) {
     return { ok: false, reason: "Amount must be 1–12 characters." };
@@ -34,6 +34,11 @@ export function parseEuroAmount(input: string): MoneyParseResult {
   const cents = Number(whole) * 100 + centsFromFraction;
 
   return { cents, literal };
+}
+
+/** @deprecated Use parseDecimalAmount — euro amounts use the same decimal rules. */
+export function parseEuroAmount(input: string): MoneyParseResult {
+  return parseDecimalAmount(input);
 }
 
 export function formatEuroFromCents(cents: number): string {

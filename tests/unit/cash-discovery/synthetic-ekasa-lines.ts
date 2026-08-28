@@ -1,0 +1,72 @@
+import type { EkasaTextLine } from "../../../src/modules/ekasa-text.ts";
+
+/** Synthetic eBloček text lines — no real client data. */
+export function syntheticEkasaLines(): EkasaTextLine[] {
+  return [
+    "Test Retail / Test Bratislava, s.r.o.",
+    "Test Street 1",
+    "82104 Bratislava",
+    "Predajné miesto:",
+    "Test Street 1",
+    "DIČ: 1234567890 | IČO: 12345678",
+    "IČDPH: SK1234567890 | KP: 88812345678900001",
+    "Dátum a čas: 16.04.2026 14:05:59",
+    "Číslo dokladu: 100",
+    "Položky:",
+    "Sample item alpha",
+    "23.0% | 4.95 €",
+    "5.00 ks * 0.99",
+    "Sample item beta",
+    "23.0% | 11.90 €",
+    "10.00 ks * 1.19",
+    "NA ÚHRADU EUR | 16.85",
+    "-----------------------DPH REKAPITULÁCIA-----------------------",
+    "Sadzba: | Základ: | DPH:",
+    "23.0 % | 13.70 | 3.15",
+    "SPOLU: | 13.70 | 3.15",
+    "OKP:",
+    "AAAA1111-22222222-33333333-44444444-55555555",
+    "UID:",
+    "O-11111111111111111111111111111111",
+    "Elektronická kópia dokladu.",
+    "OVERTE DOKLAD POMOCOU QR KÓDU",
+  ];
+}
+
+export const SYNTHETIC_FIXTURE = {
+  supplierName: "Test Retail / Test Bratislava, s.r.o.",
+  dic: "1234567890",
+  ico: "12345678",
+  icDph: "SK1234567890",
+  kp: "88812345678900001",
+  receiptNumber: "100",
+  timestampRaw: "16.04.2026 14:05:59",
+  receiptAtUtc: "2026-04-16T12:05:59.000Z",
+  totalLiteral: "16.85",
+  totalCents: 1685,
+  currency: "EUR",
+  okp: "AAAA1111-22222222-33333333-44444444-55555555",
+  uid: "O-11111111111111111111111111111111",
+  recapSpoluBaseLiteral: "13.70",
+  recapSpoluBaseCents: 1370,
+  recapSpoluVatLiteral: "3.15",
+  recapSpoluVatCents: 315,
+  lineItems: [
+    {
+      name: "Sample item alpha",
+      vatRateLiteral: "23.0",
+      quantityLiteral: "5.00",
+      unitPriceLiteral: "0.99",
+      lineTotalLiteral: "4.95",
+      lineTotalCents: 495,
+    },
+    {
+      name: "Sample item beta",
+      vatRateLiteral: "23.0",
+      quantityLiteral: "10.00",
+      unitPriceLiteral: "1.19",
+      lineTotalLiteral: "11.90",
+      lineTotalCents: 1190,
+    },
+  ],
+};

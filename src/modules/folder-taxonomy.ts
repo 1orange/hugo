@@ -97,8 +97,16 @@ export function classifyFolder(
   name: string,
   settings: FolderTaxonomySettings,
 ): FolderClassification {
-  if (settings.canonicalFolderNames.includes(name)) {
-    return { kind: "canonical", name };
+  // Both sides are normalised because either can arrive in NFD: Drive names
+  // from the uploader's filesystem, canonical names from her settings. Without
+  // this, a folder identical on screen to its canonical name is classified as
+  // needing a rename that would change nothing visible.
+  const normalized = name.normalize("NFC");
+  const canonical = settings.canonicalFolderNames.find(
+    (candidate) => candidate.normalize("NFC") === normalized,
+  );
+  if (canonical) {
+    return { kind: "canonical", name: canonical };
   }
 
   const folded = fold(name);

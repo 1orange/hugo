@@ -78,10 +78,47 @@ export const payments = sqliteTable("payments", {
   receiptAt: text("receipt_at"),
   receiptTimestampRaw: text("receipt_timestamp_raw"),
   ekasaUid: text("ekasa_uid"),
+  ekasaOkp: text("ekasa_okp"),
   ekasaPayload: text("ekasa_payload"),
+  supplierName: text("supplier_name"),
+  dic: text("dic"),
+  ico: text("ico"),
+  icDph: text("ic_dph"),
+  kp: text("kp"),
+  receiptNumber: text("receipt_number"),
+  recapBaseCents: integer("recap_base_cents"),
+  recapBaseLiteral: text("recap_base_literal"),
+  recapVatCents: integer("recap_vat_cents"),
+  recapVatLiteral: text("recap_vat_literal"),
   decodeStatus: text("decode_status").notNull().default("complete"),
   confirmedAt: text("confirmed_at"),
   createdAt: text("created_at").notNull(),
+});
+
+export const paymentLineItems = sqliteTable("payment_line_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  paymentId: integer("payment_id")
+    .notNull()
+    .references(() => payments.id),
+  sortOrder: integer("sort_order").notNull(),
+  name: text("name").notNull(),
+  vatRateLiteral: text("vat_rate_literal").notNull(),
+  quantityLiteral: text("quantity_literal").notNull(),
+  unitPriceLiteral: text("unit_price_literal").notNull(),
+  lineTotalLiteral: text("line_total_literal").notNull(),
+  lineTotalCents: integer("line_total_cents").notNull(),
+});
+
+export const paymentVatRecap = sqliteTable("payment_vat_recap", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  paymentId: integer("payment_id")
+    .notNull()
+    .references(() => payments.id),
+  rateLiteral: text("rate_literal").notNull(),
+  baseLiteral: text("base_literal").notNull(),
+  baseCents: integer("base_cents").notNull(),
+  vatLiteral: text("vat_literal").notNull(),
+  vatCents: integer("vat_cents").notNull(),
 });
 
 export const receiptManualQueue = sqliteTable("receipt_manual_queue", {

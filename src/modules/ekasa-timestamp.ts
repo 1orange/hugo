@@ -26,6 +26,36 @@ export function expandEkasaYear(twoDigitYear: number): number {
   return 2000 + twoDigitYear;
 }
 
+export function parseReceiptDatetimeRaw(raw: string): EkasaTimestampResult {
+  const trimmed = raw.trim();
+  const match = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(trimmed);
+  if (!match) {
+    return {
+      ok: false,
+      reason: "Timestamp must be DD.MM.YYYY HH:MM:SS in Slovak local time.",
+    };
+  }
+
+  const year = Number(match[3]!);
+  const month = Number(match[2]!);
+  const day = Number(match[1]!);
+  const hour = Number(match[4]!);
+  const minute = Number(match[5]!);
+  const second = Number(match[6]!);
+
+  if (month < 1 || month > 12) {
+    return { ok: false, reason: "Timestamp month is out of range." };
+  }
+  if (day < 1 || day > 31) {
+    return { ok: false, reason: "Timestamp day is out of range." };
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return { ok: false, reason: "Timestamp time is out of range." };
+  }
+
+  return { raw: trimmed, year, month, day, hour, minute, second };
+}
+
 export function parseEkasaTimestampRaw(raw: string): EkasaTimestampResult {
   if (!/^\d{12}$/.test(raw)) {
     return { ok: false, reason: "Timestamp must be exactly 12 digits (YYMMDDHHMISS)." };

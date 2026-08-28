@@ -4,12 +4,27 @@ import {
   bratislavaLocalToUtcIso,
   expandEkasaYear,
   parseEkasaTimestampRaw,
+  parseReceiptDatetimeRaw,
 } from "../../../src/modules/ekasa-timestamp.ts";
 
 test("expandEkasaYear maps two-digit years into 2000–2099", () => {
   assert.equal(expandEkasaYear(0), 2000);
   assert.equal(expandEkasaYear(26), 2026);
   assert.equal(expandEkasaYear(99), 2099);
+});
+
+test("parseReceiptDatetimeRaw parses four-digit Slovak local timestamps", () => {
+  const local = parseReceiptDatetimeRaw("16.04.2026 14:05:59");
+  assert.equal("raw" in local, true);
+  if ("raw" in local) {
+    assert.equal(local.year, 2026);
+    assert.equal(local.month, 4);
+    assert.equal(local.day, 16);
+    assert.equal(local.hour, 14);
+    assert.equal(local.minute, 5);
+    assert.equal(local.second, 59);
+    assert.equal(bratislavaLocalToUtcIso(local), "2026-04-16T12:05:59.000Z");
+  }
 });
 
 test("parseEkasaTimestampRaw rejects malformed timestamps", () => {

@@ -1,5 +1,4 @@
 import { createPdfAccess } from "@/adapters/pdf/pdf-access";
-import { createZxingQrDecoder } from "@/adapters/pdf/zxing-qr-decoder";
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
 import {
   scheduleCashPaymentDiscovery,
@@ -12,7 +11,6 @@ export function createCashDiscoveryDeps(
   return {
     driveClient: createDriveClient(env),
     pdfAccess: createPdfAccess(),
-    qrDecoder: createZxingQrDecoder(),
   };
 }
 

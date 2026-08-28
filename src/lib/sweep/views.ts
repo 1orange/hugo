@@ -105,12 +105,13 @@ function formatReceiptAt(receiptAt: string | null): string {
 function formatPaymentAmount(
   amountLiteral: string | null,
   amountCents: number | null,
+  currency: string,
 ): string {
   if (amountLiteral) {
-    return `${amountLiteral} EUR`;
+    return `${amountLiteral} ${currency}`;
   }
   if (amountCents !== null) {
-    return `${formatEuroFromCents(amountCents)} EUR`;
+    return `${formatEuroFromCents(amountCents)} ${currency}`;
   }
   return "Pending amount";
 }
@@ -150,7 +151,11 @@ export function buildMonthView(
   const cashPayments = listCashPaymentsForMonth(companyId, monthKey).map((payment) => ({
     id: payment.id,
     amountLiteral: payment.amountLiteral,
-    amountDisplay: formatPaymentAmount(payment.amountLiteral, payment.amountCents),
+    amountDisplay: formatPaymentAmount(
+      payment.amountLiteral,
+      payment.amountCents,
+      payment.currency,
+    ),
     receiptAt: payment.receiptAt,
     receiptDisplay: formatReceiptAt(payment.receiptAt),
     blocekFileId: payment.blocekFileId,

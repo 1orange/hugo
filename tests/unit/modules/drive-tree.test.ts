@@ -92,6 +92,33 @@ test("buildDriveTree reconstructs company/month/folder tree from unordered flat 
   assert.equal(month05.folderSlots[0]?.classification.kind, "repair-candidate");
 });
 
+test("buildDriveTree normalises NFD Drive names so slots classify as canonical", () => {
+  // The real sample folders are all NFD. Left unnormalised, every canonical
+  // folder looks like it needs renaming to a visually identical name.
+  const nfdFixture = baseFixture.map((record) => ({
+    ...record,
+    name: record.name.normalize("NFD"),
+  }));
+
+  const { tree, updatedFiles } = runTree(nfdFixture);
+  const month01 = tree[0]?.months.find((month) => month.key === "2026_01");
+  assert.equal(month01?.folderSlots[0]?.classification.kind, "canonical");
+
+  const stored = updatedFiles.find((f) => f.driveFileId === "doc-invoice");
+  assert.equal(stored?.folderSlot, "01 Vystavené faktúry".normalize("NFC"));
+});
+
+test("buildDriveTree does not report a rename when only normalisation differs", () => {
+  const { updatedFiles } = runTree(baseFixture);
+  const nfdFixture = baseFixture.map((record) => ({
+    ...record,
+    name: record.name.normalize("NFD"),
+  }));
+
+  const { events } = runTree(nfdFixture, updatedFiles);
+  assert.deepEqual(events, []);
+});
+
 test("buildDriveTree emits exactly one FileDiscovered for a new file", () => {
   const { events } = runTree(baseFixture);
 

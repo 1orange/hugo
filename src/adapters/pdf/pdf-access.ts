@@ -1,4 +1,4 @@
-import type { PdfAccess, RgbaImage } from "./port";
+import type { PdfAccess, PdfTextLine } from "./port";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
@@ -23,91 +23,48 @@ async function openDocument(
   }).promise;
 }
 
-function imageDataToRgba(image: {
-  width: number;
-  height: number;
-  data: Uint8ClampedArray | Uint8Array;
-}): RgbaImage {
-  return {
-    width: image.width,
-    height: image.height,
-    data:
-      image.data instanceof Uint8ClampedArray
-        ? image.data
-        : new Uint8ClampedArray(image.data),
-  };
+function groupTextItemsIntoLines(
+  items: Array<{ str: string; transform: number[] }>,
+): PdfTextLine[] {
+  const buckets = new Map<number, Array<{ x: number; text: string }>>();
+
+  for (const item of items) {
+    // The parser matches Slovak labels such as "NA ÚHRADU" as NFC literals; a
+    // PDF producer emitting NFD would otherwise silently match nothing and send
+    // every receipt to manual entry.
+    const text = item.str.normalize("NFC").trim();
+    if (text.length === 0) {
+      continue;
+    }
+    const y = Math.round(item.transform[5] / 2) * 2;
+    const x = item.transform[4];
+    if (!buckets.has(y)) {
+      buckets.set(y, []);
+    }
+    buckets.get(y)!.push({ x, text });
+  }
+
+  const sortedYs = [...buckets.keys()].sort((left, right) => right - left);
+  return sortedYs.map((y) => {
+    const row = buckets.get(y)!.sort((left, right) => left.x - right.x);
+    return row.map((cell) => cell.text).join(" | ");
+  });
 }
 
 export function createPdfAccess(): PdfAccess {
   return {
-    async extractEmbeddedImages(pdfBytes, options) {
-      const pdfjs = await loadPdfJs();
-      const doc = await openDocument(pdfBytes, options?.password);
-      const images: RgbaImage[] = [];
-
-      for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-        const page = await doc.getPage(pageNumber);
-        const ops = await page.getOperatorList();
-        const { OPS } = pdfjs;
-
-        for (let index = 0; index < ops.fnArray.length; index += 1) {
-          const fn = ops.fnArray[index];
-          if (
-            fn !== OPS.paintImageXObject &&
-            fn !== OPS.paintInlineImageXObject
-          ) {
-            continue;
-          }
-
-          const arg = ops.argsArray[index];
-          if (fn === OPS.paintInlineImageXObject && arg) {
-            images.push(
-              imageDataToRgba({
-                width: arg.width,
-                height: arg.height,
-                data: arg.data ?? arg.bitmap?.data,
-              }),
-            );
-            continue;
-          }
-
-          if (typeof arg === "string") {
-            const bitmap = await new Promise<{
-              width: number;
-              height: number;
-              data: Uint8ClampedArray;
-            } | null>((resolve) => {
-              page.objs.get(arg, (value: { bitmap?: { width: number; height: number; data: Uint8ClampedArray } }) => {
-                resolve(value?.bitmap ?? null);
-              });
-            });
-            if (bitmap) {
-              images.push(imageDataToRgba(bitmap));
-            }
-          }
-        }
-      }
-
-      return images;
-    },
-
-    async renderPage(pdfBytes, options) {
-      const { createCanvas } = await import("@napi-rs/canvas");
+    async extractTextLines(pdfBytes, options) {
       const doc = await openDocument(pdfBytes, options?.password);
       const pageNumber = options?.pageNumber ?? 1;
-      const scale = options?.scale ?? 3;
       const page = await doc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale });
-      const canvas = createCanvas(viewport.width, viewport.height);
-      const context = canvas.getContext("2d");
-      await page.render({
-        canvasContext: context as unknown as CanvasRenderingContext2D,
-        viewport,
-        canvas: canvas as unknown as HTMLCanvasElement,
-      }).promise;
-
-      const imageData = context.getImageData(0, 0, viewport.width, viewport.height);
-      return imageDataToRgba(imageData);
+      const content = await page.getTextContent();
+      const textItems: Array<{ str: string; transform: number[] }> = [];
+      for (const item of content.items) {
+        if ("str" in item) {
+          textItems.push({ str: item.str, transform: item.transform });
+        }
+      }
+      return groupTextItemsIntoLines(textItems);
     },
   };
 }

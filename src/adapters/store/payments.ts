@@ -1,6 +1,34 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { payments, receiptDecodeJobs, receiptManualQueue } from "@/lib/db/schema";
+import {
+  paymentLineItems,
+  paymentVatRecap,
+  payments,
+  receiptDecodeJobs,
+  receiptManualQueue,
+} from "@/lib/db/schema";
 import { getDb } from "@/lib/db/migrate";
+
+export type PaymentLineItemRow = {
+  id: number;
+  paymentId: number;
+  sortOrder: number;
+  name: string;
+  vatRateLiteral: string;
+  quantityLiteral: string;
+  unitPriceLiteral: string;
+  lineTotalLiteral: string;
+  lineTotalCents: number;
+};
+
+export type PaymentVatRecapRow = {
+  id: number;
+  paymentId: number;
+  rateLiteral: string;
+  baseLiteral: string;
+  baseCents: number;
+  vatLiteral: string;
+  vatCents: number;
+};
 
 export type PaymentRow = {
   id: number;
@@ -14,10 +42,38 @@ export type PaymentRow = {
   receiptAt: string | null;
   receiptTimestampRaw: string | null;
   ekasaUid: string | null;
-  ekasaPayload: string | null;
+  ekasaOkp: string | null;
+  supplierName: string | null;
+  dic: string | null;
+  ico: string | null;
+  icDph: string | null;
+  kp: string | null;
+  receiptNumber: string | null;
+  recapBaseCents: number | null;
+  recapBaseLiteral: string | null;
+  recapVatCents: number | null;
+  recapVatLiteral: string | null;
   decodeStatus: string;
   confirmedAt: string | null;
   createdAt: string;
+};
+
+export type NewCashPaymentLineItem = {
+  sortOrder: number;
+  name: string;
+  vatRateLiteral: string;
+  quantityLiteral: string;
+  unitPriceLiteral: string;
+  lineTotalLiteral: string;
+  lineTotalCents: number;
+};
+
+export type NewCashPaymentVatRecap = {
+  rateLiteral: string;
+  baseLiteral: string;
+  baseCents: number;
+  vatLiteral: string;
+  vatCents: number;
 };
 
 export type NewCashPayment = {
@@ -30,8 +86,20 @@ export type NewCashPayment = {
   receiptAt: string | null;
   receiptTimestampRaw: string | null;
   ekasaUid: string | null;
-  ekasaPayload: string | null;
+  ekasaOkp: string | null;
+  supplierName: string | null;
+  dic: string | null;
+  ico: string | null;
+  icDph: string | null;
+  kp: string | null;
+  receiptNumber: string | null;
+  recapBaseCents: number | null;
+  recapBaseLiteral: string | null;
+  recapVatCents: number | null;
+  recapVatLiteral: string | null;
   decodeStatus: "complete" | "manual" | "pending";
+  lineItems?: NewCashPaymentLineItem[];
+  vatRecap?: NewCashPaymentVatRecap[];
   createdAt: string;
 };
 
@@ -98,6 +166,52 @@ export function companyHasPayments(companyId: number): boolean {
   return (row?.count ?? 0) > 0;
 }
 
+function replacePaymentLineItems(
+  paymentId: number,
+  lineItems: NewCashPaymentLineItem[],
+): void {
+  const db = getDb();
+  db.delete(paymentLineItems)
+    .where(eq(paymentLineItems.paymentId, paymentId))
+    .run();
+  for (const item of lineItems) {
+    db.insert(paymentLineItems)
+      .values({
+        paymentId,
+        sortOrder: item.sortOrder,
+        name: item.name,
+        vatRateLiteral: item.vatRateLiteral,
+        quantityLiteral: item.quantityLiteral,
+        unitPriceLiteral: item.unitPriceLiteral,
+        lineTotalLiteral: item.lineTotalLiteral,
+        lineTotalCents: item.lineTotalCents,
+      })
+      .run();
+  }
+}
+
+function replacePaymentVatRecap(
+  paymentId: number,
+  rows: NewCashPaymentVatRecap[],
+): void {
+  const db = getDb();
+  db.delete(paymentVatRecap)
+    .where(eq(paymentVatRecap.paymentId, paymentId))
+    .run();
+  for (const row of rows) {
+    db.insert(paymentVatRecap)
+      .values({
+        paymentId,
+        rateLiteral: row.rateLiteral,
+        baseLiteral: row.baseLiteral,
+        baseCents: row.baseCents,
+        vatLiteral: row.vatLiteral,
+        vatCents: row.vatCents,
+      })
+      .run();
+  }
+}
+
 export function upsertCashPayment(input: NewCashPayment): PaymentRow {
   const db = getDb();
   db.insert(payments)
@@ -112,7 +226,17 @@ export function upsertCashPayment(input: NewCashPayment): PaymentRow {
       receiptAt: input.receiptAt,
       receiptTimestampRaw: input.receiptTimestampRaw,
       ekasaUid: input.ekasaUid,
-      ekasaPayload: input.ekasaPayload,
+      ekasaOkp: input.ekasaOkp,
+      supplierName: input.supplierName,
+      dic: input.dic,
+      ico: input.ico,
+      icDph: input.icDph,
+      kp: input.kp,
+      receiptNumber: input.receiptNumber,
+      recapBaseCents: input.recapBaseCents,
+      recapBaseLiteral: input.recapBaseLiteral,
+      recapVatCents: input.recapVatCents,
+      recapVatLiteral: input.recapVatLiteral,
       decodeStatus: input.decodeStatus,
       createdAt: input.createdAt,
     })
@@ -121,16 +245,34 @@ export function upsertCashPayment(input: NewCashPayment): PaymentRow {
       set: {
         amountCents: input.amountCents,
         amountLiteral: input.amountLiteral,
+        currency: input.currency ?? "EUR",
         receiptAt: input.receiptAt,
         receiptTimestampRaw: input.receiptTimestampRaw,
         ekasaUid: input.ekasaUid,
-        ekasaPayload: input.ekasaPayload,
+        ekasaOkp: input.ekasaOkp,
+        supplierName: input.supplierName,
+        dic: input.dic,
+        ico: input.ico,
+        icDph: input.icDph,
+        kp: input.kp,
+        receiptNumber: input.receiptNumber,
+        recapBaseCents: input.recapBaseCents,
+        recapBaseLiteral: input.recapBaseLiteral,
+        recapVatCents: input.recapVatCents,
+        recapVatLiteral: input.recapVatLiteral,
         decodeStatus: input.decodeStatus,
       },
     })
     .run();
 
-  return getPaymentByBlocekFileId(input.blocekFileId)!;
+  const payment = getPaymentByBlocekFileId(input.blocekFileId)!;
+  if (input.lineItems) {
+    replacePaymentLineItems(payment.id, input.lineItems);
+  }
+  if (input.vatRecap) {
+    replacePaymentVatRecap(payment.id, input.vatRecap);
+  }
+  return payment;
 }
 
 export function listManualQueueForMonth(

@@ -304,7 +304,20 @@ function buildTree(
   return companies;
 }
 
+/**
+ * Drive names arrive in whichever Unicode normalisation the uploader's system
+ * used — the real sample folders are all NFD, where a name that looks identical
+ * to its canonical form is not equal to it. Normalising here, at the single
+ * point every Drive record enters the app, keeps every downstream comparison
+ * and stored name in one form.
+ */
+function normalizeRecordName(record: DriveFileRecord): DriveFileRecord {
+  const name = record.name.normalize("NFC");
+  return name === record.name ? record : { ...record, name };
+}
+
 export function buildDriveTree(input: DriveTreeInput): DriveTreeResult {
+  input = { ...input, files: input.files.map(normalizeRecordName) };
   const byId = indexFiles(input.files);
   const storedById = new Map(
     input.storedFiles.map((file) => [file.driveFileId, { ...file }]),

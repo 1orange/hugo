@@ -71,7 +71,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
         {view.pendingDecodeCount > 0 ? (
           <p className="mb-3 text-sm text-muted-foreground">
             {view.pendingDecodeCount} receipt
-            {view.pendingDecodeCount === 1 ? "" : "s"} pending QR decode.
+            {view.pendingDecodeCount === 1 ? "" : "s"} pending text extraction.
           </p>
         ) : null}
         {view.cashPayments.length === 0 ? (
