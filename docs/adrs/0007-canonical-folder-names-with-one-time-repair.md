@@ -28,6 +28,26 @@ propose/confirm/record/undo flow as file moves (see ADR 0006).
 The two-digit prefix is retained in the canonical names for ordering and display, but it is not
 used as a matching key.
 
+### Amendment, 2026-08-28: how a repair target is chosen
+
+Implementing slice 03 exposed a gap. "Flag anything not canonical for repair" says nothing about
+*which* canonical name to propose, and the first implementation picked it by two-digit prefix. That
+reintroduced prefix matching through the back door, and worse: a folder the client created on
+purpose, such as `04 Pokladňa`, was offered as a rename to `04 Bločky_hotovosť`. Because repairs
+become real Drive renames on confirmation, a wrong proposal she accepts destroys her intent.
+
+A repair target is therefore proposed only when the observed name is a **near-miss** of exactly one
+canonical name. Comparison folds away case, diacritics and the space/underscore distinction — none
+of which are ever meaningful here, and clients do type from keyboards lacking Slovak diacritics —
+then requires an edit distance of at most 2 on the folded text. Ties propose nothing.
+
+Anything else stays unrecognised and is surfaced for her to handle, which is the honest outcome:
+`04 Bločky_hotorvosť` is a typo worth one click, `04 Pokladňa` is a decision only she can make.
+
+This is bounded fuzziness in service of a *suggestion*, not the fallback chain this ADR rejected.
+Slot assignment remains exact-name-only: a repair candidate keeps its observed name until she
+confirms the rename, so no document is ever filed into a canonical slot on the strength of a guess.
+
 This is safe because **Drive renames preserve file IDs** — client links, shortcuts and permissions
 all survive a folder rename. Renaming is materially less dangerous than moving.
 

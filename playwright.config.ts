@@ -19,7 +19,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "E2E_TEST_AUTH=true ALLOWED_EMAILS=allowed@example.com AUTH_SECRET=e2e-test-secret AUTH_GOOGLE_ID=e2e AUTH_GOOGLE_SECRET=e2e DATABASE_PATH=./data/e2e.db npm run dev -- --port 3000",
+      "E2E_TEST_AUTH=true DRIVE_CLIENT=fake DRIVE_PARENT_FOLDER_ID=e2e-parent ALLOWED_EMAILS=allowed@example.com AUTH_SECRET=e2e-test-secret AUTH_GOOGLE_ID=e2e AUTH_GOOGLE_SECRET=e2e DATABASE_PATH=./data/e2e.db npm run dev -- --port 3000",
     url: "http://localhost:3000",
     reuseExistingServer: false,
     timeout: 120_000,
