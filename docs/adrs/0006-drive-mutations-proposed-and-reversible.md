@@ -41,6 +41,24 @@ attempting and failing.
 If the destination folder slot does not exist in the open month, it is created with the canonical
 name.
 
+### Amendment, 2026-08-28: the record is written before Drive is touched
+
+Implementing slice 04 showed that "each applied mutation is written to `drive_mutations`" is not
+sufficient as stated. Writing the row after the Drive call leaves a window in which the rename has
+happened but nothing records it, and a crash or failed write in that window produces exactly what
+this ADR exists to prevent: a change to a client's records with no way back.
+
+A mutation therefore carries a status of `pending`, `applied` or `failed`. The row is written with
+the previous name and parent **before** the Drive call, and marked applied only once Drive confirms.
+A failure marks the row failed with the reason, and the row is retained either way.
+
+`pending` means *unknown*, not *not started* — the mutation may well have taken effect. Only
+`applied` mutations are offered for undo, because reverting on the strength of an unconfirmed row
+would itself be a guess.
+
+Undo additionally verifies that the folder still carries the name the mutation set. If a client has
+renamed it again since, undo refuses and explains, rather than silently discarding their change.
+
 ## Consequences
 
 - Confirmation costs her roughly one click per company per month. A silent mistake costs trust.

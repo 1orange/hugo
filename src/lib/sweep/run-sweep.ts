@@ -7,6 +7,7 @@ import {
   type PersistedFileRow,
 } from "@/adapters/store/files";
 import { upsertMonth } from "@/adapters/store/months";
+import { replaceMonthFoldersForCompany } from "@/adapters/store/month-folders";
 import { getSettings, updateLastSweepAt } from "@/adapters/store/settings";
 import { buildDriveTree, type DomainEvent } from "@/modules/drive-tree";
 
@@ -41,6 +42,25 @@ export async function runSweep(driveClient: DriveClient): Promise<SweepResult> {
     for (const month of company.months) {
       upsertMonth(row.id, month.key, month.driveFolderId);
     }
+
+    replaceMonthFoldersForCompany(
+      row.id,
+      company.months.flatMap((month) =>
+        month.folderSlots.map((slot) => ({
+          driveFolderId: slot.driveFolderId,
+          companyId: row.id,
+          monthKey: month.key,
+          name:
+            slot.classification.kind === "canonical"
+              ? slot.classification.name
+              : slot.classification.kind === "repair-candidate"
+                ? slot.classification.observedName
+                : slot.classification.name,
+          parentId: month.driveFolderId,
+          canRename: slot.capabilities?.canRename !== false,
+        })),
+      ),
+    );
   }
 
   const persistedFiles: PersistedFileRow[] = updatedFiles

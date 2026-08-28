@@ -4,6 +4,7 @@ import {
   type FolderClassification,
   type FolderTaxonomySettings,
 } from "./folder-taxonomy";
+import type { DriveCapabilities } from "./drive-mutation";
 
 export const FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -13,6 +14,7 @@ export type DriveFileRecord = {
   parents: string[];
   createdTime: string;
   mimeType: string;
+  capabilities?: DriveCapabilities;
 };
 
 export type StoredFileState = {
@@ -71,8 +73,10 @@ export type TreeDocument = {
 };
 
 export type TreeFolderSlot = {
+  driveFolderId: string;
   classification: FolderClassification;
   documents: TreeDocument[];
+  capabilities?: DriveCapabilities;
 };
 
 export type TreeMonth = {
@@ -257,7 +261,12 @@ function buildTree(
           });
         }
 
-        folderSlots.set(candidate.id, { classification, documents });
+        folderSlots.set(candidate.id, {
+          driveFolderId: candidate.id,
+          classification,
+          documents,
+          capabilities: candidate.capabilities,
+        });
       }
 
       for (const doc of files) {

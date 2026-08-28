@@ -5,6 +5,7 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { buildMonthView } from "@/lib/sweep/views";
 import { getSettings } from "@/adapters/store/settings";
 import { RefreshButton } from "../../refresh-button";
+import { FolderRepairPanel } from "./folder-repair-panel";
 
 type MonthPageProps = {
   params: Promise<{ companyId: string; monthKey: string }>;
@@ -58,7 +59,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
         ) : (
           view.groups.map((group) => (
             <section
-              key={group.title}
+              key={group.driveFolderId}
               className="rounded-lg border border-border p-4"
               data-testid={`folder-group-${group.kind}`}
             >
@@ -69,17 +70,37 @@ export default async function MonthPage({ params }: MonthPageProps) {
                   input documents.
                 </p>
               ) : null}
-              <ul className="space-y-2">
-                {group.documents.map((document) => (
-                  <li
-                    key={document.driveFileId}
-                    className="text-sm"
-                    data-testid="month-document"
-                  >
-                    {document.name}
-                  </li>
-                ))}
-              </ul>
+              {group.kind === "repair-candidate" ||
+              group.kind === "unknown" ||
+              (group.kind === "canonical" && group.activeMutationId) ? (
+                <FolderRepairPanel
+                  companyId={companyIdNum}
+                  monthKey={monthKey}
+                  driveFolderId={group.driveFolderId}
+                  observedName={group.observedName}
+                  proposedTargetName={group.proposedTargetName}
+                  kind={group.kind}
+                  canRename={group.canRename}
+                  renameBlockedReason={group.renameBlockedReason}
+                  activeMutationId={group.activeMutationId}
+                  canonicalFolderNames={view.canonicalFolderNames}
+                />
+              ) : null}
+              {group.documents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No documents.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {group.documents.map((document) => (
+                    <li
+                      key={document.driveFileId}
+                      className="text-sm"
+                      data-testid="month-document"
+                    >
+                      {document.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           ))
         )}

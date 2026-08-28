@@ -20,3 +20,21 @@ export function appendEvents(
       .run();
   }
 }
+
+export function appendUserEvent(
+  timestamp: string,
+  companyId: number,
+  type: string,
+  payload: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.insert(events)
+    .values({
+      timestamp,
+      companyId,
+      actor: "user",
+      type,
+      payloadJson: JSON.stringify(payload),
+    })
+    .run();
+}

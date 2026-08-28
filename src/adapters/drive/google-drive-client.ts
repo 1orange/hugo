@@ -14,21 +14,32 @@ type ListResponse = {
     parents?: string[] | null;
     createdTime?: string | null;
     mimeType?: string | null;
+    capabilities?: {
+      canRename?: boolean | null;
+      canMoveItemWithinDrive?: boolean | null;
+    } | null;
   }>;
   nextPageToken?: string | null;
 };
 
-const LIST_FIELDS = "nextPageToken,files(id,name,parents,createdTime,mimeType)";
+const LIST_FIELDS =
+  "nextPageToken,files(id,name,parents,createdTime,mimeType,capabilities/canRename,capabilities/canMoveItemWithinDrive)";
 const PAGE_SIZE = 1000;
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 export class GoogleDriveClient implements DriveClient {
+  private readonly getAccessToken: () => Promise<string>;
+
   constructor(
     private readonly credentials: GoogleCredentials,
     private readonly pageFetcher: (
       pageToken?: string,
     ) => Promise<ListResponse> = createPageFetcher(credentials),
-  ) {}
+  ) {
+    this.getAccessToken = createAccessTokenCache(() =>
+      fetchAccessToken(credentials),
+    );
+  }
 
   async list(): Promise<DriveFileRecord[]> {
     const records: DriveFileRecord[] = [];
@@ -46,12 +57,37 @@ export class GoogleDriveClient implements DriveClient {
           parents: file.parents ?? [],
           createdTime: file.createdTime,
           mimeType: file.mimeType,
+          capabilities: file.capabilities
+            ? {
+                canRename: file.capabilities.canRename ?? true,
+                canMoveItemWithinDrive:
+                  file.capabilities.canMoveItemWithinDrive ?? true,
+              }
+            : undefined,
         });
       }
       pageToken = response.nextPageToken ?? undefined;
     } while (pageToken);
 
     return records;
+  }
+
+  async rename(fileId: string, newName: string): Promise<void> {
+    const accessToken = await this.getAccessToken();
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: newName }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Drive files.update failed with status ${response.status}`);
+    }
   }
 }
 

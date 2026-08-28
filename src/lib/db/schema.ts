@@ -49,3 +49,35 @@ export const events = sqliteTable("events", {
   type: text("type").notNull(),
   payloadJson: text("payload_json").notNull(),
 });
+
+export const monthFolders = sqliteTable("month_folders", {
+  driveFolderId: text("drive_folder_id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  monthKey: text("month_key").notNull(),
+  name: text("name").notNull(),
+  parentId: text("parent_id").notNull(),
+  canRename: integer("can_rename", { mode: "boolean" }).notNull().default(true),
+});
+
+export const driveMutations = sqliteTable("drive_mutations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind").notNull(),
+  driveFileId: text("drive_file_id").notNull(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  previousParent: text("previous_parent").notNull(),
+  previousName: text("previous_name").notNull(),
+  newParent: text("new_parent").notNull(),
+  newName: text("new_name").notNull(),
+  // Written before Drive is touched, so a crash mid-mutation still leaves a row
+  // describing exactly what was attempted. "pending" therefore means unknown,
+  // not "not started".
+  status: text("status").notNull().default("pending"),
+  intendedAt: text("intended_at").notNull(),
+  appliedAt: text("applied_at"),
+  failureMessage: text("failure_message"),
+  undoneAt: text("undone_at"),
+});

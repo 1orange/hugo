@@ -15,6 +15,13 @@
       "when": 1787946683103,
       "tag": "0001_lethal_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787947466758,
+      "tag": "0002_dashing_bulldozer",
+      "breakpoints": true
     }
   ]
 }
