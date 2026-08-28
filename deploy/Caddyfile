@@ -1,0 +1,5 @@
+hugo.example.eu {
+  encode gzip
+
+  reverse_proxy localhost:3000
+}

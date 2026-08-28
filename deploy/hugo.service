@@ -1,0 +1,23 @@
+[Unit]
+Description=Hugo accounting reconciliation dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=hugo
+Group=hugo
+WorkingDirectory=/opt/hugo
+EnvironmentFile=/etc/hugo/hugo.env
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -p 3000
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hugo
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
