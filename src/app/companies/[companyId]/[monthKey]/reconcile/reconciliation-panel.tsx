@@ -393,24 +393,6 @@ function PreviewPane({
   const kind = previewKindForMimeType(mimeType);
   const previewUrl = `/api/files/${driveFileId}/preview`;
 
-  if (kind === "heic-fallback") {
-    return (
-      <div className="text-sm" data-testid="heic-fallback">
-        <p className="mb-2 text-muted-foreground">
-          HEIC preview is not available in the browser. Open the original in Drive.
-        </p>
-        <a
-          className="underline"
-          href={driveFileViewUrl(driveFileId)}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open {name} in Drive
-        </a>
-      </div>
-    );
-  }
-
   if (kind === "image") {
     return (
       // eslint-disable-next-line @next/next/no-img-element

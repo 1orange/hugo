@@ -57,7 +57,7 @@ test("reconciliation: pair, tick, remaining count falls and persists", async ({
   await expect(page.getByTestId("payment-tick-2")).toBeChecked();
 });
 
-test("reconciliation preview shows PDF and HEIC fallback", async ({ page }) => {
+test("reconciliation preview shows PDF and HEIC", async ({ page }) => {
   await page.goto("/sign-in");
   await page.getByTestId("e2e-email").fill("allowed@example.com");
   await page.getByTestId("e2e-submit").click();
@@ -76,7 +76,9 @@ test("reconciliation preview shows PDF and HEIC fallback", async ({ page }) => {
     timeout: 10_000,
   });
 
+  // The fake Drive client serves placeholder bytes, so the conversion itself
+  // cannot succeed here; what this asserts is that HEIC is routed to the image
+  // preview rather than to a "not supported" message.
   await page.getByRole("button", { name: "IMG_3475.HEIC" }).click();
-  await expect(page.getByTestId("heic-fallback")).toBeVisible();
-  await expect(page.getByText(/Open IMG_3475.HEIC in Drive/)).toBeVisible();
+  await expect(page.getByTestId("image-preview")).toBeVisible();
 });

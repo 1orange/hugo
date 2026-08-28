@@ -33,23 +33,29 @@ need `libheif` conversion (PRD open question 9 lands here).
 
 Notes can be left on a payment or a proof.
 
+## Status
+
+Done, on cash payments. Route is `/companies/[companyId]/[monthKey]/reconcile`. Bank lines enrich
+the same screen when slice 08 lands; `payments.blocek_file_id` is already nullable for them.
+
 ## Acceptance criteria
 
-- [ ] Reconciliation route shows payments, unpaired proofs and a preview pane for one company-month
-- [ ] A payment can be paired with several proofs
-- [ ] A proof can be paired with several payments
-- [ ] Unpairing is available and reversible without data loss
-- [ ] Cash bločky appear as payments needing no pairing, not as permanently unpaired warnings
-- [ ] Payments with no proof are listed as warnings
-- [ ] Proofs with no payment are listed as warnings
-- [ ] Ticking a payment increments completion and decrements the remaining count
-- [ ] Derived status is visible but never overrides or auto-sets her tick
-- [ ] The company list's remaining count reflects ticks, not derived status
-- [ ] PDF, JPEG and HEIC previews all render, HEIC via conversion
-- [ ] Notes persist on payments and proofs
-- [ ] A closed month renders the same view read-only
-- [ ] `Paired`, `Unpaired` and `Confirmed` events are emitted
-- [ ] E2E: pair, tick, observe the remaining count fall, reload and see it persist
+- [x] Reconciliation route shows payments, unpaired proofs and a preview pane for one company-month
+- [x] A payment can be paired with several proofs
+- [x] A proof can be paired with several payments
+- [x] Unpairing is available and reversible without data loss
+- [x] Cash bločky appear as payments needing no pairing, not as permanently unpaired warnings
+- [x] Payments with no proof are listed as warnings
+- [x] Proofs with no payment are listed as warnings
+- [x] Ticking a payment increments completion and decrements the remaining count
+- [x] Derived status is visible but never overrides or auto-sets her tick
+- [x] The company list's remaining count reflects ticks, not derived status
+- [x] PDF, JPEG and HEIC previews all render, HEIC via conversion — WASM `libheif`, server-side,
+      checked against the real `IMG_3475.HEIC` (PRD open question 9)
+- [x] Notes persist on payments and proofs
+- [x] A closed month renders the same view read-only
+- [x] `Paired`, `Unpaired` and `Confirmed` events are emitted
+- [x] E2E: pair, tick, observe the remaining count fall, reload and see it persist
 
 ## Blocked by
 

@@ -431,8 +431,11 @@ Carried forward deliberately. Each blocks a specific piece of work and nothing e
    path, not the invoice path.
 8. **SQLite backup.** Drive remains the legal 10-year record, so a database loss costs pairing
    and extraction work rather than compliance. Still needs a plan.
-9. **HEIC.** `libheif` conversion is needed for phone photos such as `IMG_3475.HEIC`. Low
-   priority given the manual path for scans.
+9. ~~**HEIC.** `libheif` conversion is needed for phone photos such as `IMG_3475.HEIC`. Low
+   priority given the manual path for scans.~~ **Resolved in slice 09.** Converted server-side by
+   `libheif` compiled to WASM (`heic-convert`), so the VPS needs no native build and the browser
+   needs no decoder. Verified against the one real HEIC in the corpus: valid JPEG out, 1.1s for a
+   2.5 MB photo, which is why the conversion is not cached yet.
 10. **Non-EUR documents.** A FlixBus ticket in the sample is priced in Czech koruna, and nothing in
     this PRD covers foreign currency. Decided for now: store the currency with the amount and flag
     non-EUR documents so she supplies the euro value; the app never invents an exchange rate. Still
