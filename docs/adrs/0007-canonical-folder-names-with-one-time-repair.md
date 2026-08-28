@@ -64,6 +64,23 @@ This is bounded fuzziness in service of a *suggestion*, not the fallback chain t
 Slot assignment remains exact-name-only: a repair candidate keeps its observed name until she
 confirms the rename, so no document is ever filed into a canonical slot on the strength of a guess.
 
+### Amendment, 2026-08-28: the editable list needs an impact preview
+
+Slice 14a made the list real settings data rather than a constant, which turns the risk this ADR
+noted in passing — "a wrong entry makes every existing folder look unrecognised" — into something
+she can trigger with a typo in a textarea.
+
+Saving therefore shows an impact preview computed by classifying every stored folder twice, under
+the current list and under the proposed one, using the same `classifyFolder` the sweep uses. The
+preview cannot drift from real behaviour because it *is* real behaviour, run on the proposed
+settings.
+
+It reports both directions. Folders that would stop being recognised are the warning, with removals
+called out separately from renames because a removal drops a slot she is actively filing into.
+Folders that would *become* recognised are the confirmation: adding a name a client already uses is
+the intended way to adopt a real folder such as `04 Pokladňa`, and a preview that only counted
+breakage would report "no impact" for the one change she meant to make.
+
 This is safe because **Drive renames preserve file IDs** — client links, shortcuts and permissions
 all survive a folder rename. Renaming is materially less dangerous than moving.
 

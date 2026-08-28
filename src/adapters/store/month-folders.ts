@@ -63,3 +63,8 @@ export function listMonthFolders(
     )
     .all();
 }
+
+export function listAllMonthFolders(): MonthFolderRow[] {
+  const db = getDb();
+  return db.select().from(monthFolders).all();
+}

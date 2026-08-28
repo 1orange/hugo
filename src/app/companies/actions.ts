@@ -2,7 +2,11 @@
 
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
 import { listMonthFolders } from "@/adapters/store/month-folders";
-import { setDriveParentFolderId } from "@/adapters/store/settings";
+import {
+  requireDriveParentFolderId,
+  resolveDriveParentFolderId,
+  setDriveParentFolderId,
+} from "@/adapters/store/settings";
 import {
   applyFolderRename,
   undoFolderRename,
@@ -17,12 +21,12 @@ import { runSweep } from "@/lib/sweep/run-sweep";
 import { revalidatePath } from "next/cache";
 
 export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
-  const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
-  if (!parentFolderId) {
-    throw new Error("DRIVE_PARENT_FOLDER_ID is not configured");
+  const parentFolderId = requireDriveParentFolderId();
+  const stored = resolveDriveParentFolderId();
+  if (!stored) {
+    setDriveParentFolderId(parentFolderId);
   }
 
-  setDriveParentFolderId(parentFolderId);
   const driveClient = createDriveClient();
   const result = await runSweep(driveClient);
   await ensureAllOpenMonthsScaffolded(driveClient);
@@ -45,12 +49,10 @@ export async function confirmFolderRenameAction(input: {
     return readOnly;
   }
 
-  const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
-  if (!parentFolderId) {
+  if (!resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
-  setDriveParentFolderId(parentFolderId);
   const monthFolders = listMonthFolders(input.companyId, input.monthKey);
   const folder = monthFolders.find(
     (entry) => entry.driveFolderId === input.driveFolderId,
@@ -90,12 +92,10 @@ export async function undoFolderRenameAction(input: {
     return readOnly;
   }
 
-  const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
-  if (!parentFolderId) {
+  if (!resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
-  setDriveParentFolderId(parentFolderId);
   const driveClient = createDriveClient();
   const result = await undoFolderRename(driveClient, input.mutationId);
   if (!result.ok) {
@@ -111,12 +111,10 @@ export async function closeMonthAction(input: {
   companyId: number;
   monthKey: string;
 }): Promise<MutationActionResult> {
-  const parentFolderId = process.env.DRIVE_PARENT_FOLDER_ID;
-  if (!parentFolderId) {
+  if (!resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
-  setDriveParentFolderId(parentFolderId);
   const result = await closeCompanyMonth(
     createDriveClient(),
     input.companyId,

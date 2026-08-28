@@ -8,7 +8,7 @@ import {
 } from "@/adapters/store/files";
 import { upsertMonth } from "@/adapters/store/months";
 import { replaceMonthFoldersForCompany } from "@/adapters/store/month-folders";
-import { getSettings, updateLastSweepAt } from "@/adapters/store/settings";
+import { getSettings, resolveDriveParentFolderId, updateLastSweepAt } from "@/adapters/store/settings";
 import { buildDriveTree, type DomainEvent } from "@/modules/drive-tree";
 
 export type SweepResult = {
@@ -19,7 +19,8 @@ export type SweepResult = {
 
 export async function runSweep(driveClient: DriveClient): Promise<SweepResult> {
   const settings = getSettings();
-  if (!settings.driveParentFolderId) {
+  const driveParentFolderId = resolveDriveParentFolderId();
+  if (!driveParentFolderId) {
     throw new Error("DRIVE_PARENT_FOLDER_ID is not configured");
   }
 
@@ -28,7 +29,7 @@ export async function runSweep(driveClient: DriveClient): Promise<SweepResult> {
   const storedFiles = listStoredFilesForSweep();
   const { tree, events, updatedFiles } = buildDriveTree({
     files: driveFiles,
-    driveParentFolderId: settings.driveParentFolderId,
+    driveParentFolderId,
     storedFiles,
     sweepAt,
     settings: { canonicalFolderNames: settings.canonicalFolderNames },

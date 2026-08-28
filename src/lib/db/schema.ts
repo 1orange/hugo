@@ -11,6 +11,7 @@ export const settings = sqliteTable("settings", {
   id: integer("id").primaryKey(),
   driveParentFolderId: text("drive_parent_folder_id"),
   canonicalFolderNamesJson: text("canonical_folder_names_json").notNull(),
+  movableFolderNamesJson: text("movable_folder_names_json"),
   lastSweepAt: text("last_sweep_at"),
 });
 

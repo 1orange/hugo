@@ -1,21 +1,20 @@
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
-import { getSettings } from "@/adapters/store/settings";
+import { getSettings, resolveDriveParentFolderId, setDriveParentFolderId } from "@/adapters/store/settings";
+import { ensureAllOpenMonthsScaffolded } from "@/lib/month-lifecycle/service";
 import { isSweepStale } from "@/lib/sweep/stale";
 import { runSweep } from "@/lib/sweep/run-sweep";
-import { setDriveParentFolderId } from "@/adapters/store/settings";
-import { ensureAllOpenMonthsScaffolded } from "@/lib/month-lifecycle/service";
 
 export async function ensureFreshSweep(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const parentFolderId = env.DRIVE_PARENT_FOLDER_ID;
+  const parentFolderId = resolveDriveParentFolderId(env);
   if (!parentFolderId) {
     return;
   }
 
   const settings = getSettings();
-  if (!settings.driveParentFolderId) {
-    setDriveParentFolderId(parentFolderId);
+  if (!settings.driveParentFolderId && env.DRIVE_PARENT_FOLDER_ID) {
+    setDriveParentFolderId(env.DRIVE_PARENT_FOLDER_ID);
   }
 
   const driveConfigured =

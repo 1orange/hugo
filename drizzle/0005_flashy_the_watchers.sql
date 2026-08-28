@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `movable_folder_names_json` text;

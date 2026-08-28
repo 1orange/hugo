@@ -9,7 +9,7 @@ import {
   checkCreateFolderTarget,
   type CreateFolderMutationInput,
 } from "@/modules/drive-mutation";
-import { CANONICAL_FOLDER_NAMES } from "@/modules/folder-taxonomy";
+import { getSettings } from "@/adapters/store/settings";
 import { runSweep } from "@/lib/sweep/run-sweep";
 
 export type ApplyCreateResult =
@@ -22,9 +22,10 @@ export async function applyFolderCreate(
   input: CreateFolderMutationInput,
   options?: { runSweepAfter?: boolean },
 ): Promise<ApplyCreateResult> {
+  const settings = getSettings();
   const target = checkCreateFolderTarget({
     folderName: input.folderName,
-    canonicalFolderNames: CANONICAL_FOLDER_NAMES,
+    canonicalFolderNames: settings.canonicalFolderNames,
     allowMonthFolder: input.allowMonthFolder,
   });
   if (!target.allowed) {

@@ -38,3 +38,20 @@ export function appendUserEvent(
     })
     .run();
 }
+
+export function appendGlobalUserEvent(
+  timestamp: string,
+  type: string,
+  payload: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.insert(events)
+    .values({
+      timestamp,
+      companyId: null,
+      actor: "user",
+      type,
+      payloadJson: JSON.stringify(payload),
+    })
+    .run();
+}

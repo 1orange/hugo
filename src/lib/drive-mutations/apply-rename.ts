@@ -15,7 +15,7 @@ import {
   checkRenameTarget,
   type RenameMutationInput,
 } from "@/modules/drive-mutation";
-import { CANONICAL_FOLDER_NAMES } from "@/modules/folder-taxonomy";
+import { getSettings } from "@/adapters/store/settings";
 import { runSweep } from "@/lib/sweep/run-sweep";
 
 export type ApplyRenameResult =
@@ -48,10 +48,11 @@ export async function applyFolderRename(
     return { ok: false, message: capability.message };
   }
 
+  const settings = getSettings();
   const target = checkRenameTarget({
     currentName: input.currentName,
     targetName: input.targetName,
-    canonicalFolderNames: CANONICAL_FOLDER_NAMES,
+    canonicalFolderNames: settings.canonicalFolderNames,
   });
   if (!target.allowed) {
     return { ok: false, message: target.message };

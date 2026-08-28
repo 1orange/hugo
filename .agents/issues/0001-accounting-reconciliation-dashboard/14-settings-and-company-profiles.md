@@ -29,11 +29,20 @@ Marking a company inactive removes it from the work list without deleting histor
 Editing the canonical list has teeth: a wrong entry makes existing folders look unrecognised, so the
 UI must show the impact of a change before it is saved.
 
+## Status
+
+Global settings (14a) are **done**: canonical list, movable list and Drive parent folder id are
+editable at `/settings`, validated and NFC-normalised on save, with an impact preview and settings
+domain events. See the amendment in ADR 0007.
+
+Per-company profiles and the statement password (14b) remain, blocked on slice 08.
+
 ## Acceptance criteria
 
-- [ ] Canonical folder list is editable and immediately affects matching, repair proposals and scaffolding
-- [ ] Editing the canonical list previews how many existing folders would become unrecognised before saving
-- [ ] Movable-folder list is editable and drives `LateArrivals` rather than a hardcoded set
+- [x] Canonical folder list is editable and immediately affects matching, repair proposals and scaffolding
+- [x] Editing the canonical list previews how many existing folders would become unrecognised before saving,
+      and how many would become recognised
+- [x] Movable-folder list is editable and stored; wiring it into `LateArrivals` belongs to slice 13
 - [ ] Per-company folder template override is honoured when scaffolding a month
 - [ ] Statement password can be set per company and is stored encrypted
 - [ ] The raw database file does not contain any password plaintext

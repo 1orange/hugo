@@ -1,5 +1,5 @@
-import { Building2 } from "lucide-react";
 import Link from "next/link";
+import { Building2 } from "lucide-react";
 import { auth, signOut } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { redirect } from "next/navigation";
@@ -53,6 +53,12 @@ export default async function CompaniesPage() {
           </p>
         </div>
         <div className="flex items-start gap-3">
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-muted"
+            href="/settings"
+          >
+            Settings
+          </Link>
           <RefreshButton lastSweepAt={settings.lastSweepAt} />
           <form
             action={async () => {
