@@ -43,6 +43,47 @@ code, not from reading anything.
 No PaddleOCR, no RapidOCR, no Python sidecar, no second runtime on the VPS. The Node application
 does all of it.
 
+### Amendment, 2026-08-28: the receipt path was wrong, and the text layer replaces it
+
+Implementing slice 06 and then measuring the real corpus overturned path 2 above. The reasoning here
+was sound but rested on an untested assumption about which QR variant Slovak POS systems actually
+print.
+
+What the six real eBločeks in the spring sample show:
+
+- **All of them carry the UID-only QR variant**, which by specification holds no amount and no
+  timestamp. The claim above that "amount and timestamp come from the fiscal code" is false for this
+  corpus. Decoding the QR yields an identifier and nothing else, so every receipt would have gone to
+  manual entry — the opposite of the intended outcome.
+- The QR is **drawn as vector paths**, not embedded as an image, so decoding it needs a full page
+  render. That pulled in `@napi-rs/canvas`, a native dependency this ADR had ruled out, to obtain
+  data that turned out to be worthless.
+- **The text layer already contains everything**, in a regular labelled structure: the total with an
+  explicit currency on the `NA ÚHRADU` line, a four-digit-year local timestamp, per-item name, VAT
+  rate, quantity and unit price, a VAT recapitulation per rate, and the UID and OKP themselves.
+
+The QR was therefore redundant with a strictly weaker version of data already present as text.
+
+**Revised path 2:** parse the eBloček text layer with `pdfjs-dist`, grouping text items into lines
+by y-coordinate. No QR decoding, no page rendering, no `zxing-wasm`, no `@napi-rs/canvas`. This also
+restores the single-runtime property below, which the canvas dependency had quietly broken.
+
+Two independent arithmetic self-checks are available and hold on all six samples: the item line
+totals sum to the payable total, and base + VAT equals it as well. This is a stronger guarantee than
+the QR ever offered, and it is what this ADR asks for in its final consequence.
+
+Two further findings, neither of which the original analysis anticipated:
+
+- **The `04` and `05` folders are not receipt-only.** Six of twenty PDFs are eBločeks; the rest are
+  airline, train and bus tickets, ride-hailing invoices and fuel receipts, and two have no text
+  layer at all. Anything that is not an eBloček must be detected and queued, never half-parsed.
+- **Not everything is in euros.** A FlixBus ticket is priced in Czech koruna. Non-EUR documents
+  carry their currency and are flagged for her to supply the euro value; the app does not invent an
+  exchange rate. This was not covered anywhere in the PRD.
+
+The invoice path (1) and the scan path (3) are unaffected — the 60-of-61 text-layer finding for
+received invoices still stands.
+
 ## Consequences
 
 - The deployment stays single-runtime. This is a large simplification of ADR 0004's box.

@@ -419,11 +419,12 @@ Carried forward deliberately. Each blocks a specific piece of work and nothing e
 5. **Single shared parent folder.** The service-account design assumes every company folder can
    sit under one parent that gets shared once. Needs confirmation that she can reorganise that
    way.
-6. **eBloček text layer.** The QR gives amount and timestamp authoritatively, but the VAT
-   breakdown and supplier must come from the receipt's own text layer. A crude extractor pulled
-   nothing out of `bloček_O-35E6…pdf` despite it carrying 17 fonts and ~91 text operators, so the
-   text is drawn in a form that needs a real library to read. Confirm field layout with
-   `pdfjs-dist` before relying on it.
+6. ~~**eBloček text layer.**~~ **Resolved, 2026-08-28.** `pdfjs-dist` reads these receipts fully;
+   the earlier crude extractor was simply inadequate. `bloček_O-35E6…pdf` yields
+   `Dátum a čas: 25.07.2026 11:30:27`, `NA ÚHRADU EUR | 1.20`, `SPOLU: | 0.98 | 0.22`, per-item rate
+   quantity and unit price, plus the OKP and UID as text. The text layer supersedes the QR entirely
+   rather than merely supplementing it — see the amendment to ADR 0008. Text items must be grouped
+   into lines by y-coordinate; flattening them destroys the column structure.
 7. **Extraction benchmark.** Label a subset of spring's 61 received invoices on the exact field
    set above; that becomes the permanent regression fixture. Note the 40 documents in
    `mix dokladov` are the wrong corpus — 27 of 40 are scans, which are the QR path and the manual
@@ -432,6 +433,15 @@ Carried forward deliberately. Each blocks a specific piece of work and nothing e
    and extraction work rather than compliance. Still needs a plan.
 9. **HEIC.** `libheif` conversion is needed for phone photos such as `IMG_3475.HEIC`. Low
    priority given the manual path for scans.
+10. **Non-EUR documents.** A FlixBus ticket in the sample is priced in Czech koruna, and nothing in
+    this PRD covers foreign currency. Decided for now: store the currency with the amount and flag
+    non-EUR documents so she supplies the euro value; the app never invents an exchange rate. Still
+    open is what Omega expects for such a payment, and whether the euro value she enters needs the
+    rate and rate date recorded alongside it for the tax authority.
+11. **`04` and `05` are not receipt-only.** Six of twenty PDFs in those folders are eBločeks; the
+    rest are airline, train and bus tickets, ride-hailing invoices and fuel receipts, two with no
+    text layer at all. Whether the mixed content is deliberate filing or drift is worth asking her,
+    because it decides whether those document types deserve their own extraction path later.
 
 ---
 
