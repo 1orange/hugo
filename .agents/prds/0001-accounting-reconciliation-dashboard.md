@@ -401,17 +401,23 @@ None — this is a greenfield repository. These tests establish the conventions.
 
 Carried forward deliberately. Each blocks a specific piece of work and nothing else.
 
-1. **Omega export path for `01`, `04`, `05`, `06`.** ISDOC only lands received invoices — Omega
-   imports it into Došlá faktúra, Došlá preddavková faktúra and Došlý dobropis. Issued invoices,
-   cash bločky, card bločky and iné doklady need the TXT format (`R00`/`R01`/`R02` line codes;
-   data types `T00` accounting documents, `T01` invoicing, `T08` payments), whose specification
-   lives in `ImportExport_20_60.xls` at kros.sk/66711 and runs to ~166 columns for invoicing.
-   Filip is returning to this. Blocks: the non-ISDOC half of `IsdocExport`. Recommended way to
-   settle it is to watch her import one month manually.
-2. **Bank statement samples.** Need one decrypted statement per bank to write each parser, and
-   the per-company passwords. 3–6 layouts expected across her clients. Filip is obtaining the
-   password. Blocks: `StatementParser`, and therefore the whole reconciliation screen.
-3. **Which bank goes first.** Build one end-to-end before adding others.
+1. **Omega export path.** **Largely resolved, 2026-08-30 — see ADR 0014.** The route is the TXT
+   `T00` (EUD) format, not ISDOC: ISDOC reaches only received-invoice ledgers and cannot express a
+   receipt, while TXT covers every type via document-type codes (`160` cash, `180` card as an
+   internal document, `130` received invoice, `330`/`360` foreign currency). The spec reference in
+   this PRD was wrong — kros.sk/66711 is dead and the current file is `ImportExport_28_00_2025.xls`
+   on ftpkros.sk. `T08` payments is **export-only**, so the superseded payment-centric model could
+   never have exported to Omega at all. There is no usable API.
+   **Still open:** (a) the decimal separator for amounts, verified absent from all 16 sheets of the
+   spec; (b) whether the double-entry accounts required in `R02` are supplied by the app from a
+   posting map or left for her to post — the largest remaining product question in the export;
+   (c) whether Omega 29.20 accepts a file built to the 28.00 spec.
+   All of (a) and (c) are settled by one export from her Omega, since export and import share the
+   format. That is the next thing to obtain.
+2. ~~**Bank statement samples.**~~ **Withdrawn, 2026-08-30.** The app no longer reads statements;
+   presence is the only signal (ADR 0013, ADR 0009 withdrawn). No decrypted sample and no password
+   is needed from her, and the app stores no secret as a result.
+3. ~~**Which bank goes first.**~~ **Withdrawn** with open question 2.
 4. **`canMoveItemWithinDrive` on a real client-uploaded file.** Clients upload into her folders,
    so clients own those files. Editor access through folder inheritance should permit the move,
    but this must be verified against one real file before the move feature is built. Blocks:
