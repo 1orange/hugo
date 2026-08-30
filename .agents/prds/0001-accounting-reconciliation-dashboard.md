@@ -14,6 +14,32 @@ Primary user: single accountant (sole user of the system)
 
 ---
 
+## Current state, 2026-08-30
+
+**Built:** walking skeleton with auth (01), Drive sweep and company/month tree (03), folder-name
+repair (04), month close and scaffolding (05), eKasa receipts from the PDF text layer (06), the
+reconciliation screen (09 — its pairing half is superseded), editable folder settings (14a) and the
+activity log (16). Nothing is deployed and there is no production data.
+
+**Next, and unblocked:** the document schema and merged screen (22), statement presence (20), the
+chase dashboard (21).
+
+**Deferred by choice — the export (15).** The route is settled and recorded in ADR 0014, but two
+things are unknown and both are answered by one export from her own Omega (07): the decimal
+separator for amounts, and whether an `R02` row may carry empty MD and DAL accounts. The second one
+matters more than it sounds — the decision that the app emits unposted documents and she posts them
+in Omega depends on it, and the spec's colour coding suggests the accounts are mandatory. Rather than
+build against a guess and risk silently wrong amounts or a format Omega rejects, the export waits.
+See open questions 1 and 14.
+
+**Also deferred by choice:** the OCR path for the ~9% of documents with no text layer (open question
+12, amendment to ADR 0008), automated chasing of clients by email, and per-company profiles.
+
+**Waiting on Filip:** Drive service-account provisioning (02), the Omega export sample (07), and
+labelling invoices for the extraction benchmark (10), which gates invoice extraction (11).
+
+---
+
 ## Problem Statement
 
 She is an accountant running the books for a handful of companies. Every client has a Google

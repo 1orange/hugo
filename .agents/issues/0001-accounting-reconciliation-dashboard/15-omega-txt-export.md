@@ -1,7 +1,15 @@
 # 15 — Omega TXT `T00` (EUD) export with gate and batches
 
 Type: AFK
+Status: **Deferred, 2026-08-30.** Do not start.
 User stories: 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+
+> The route is decided (ADR 0014), but two unknowns make writing the exporter guesswork: the decimal
+> separator for amounts, and whether an `R02` row may carry empty MD and DAL accounts. The spec shades
+> all four account fields mandatory, so the decision to emit unposted documents may not be
+> implementable as stated. Both are answered by the sample export in slice 07. Building first would
+> risk either a silently wrong amount in her books or a file Omega refuses — see PRD open questions 1
+> and 14.
 
 ## Parent
 
