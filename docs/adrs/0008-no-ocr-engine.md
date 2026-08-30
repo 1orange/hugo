@@ -139,6 +139,37 @@ document behind it yet.
 The invoice path (1) and the scan path (3) are unaffected — the 60-of-61 text-layer finding for
 received invoices still stands.
 
+### Amendment, 2026-08-30: measured, and the OCR path is wanted but deferred
+
+The "if a client turns out to photograph everything" trigger below was never quantified. It is now,
+across all 151 files in the spring corpus. Of the 87 documents in processed folders, **11 have no
+usable text layer** — about 13%, or one to two per company per month:
+
+- `02 Prijaté faktúry`: 60 of 61 carry text. Invoice extraction needs no OCR whatsoever.
+- `05 Bločky_firemná karta`: 6 of 15 are image-only, every one a `Potvrdenie_*` payment
+  confirmation. This is where the gap actually lives.
+- `04 Bločky_hotovosť`: 3 phone photos and one image-only PDF out of 9.
+- `03 Bankové výpisy`: all 7 fail to open at all, being encrypted — which is why presence is all the
+  app can ever report about a statement (ADR 0013).
+
+One to two documents a month does not justify an OCR runtime, so it stays deferred. The caveat is
+that spring may be the tidy client: the separate `mix dokladov` pile ran 27 scans out of 40, so the
+13% may not generalise. The trigger is therefore real counts across all her clients once the app is
+in use, not this one sample.
+
+The intended shape when it does land, so the deferral does not become a redesign:
+
+1. Rules first. If a document parses deterministically, as eKasa receipts do, nothing else runs.
+2. Otherwise OCR the image — RapidOCR on ONNX Runtime, as already identified below.
+3. Feed the OCR text to a small local model (a ~0.8B Qwen was proposed) to structure it into the
+   same JSON payload the rule-based parsers produce.
+4. She confirms the result regardless of which path produced it, exactly as she does today.
+
+Because step 4 is unconditional, the interim state is not a gap but a degenerate case of the same
+flow: extraction returns nothing and she fills the fields in. The manual path is therefore the
+override on an empty payload, not a separate queue — which retires the `receipt_manual_queue` table
+built in slice 06.
+
 ## Consequences
 
 - The deployment stays single-runtime. This is a large simplification of ADR 0004's box.

@@ -1,7 +1,12 @@
 # ADR 0002 — Payment-centric domain model
 
 Date: 2026-08-28
-Status: Accepted
+Status: Superseded by ADR 0013, 2026-08-30
+
+> The workflow this ADR was derived from changed: pairing moved to Omega and the app is no longer
+> asked to read bank statements. With pairing gone, the reason `Payment` was primary went with it.
+> The reasoning below is retained because it explains why the schema looked the way it did, and
+> because its rejected alternative — document-primary — is now the decision. See ADR 0013.
 
 ## Context
 

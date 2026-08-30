@@ -34,6 +34,25 @@ never claims work is finished that she did not approve.
 No separate ignore flag, no reason codes. A proforma or a duplicate is simply never ticked, so it
 cannot be exported and cannot double-book.
 
+### Amendment, 2026-08-30: the rejected "ignore" flag becomes necessary
+
+This ADR rejected a separate ignore flag, reasoning that a proforma is "simply never ticked, so it
+cannot be exported and cannot double-book". That worked because "what's left" counted **payments**,
+and a document nobody paired was not itself a unit of work.
+
+Under ADR 0013 the count is over **documents**, and an untouched document is indistinguishable from
+a deliberately-skipped one. A single stray file — the sample has a bare `invoice.pdf`, phone photos
+and four proformas — would hold a month permanently above zero, which trains her to ignore the
+number that the whole dashboard rests on.
+
+A document therefore reaches one of two terminal states, **both of which are her action**: confirmed,
+or not relevant with an optional reason. The distinction this ADR was protecting is preserved
+exactly — nothing is ever marked done by inference, and only confirmed documents export. What
+changes is that dismissing a document is now an explicit decision rather than the absence of one.
+
+"Processed" consequently means she decided, and the remaining count is the documents still awaiting
+a decision.
+
 ## Consequences
 
 - One flag covers work tracking, export approval and exclusion of non-accounting documents. Three

@@ -1,7 +1,19 @@
 # ADR 0009 — Per-bank statement parsers with a balance reconciliation assert
 
 Date: 2026-08-28
-Status: Accepted
+Status: Withdrawn, 2026-08-30
+
+> Withdrawn rather than superseded: nothing replaces it, because the app no longer reads bank
+> statements at all. Omega does the pairing, so a statement's only role is to show that the client
+> uploaded it (ADR 0013). Everything below — decryption, the per-company password and its key
+> management, per-bank parsers, the balance-reconciliation assert — is therefore not built.
+>
+> Worth keeping for two reasons. If statement parsing ever returns, the analysis holds and the
+> `reconcile()` assert remains the right safeguard. And it records that the statements in the sample
+> are AES-128 encrypted with metadata encrypted too, which is why presence is the *only* thing the
+> app can ever report about them without a password.
+>
+> One consequence of the withdrawal is worth stating plainly: the app now stores no secrets.
 
 ## Context
 
