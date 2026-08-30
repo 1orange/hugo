@@ -15,7 +15,7 @@ becomes the permanent regression fixture — so it is not throwaway benchmark wo
 Label a stratified subset of the **61 received invoices in the spring sample**. That is the right
 corpus: 60 of those 61 carry a text layer, which is precisely why there is no OCR engine in this
 design (ADR 0008). The 40 documents in `mix dokladov` are the **wrong** corpus for this — 27 of 40
-are scans, which belong to the eKasa QR path and the manual path, not the invoice path.
+are scans, which belong to the deferred OCR path and the manual path, not the invoice path.
 
 Label the exact field set production will extract, no more: supplier name, IČO, IČ DPH, invoice
 number, variabilný symbol, issue date, delivery date, tax base per VAT rate, VAT per rate, total,

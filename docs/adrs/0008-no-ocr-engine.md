@@ -142,9 +142,13 @@ received invoices still stands.
 ### Amendment, 2026-08-30: measured, and the OCR path is wanted but deferred
 
 The "if a client turns out to photograph everything" trigger below was never quantified. It is now,
-across all 151 files in the spring corpus. Of the 87 documents in processed folders, **11 have no
-usable text layer** — about 13%, or one to two per company per month:
+across all 151 files in the spring corpus. Of the **126** documents in processed folders — `01`, `02`,
+`04`, `05` and `06`, per ADR 0013 — **11 have no usable text layer**, about **9%**, or one to two per
+company per month:
 
+- `01 Vystavené faktúry`: all 39 carry text, none need OCR. (An earlier draft of this amendment quoted
+  11 of 87, having counted only the received-document folders before issued invoices were brought into
+  scope. The count of failures was right; the denominator was too small.)
 - `02 Prijaté faktúry`: 60 of 61 carry text. Invoice extraction needs no OCR whatsoever.
 - `05 Bločky_firemná karta`: 6 of 15 are image-only, every one a `Potvrdenie_*` payment
   confirmation. This is where the gap actually lives.
@@ -154,7 +158,7 @@ usable text layer** — about 13%, or one to two per company per month:
 
 One to two documents a month does not justify an OCR runtime, so it stays deferred. The caveat is
 that spring may be the tidy client: the separate `mix dokladov` pile ran 27 scans out of 40, so the
-13% may not generalise. The trigger is therefore real counts across all her clients once the app is
+9% may not generalise. The trigger is therefore real counts across all her clients once the app is
 in use, not this one sample.
 
 The intended shape when it does land, so the deferral does not become a redesign:

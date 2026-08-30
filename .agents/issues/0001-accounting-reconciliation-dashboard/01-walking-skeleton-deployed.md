@@ -27,6 +27,10 @@ is configured, and none should be added — see ADR 0003.
 The visible surface is a single page listing companies, which at this point is empty with an
 explanatory empty state.
 
+## Status
+
+Done.
+
 ## Acceptance criteria
 
 - [ ] Signing in with an allowlisted Google account reaches the company list page

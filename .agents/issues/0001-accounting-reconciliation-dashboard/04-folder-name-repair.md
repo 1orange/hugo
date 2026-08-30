@@ -1,7 +1,7 @@
 # 04 — Unrecognised folder detection and rename repair
 
 Type: AFK
-User stories: 18, 19, 20
+User stories: 14, 15, 16
 
 ## Parent
 
@@ -28,6 +28,10 @@ with an explanation rather than attempting and failing.
 The UI should state plainly that renaming a folder does not break her clients' links, because Drive
 renames preserve file IDs. She needs to believe that before she will click the button.
 
+## Status
+
+Done.
+
 ## Acceptance criteria
 
 - [ ] Non-canonical folders appear as unrecognised in the month view rather than being omitted
@@ -36,7 +40,7 @@ renames preserve file IDs. She needs to believe that before she will click the b
 - [ ] Every applied rename writes a `drive_mutations` row containing the previous name
 - [ ] Undo restores the previous name and marks the mutation undone rather than deleting the row
 - [ ] A folder reporting `canRename: false` is not attempted and surfaces an explanatory warning
-- [ ] Documents inside a repaired folder keep their existing status, extraction and pairings — proving file-ID keying works
+- [ ] Documents inside a repaired folder keep their existing state and extraction — proving file-ID keying works
 - [ ] `Renamed` events are emitted for both the rename and the undo
 - [ ] Integration test: propose, confirm, verify against the fake Drive adapter, undo, verify restoration and event order
 

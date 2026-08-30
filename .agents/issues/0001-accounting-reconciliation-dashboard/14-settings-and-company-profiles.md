@@ -1,7 +1,7 @@
 # 14 — Settings and company profiles
 
 Type: AFK
-User stories: 4, 5, 6, 7, 8, 9, 10
+User stories: 4, 5, 6, 7, 8
 
 ## Parent
 
@@ -17,17 +17,20 @@ the movable-folder list, and the Drive parent folder id. The movable list defaul
 `05`, `06` — a filing convention rather than a law, which is why it belongs in settings and not in
 a conditional (ADR 0006).
 
-Per-company profile: display name, active flag, folder-template override so a client with no
-employees does not carry an empty `07 Mzdy` every month, and the encrypted bank statement password.
-
-The password is encrypted with a key held in the environment, never in the database, so a leaked
-backup does not leak passwords. She is prompted for a new one **only when decryption actually
-fails** — banks rotate them — and never otherwise.
+Per-company profile: display name, active flag, and a folder-template override so a client with no
+employees does not carry an empty `07 Mzdy` every month.
 
 Marking a company inactive removes it from the work list without deleting history.
 
 Editing the canonical list has teeth: a wrong entry makes existing folders look unrecognised, so the
 UI must show the impact of a change before it is saved.
+
+> **Amended, 2026-08-30.** The per-company profile also held **the encrypted bank statement
+> password**, prompted for only when decryption actually failed, with its encryption key kept in the
+> environment rather than in the database. That is gone: the app never opens a statement, so there
+> is no password to hold and no key to manage (ADR 0013, ADR 0009 withdrawn, ADR 0004 amended). It
+> takes the two user stories that covered it with it, and it removes the last secret from the
+> database — which is worth more than the feature was.
 
 ## Status
 
@@ -35,7 +38,8 @@ Global settings (14a) are **done**: canonical list, movable list and Drive paren
 editable at `/settings`, validated and NFC-normalised on save, with an impact preview and settings
 domain events. See the amendment in ADR 0007.
 
-Per-company profiles and the statement password (14b) remain, blocked on slice 08.
+Per-company profiles (14b) remain. They are no longer blocked on anything, because what blocked
+them was slice 08.
 
 ## Acceptance criteria
 
@@ -44,15 +48,11 @@ Per-company profiles and the statement password (14b) remain, blocked on slice 0
       and how many would become recognised
 - [x] Movable-folder list is editable and stored; wiring it into `LateArrivals` belongs to slice 13
 - [ ] Per-company folder template override is honoured when scaffolding a month
-- [ ] Statement password can be set per company and is stored encrypted
-- [ ] The raw database file does not contain any password plaintext
-- [ ] A rotated password prompts once on decryption failure, saves, and retries successfully
-- [ ] A successful decryption never prompts
 - [ ] Marking a company inactive removes it from the work list and retains its history
 - [ ] The scaffolding template in effect is visible before it is applied
+- [ ] No settings surface asks for, stores or displays a bank statement password
 - [ ] Integration test: change the movable list, verify a previously-proposed move becomes a warning
 
 ## Blocked by
 
 - 03 — Drive sweep to company and month tree, read-only
-- 08 — Statement decrypt, parse and reconcile

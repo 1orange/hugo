@@ -1,7 +1,7 @@
 # 05 — Month close, reopen and folder scaffolding
 
 Type: AFK
-User stories: 16, 17, 21, 22, 23, 24
+User stories: 17, 18, 19, 20, 21, 22
 
 ## Parent
 
@@ -25,19 +25,29 @@ missing, they are created. Nothing depends on a scheduler, per ADR 0003.
 For this slice the template is the seeded canonical list; slice 14 adds per-company overrides.
 
 The company list gains a stage indicator so she can see at a glance where each client sits in the
-cycle: collect → extract → pair → tick → export → close.
+cycle: collect → extract → decide → export → close.
+
+> **Amended, 2026-08-30.** The cycle read `collect → extract → pair → tick → export → close`. The
+> `pair` stage is gone with ADR 0013 and `tick` is renamed `decide`, because a document now reaches
+> one of two terminal states rather than carrying a single tick. The `"pair"` member of
+> `CompanyStage` is retired in slice 22.
+
+## Status
+
+Done, on the pre-ADR-0013 stage vocabulary. The scaffolding, close and reopen behaviour is
+unaffected by the scope change.
 
 ## Acceptance criteria
 
 - [ ] Closing a month writes `closedAt` and emits `MonthClosed`
 - [ ] The open month is derived as the most recent month without `closedAt`, never guessed from folder contents or the calendar
-- [ ] A closed month renders read-only — no ticking, pairing, editing or export
+- [ ] A closed month renders read-only — no decisions, editing or export
 - [ ] Reopening clears `closedAt` and emits `MonthReopened`
 - [ ] Closing month N creates month N+1's folders with canonical names
 - [ ] Loading the dashboard creates the open month's folders if absent
 - [ ] Folder creation is idempotent — an existing folder is not duplicated
 - [ ] Month-root VAT output PDFs are never created, renamed, moved or deleted by any code path
-- [ ] Company list shows each company's current stage and its unticked count
+- [ ] Company list shows each company's current stage and its awaiting-decision count
 - [ ] Integration test: close, verify scaffolding and read-only state, reopen, verify the month is editable again
 
 ## Blocked by

@@ -1,7 +1,7 @@
 # 13 — Late arrivals log and move proposals
 
 Type: AFK
-User stories: 55, 56, 57, 58, 59, 60, 61, 62
+User stories: 45, 46, 47, 48, 49, 50, 51, 52
 
 ## Parent
 
@@ -48,7 +48,7 @@ Destination is the open month, same folder slot, created with the canonical name
 - [ ] Undo returns the file to its original parent and marks the mutation undone
 - [ ] A file reporting `canMoveItemWithinDrive: false` is not moved and surfaces an explanatory warning
 - [ ] A missing destination folder is created with the canonical name rather than failing the move
-- [ ] A moved file retains its extraction, pairings and tick — file-ID keying proven again
+- [ ] A moved file retains its extraction and her decision — file-ID keying proven again
 - [ ] `Moved` events emitted for both the move and the undo
 - [ ] E2E: confirm a batch, then undo one move
 

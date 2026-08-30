@@ -1,7 +1,7 @@
 # 17 — Drive push webhook
 
 Type: AFK
-User stories: 11 (latency aspect)
+User stories: 9 (latency aspect)
 
 ## Parent
 

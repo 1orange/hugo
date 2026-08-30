@@ -1,7 +1,7 @@
 # 03 — Drive sweep to company and month tree, read-only
 
 Type: AFK
-User stories: 2, 3, 11, 12, 13, 14, 15
+User stories: 2, 3, 9, 10, 11, 12, 13
 
 ## Parent
 
@@ -36,6 +36,12 @@ wait on slice 02 to be completed and verified.
 Screens: company list showing each company and its open month; month view listing documents grouped
 by folder slot; the four VAT output PDFs at the month root shown but explicitly marked as
 untouchable outputs. Last successful sweep time is visible.
+
+## Status
+
+Done. Two later slices build on these screens rather than replacing this work: slice 21 turns the
+company list into the chase dashboard, and slice 22 merges the month view with the reconciliation
+route into one document screen.
 
 ## Acceptance criteria
 

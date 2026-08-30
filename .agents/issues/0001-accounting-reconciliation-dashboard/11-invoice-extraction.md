@@ -1,7 +1,7 @@
 # 11 — Invoice text extraction and field confirmation
 
 Type: AFK
-User stories: 35, 36, 37, 38, 39, 40, 41
+User stories: 31, 32, 33, 34, 35, 36, 37
 
 ## Parent
 
@@ -16,14 +16,19 @@ covers 60 of the 61 received invoices in the sample. That text goes to a small m
 `Extractor` port for field structuring, running on cheap text tokens rather than images. The port's
 interface is stable so the implementation can be swapped or stubbed; every test uses a stub.
 
-`InvoiceFields` normalises and validates the result. It owns the **base + VAT == total** assertion,
-which is the extraction equivalent of the statement balance check: a misread digit in an amount is
-otherwise invisible downstream. It also owns currency normalisation, date sanity, and the merge
-rule that **a manual correction always wins over a re-extraction**.
+`InvoiceFields` normalises and validates the result. It owns the **base + VAT == total** assertion:
+a misread digit in an amount is otherwise invisible downstream. It also owns currency
+normalisation, date sanity, and the merge rule that **her confirmed payload always wins over a
+re-extraction**. Per ADR 0004's amendment those are two separate JSON payloads on the document, not
+one field set overwritten in place, so a later parser improvement cannot destroy what she typed.
 
-The reconciliation view gains a fields panel beside the document preview showing supplier, IČO,
-IČ DPH, invoice number, variabilný symbol, issue date, delivery date, base and VAT per rate, total
-and currency. Every field is editable and her edit persists.
+The document view gains a fields panel beside the preview showing supplier, IČO, IČ DPH, invoice
+number, variabilný symbol, issue date, delivery date, base and VAT per rate, total and currency.
+Every field is editable and her edit persists.
+
+Received invoices are `02`; issued invoices in `01` are in scope too, since she books revenue from
+them and 39 of the sample's 151 files are issued invoices with clean text layers throughout
+(ADR 0013). The same port and the same payload shape cover both.
 
 Extraction is triggered on discovery and runs a few documents in parallel; the UI shows pending
 state rather than blocking, so opening a month stays fast when many documents are new.
@@ -39,12 +44,12 @@ accuracy plus the arithmetic-check pass rate. It runs on demand, not in the norm
 - [ ] Multiple VAT rates sum correctly to the total
 - [ ] Foreign currency is preserved, never silently converted to euro
 - [ ] An implausible delivery date is flagged rather than accepted
-- [ ] A manual correction survives a subsequent re-extraction of the same document
+- [ ] Her confirmed payload survives a subsequent re-extraction of the same document, which only rewrites the extracted payload
 - [ ] Extracted fields render beside the document preview and every field is editable
 - [ ] Extraction pending state is visible and does not block the month view
 - [ ] Several documents extract concurrently without exhausting the box
 - [ ] Scoring harness reports per-field exact-match accuracy against the labelled fixtures
-- [ ] A document whose extraction fails is queued for manual entry with a reason, never silently skipped
+- [ ] A document whose extraction fails presents an empty, editable payload with the reason stated, never silently skipped and never a separate queue
 - [ ] `Extracted` events are emitted
 - [ ] E2E: correct a field, reload, see the correction persist
 

@@ -82,6 +82,46 @@ regenerating it.
   10, though the legal requirement (the ECB rate from the day before the accounting event) still
   argues for letting Omega fill rates from its own kurzový lístok rather than the app guessing.
 
+### Amendment, 2026-08-30: document type codes, verified in full
+
+The research reported codes piecemeal and left `01 Vystavené faktúry` and `06 Iné doklady` without
+one. The `EUD` sheet lists the complete set, so the gap was in the reporting, not in Omega:
+
+`100` OF issued invoice · `110` OPF issued advance invoice · `120` OD issued credit note ·
+`130` DF received invoice · `140` DPF received advance invoice · `150` DD received credit note ·
+`160` PD cash document · `170` BV bank statement · `180` ID internal document · `190` CD
+
+Codes `300`–`390` are the foreign-currency twins in the same order, prefixed `z`.
+
+Issued invoices are therefore `100`, or `300` in foreign currency. `06 Iné doklady` still has no
+mapping, and cannot have one: it is a folder for miscellaneous documents, so its code depends on what
+each document turns out to be. That stays a per-document question, not a configuration one.
+
+### Amendment, 2026-08-30: the accounts decision collides with the spec
+
+It was decided that the app would emit documents **without** double-entry accounts and she would post
+them in Omega, on the principle that the app does not encode accounting judgement (ADR 0010).
+
+Reading the spec's cell colouring directly contradicts the feasibility of that. In the `T00` item
+block, `MD synteticky ucet`, `MD analyticky ucet`, `DAL synteticky ucet` and `DAL analyticky ucet` are
+all shaded mandatory-yellow (255,255,153), the same marking as the item amount and text. A later item
+variant relaxes the two analytic fields to optional but keeps MD synthetic mandatory. No EUD item
+variant appears to permit omitting the synthetic account.
+
+What remains genuinely unknown is whether the yellow marking means *a value is required* or merely
+*the tab position must exist*. The research inferred the latter; nothing in the spec states it. The
+distinction decides whether the intended workflow is possible at all, so it is not something to
+assume in either direction.
+
+If accounts do turn out to be required, the options are a posting map she configures, a per-supplier
+memory learned from her own past postings, or a single placeholder account pair she nominates and then
+reclassifies inside Omega. The third keeps the app out of accounting judgement while satisfying the
+format, but it means every imported document lands mis-posted, and whether that is less work than
+posting from scratch is her call, not ours.
+
+Her sample export settles it: any document she has posted will show real accounts in the file, and an
+unposted one will show whatever Omega itself emits.
+
 ## Unknowns, deliberately not guessed
 
 - **The decimal separator for amounts.** Independently verified as absent: the spreadsheet contains

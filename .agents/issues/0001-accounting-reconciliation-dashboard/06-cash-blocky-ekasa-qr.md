@@ -1,7 +1,7 @@
-# 06 — Cash bločky as payments via eKasa QR
+# 06 — eKasa receipt extraction from the text layer
 
 Type: AFK
-User stories: 31, 32, 34
+User stories: 27, 28, 29 (the detection half; the empty-payload half is slice 22)
 
 ## Parent
 
@@ -9,42 +9,58 @@ PRD 0001 — Accounting Reconciliation Dashboard (`.agents/prds/0001-accounting-
 
 ## What to build
 
-The first payments in the system, produced without depending on any human artifact — which is why
-this comes before the bank statement parser.
+The first extracted data in the system, produced without depending on any human artifact — which is
+why this comes early.
 
-Per ADR 0002 a cash bloček from `04 Bločky_hotovosť` is a payment in its own right: money left the
-till, and the document proving it arrived attached. It will never match a bank line, so it is not
-something to pair — it flows to Omega on its own.
+`EkasaText` is a pure module mapping eBloček text-layer lines to receipt facts: the payable total
+with its currency from the `NA ÚHRADU` line, a four-digit-year local timestamp resolved for
+Europe/Bratislava, per-item name, VAT rate, quantity and unit price, the VAT recapitulation per
+rate, and the UID and OKP. Text items are grouped into lines by y-coordinate; flattening
+`getTextContent()` destroys the columns. Names are normalised to NFC at the extractor boundary.
 
-Per ADR 0008 the amount does not need reading. The eKasa QR code is specified by Finančná správa
-and carries the figure authoritatively. Two documented payload variants must be handled:
+Two arithmetic self-checks must both pass before the values are offered to her: the item line
+totals sum to the payable total, and `SPOLU` base plus VAT equals it too. A receipt failing either
+is shown with the discrepancy stated rather than accepted.
 
-- the 34-character unique receipt identifier (UID), and
-- the composite form: OKP (44 chars) + register code (16–17) + timestamp as `YYMMDDHHMISS` +
-  sequence number (1–6 chars) + total amount (1–12 chars).
+Anything in `04` or `05` that is not an eBloček — airline, train and bus tickets, ride-hailing
+invoices, fuel receipts, phone photos — is detected and left with an empty payload, never
+half-parsed.
 
-`EkasaQr` is a pure module mapping a decoded payload string to receipt facts. `PdfAccess` gains
-embedded-image extraction, and QR decoding runs through a WASM zxing binding — no native
-dependency.
+> **Amended, 2026-08-28 (ADR 0008).** This slice was specified as *"Cash bločky as payments via
+> eKasa QR"*, decoding the fiscal QR code for amount and timestamp. Measuring the real corpus
+> overturned it: all six eBločeks carry the UID-only QR variant, which by specification holds
+> neither, and the QR is drawn as vector paths so decoding it needs a full page render and a native
+> canvas dependency. The text layer already contains everything, in a regular labelled structure.
+> The file name still says `ekasa-qr`; the implementation does not, and neither does anything else.
+>
+> **Amended, 2026-08-30 (ADR 0013, ADR 0010).** Two further things this slice built are superseded.
+> A cash bloček is no longer a `Payment` in its own right — it is a `Document`, like every other
+> file in a processed folder, and whether it is cash or card is derived from the folder rather than
+> stored. And the `receipt_manual_queue` table is retired: because she confirms every document
+> regardless of which path produced its data, a receipt the parser could not read is simply a
+> document with an empty payload, not a separate queue. Both are carried out in slice 22.
 
-A receipt with no readable QR is flagged for manual entry and queued, never silently skipped.
-There is no OCR fallback by design.
+## Status
 
-The month view gains a payments section listing cash payments with amount, timestamp and source
-document.
+Done, against the text layer. All six eBločeks in the spring corpus parse with both arithmetic
+checks passing, and the fourteen non-receipts in those folders are detected rather than
+half-parsed. The rows it writes are `payments` and `receipt_manual_queue` rows; slice 22 reshapes
+them into `documents`.
 
 ## Acceptance criteria
 
-- [ ] `EkasaQr` parses the UID variant and the composite variant
-- [ ] Total amount and timestamp are extracted exactly, with no rounding or locale coercion
-- [ ] Field-length boundaries at the edges of the specification are accepted
-- [ ] A malformed payload is rejected with a reason, never coerced into a partial result
-- [ ] QR codes are decoded from the embedded images of real eBloček PDFs in `04` and `05`
-- [ ] A cash bloček becomes a `Payment` with `source = cash` referencing its source file
-- [ ] A receipt with no readable QR appears in a manual-entry queue with an explanation
-- [ ] Re-running discovery on the same receipt does not create a duplicate payment
-- [ ] Cash payments appear in the month view with amount, timestamp and a link to the document
-- [ ] Integration test: a fixture eBloček produces exactly one cash payment with the expected amount and timestamp
+- [x] `EkasaText` parses the payable total, currency and timestamp from a real eBloček's text layer
+- [x] Per-item name, rate, quantity, unit price and the VAT recapitulation are extracted
+- [x] Item rows and recapitulation rows are distinguished by formatting, not by position
+- [x] Amounts compare by value in minor units, so a dropped trailing zero does not fail a check
+- [x] Timestamps resolve for Europe/Bratislava and are correct on both sides of the DST boundary
+- [x] Both arithmetic checks pass on all six real receipts, and a tampered fixture fails
+- [x] NFD-normalised PDF text still matches the Slovak labels
+- [x] A non-eBloček in `04` or `05` is detected and not half-parsed
+- [x] Re-running discovery on the same receipt does not duplicate its data
+- [x] Extracted receipt data appears in the month view with amount, timestamp and a link to the document
+- [x] Integration test: a fixture eBloček yields exactly the expected amount and timestamp
+- [ ] A receipt the parser cannot read presents an empty, editable payload rather than a queue entry — slice 22
 
 ## Blocked by
 
@@ -53,6 +69,8 @@ document.
 ## Notes
 
 There is no public API for third-party eKasa lookup — verification exists only as the
-`Over doklad` web app and the ePeňaženka mobile app. The QR is therefore the only authoritative
-source available offline, and VAT breakdown and supplier must come from the receipt's own text
-layer later. See PRD open question 6.
+`Over doklad` web app and the ePeňaženka mobile app — so a receipt's VAT breakdown and supplier
+come from its own text layer. See PRD open question 6, resolved.
+
+Multi-rate receipts remain unverified: Slovakia has 23%, 19% and 5% rates and the parser supports
+multiple recapitulation rows, but every receipt in the sample is single-rate 23%.

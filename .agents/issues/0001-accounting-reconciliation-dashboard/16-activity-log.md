@@ -1,7 +1,7 @@
 # 16 — Per-company activity log
 
 Type: AFK
-User stories: 70, 71, 72
+User stories: 64, 65, 66
 
 ## Parent
 
@@ -32,6 +32,11 @@ this slice is also the point at which the vocabulary gets fixed and documented.
 
 Done. Per-company log at `/companies/[companyId]/activity`, global settings events at `/activity`,
 vocabulary in `src/modules/activity-log.ts`. See the amendment in ADR 0012.
+
+The `Paired` and `Unpaired` entries in that vocabulary have nothing left to emit them under
+ADR 0013. Slice 22 removes them, which is only safe because nothing is deployed and no event
+history exists; with real history they would have to stay as read-only vocabulary, since a renamed
+or missing type breaks the readability of the past.
 
 ## Acceptance criteria
 
