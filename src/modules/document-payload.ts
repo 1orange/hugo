@@ -66,3 +66,42 @@ export function isEkasaPayload(
 export function serializeExtractedPayload(payload: ExtractedPayload): string {
   return JSON.stringify(payload);
 }
+
+/** Her corrections — partial; only saved fields are written. */
+export type ConfirmedPayload = {
+  supplierName?: string | null;
+  dic?: string | null;
+  ico?: string | null;
+  icDph?: string | null;
+  receiptNumber?: string | null;
+  receiptAt?: string | null;
+  receiptTimestampRaw?: string | null;
+  currency?: string | null;
+  amountCents?: number | null;
+  amountLiteral?: string | null;
+  recapBaseCents?: number | null;
+  recapBaseLiteral?: string | null;
+  recapVatCents?: number | null;
+  recapVatLiteral?: string | null;
+  vatRecap?: DocumentVatRecapRow[];
+};
+
+export function emptyConfirmedPayload(): ConfirmedPayload {
+  return {};
+}
+
+export function parseConfirmedPayload(json: string): ConfirmedPayload {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as ConfirmedPayload;
+    }
+  } catch {
+    // ponytail: corrupt rows render as empty confirmed payload
+  }
+  return {};
+}
+
+export function serializeConfirmedPayload(payload: ConfirmedPayload): string {
+  return JSON.stringify(payload);
+}

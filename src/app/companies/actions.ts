@@ -20,6 +20,7 @@ import {
 import {
   confirmDocument,
   dismissDocument,
+  saveDocumentFields,
   saveDocumentNote,
 } from "@/lib/documents/service";
 import { runSweep } from "@/lib/sweep/run-sweep";
@@ -205,6 +206,35 @@ export async function saveDocumentNoteAction(input: {
   note: string;
 }): Promise<MutationActionResult> {
   const result = saveDocumentNote(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function saveDocumentFieldsAction(input: {
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  fields: {
+    supplierName: string;
+    ico: string;
+    dic: string;
+    icDph: string;
+    receiptNumber: string;
+    receiptTimestampRaw: string;
+    currency: string;
+    amountLiteral: string;
+    recapBaseLiteral: string;
+    recapVatLiteral: string;
+    vatRecap: Array<{
+      rateLiteral: string;
+      baseLiteral: string;
+      vatLiteral: string;
+    }>;
+  };
+}): Promise<MutationActionResult> {
+  const result = saveDocumentFields(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }

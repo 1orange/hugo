@@ -3,8 +3,13 @@ import {
   getDocument,
   setDocumentDecision,
   updateDocumentNote,
+  writeConfirmedPayload,
 } from "@/adapters/store/documents";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
+import {
+  parseConfirmedFieldsFromInput,
+  type DocumentFieldFormInput,
+} from "@/modules/document-fields";
 
 export type DocumentActionResult =
   | { ok: true }
@@ -102,5 +107,34 @@ export function saveDocumentNote(input: {
   }
 
   updateDocumentNote(input.driveFileId, input.note.trim() || null);
+  return { ok: true };
+}
+
+export function saveDocumentFields(input: {
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  fields: DocumentFieldFormInput;
+}): DocumentActionResult {
+  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  if (readOnly) {
+    return readOnly;
+  }
+
+  const document = getDocument(input.driveFileId);
+  if (
+    !document ||
+    document.companyId !== input.companyId ||
+    document.monthKey !== input.monthKey
+  ) {
+    return { ok: false, message: "Document not found in this month." };
+  }
+
+  const parsed = parseConfirmedFieldsFromInput(input.fields);
+  if (!parsed.ok) {
+    return { ok: false, message: parsed.reason };
+  }
+
+  writeConfirmedPayload(input.driveFileId, parsed.payload);
   return { ok: true };
 }

@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DocumentActionResult } from "@/lib/documents/service";
 import { useRouter } from "next/navigation";
-import type { MonthDocumentView } from "@/lib/documents/view";
+import type { DocumentListItem, MonthDocumentView } from "@/lib/documents/view";
+import { checkArithmeticWarning } from "@/modules/document-fields";
 import { driveFileViewUrl, previewKindForMimeType } from "@/modules/file-preview";
 import {
   confirmDocumentFormAction,
   dismissDocumentAction,
+  saveDocumentFieldsAction,
   saveDocumentNoteAction,
 } from "../../actions";
 
@@ -236,23 +238,22 @@ export function DocumentPanel({
                 mimeType={selectedDocument.mimeType}
                 name={selectedDocument.name}
               />
-              {selectedDocument.hasExtractedData ? (
-                <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <dt className="text-muted-foreground">Amount</dt>
-                    <dd>{selectedDocument.amountDisplay}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">Receipt time</dt>
-                    <dd>{selectedDocument.receiptDisplay}</dd>
-                  </div>
-                </dl>
-              ) : (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  No extracted fields. Read them off the preview and type them into
-                  Omega directly for now — there is no field editor here yet.
-                </p>
-              )}
+              <DocumentFieldEditor
+                key={selectedDocument.driveFileId}
+                document={selectedDocument}
+                readOnly={view.readOnly}
+                disabled={pending}
+                onSave={(fields) =>
+                  runAction(() =>
+                    saveDocumentFieldsAction({
+                      companyId,
+                      monthKey,
+                      driveFileId: selectedDocument.driveFileId,
+                      fields,
+                    }),
+                  )
+                }
+              />
             </>
           ) : (
             <p className="text-sm text-muted-foreground">Select a document.</p>
@@ -267,6 +268,389 @@ export function DocumentPanel({
       ) : null}
     </div>
   );
+}
+
+type VatRecapRowInput = {
+  rateLiteral: string;
+  baseLiteral: string;
+  vatLiteral: string;
+};
+
+function DocumentFieldEditor({
+  document,
+  readOnly,
+  disabled,
+  onSave,
+}: {
+  document: DocumentListItem;
+  readOnly: boolean;
+  disabled: boolean;
+  onSave: (fields: {
+    supplierName: string;
+    ico: string;
+    dic: string;
+    icDph: string;
+    receiptNumber: string;
+    receiptTimestampRaw: string;
+    currency: string;
+    amountLiteral: string;
+    recapBaseLiteral: string;
+    recapVatLiteral: string;
+    vatRecap: VatRecapRowInput[];
+  }) => void;
+}) {
+  const { fields, provenance, nonEurCurrency } = document.fieldEditor;
+  const [supplierName, setSupplierName] = useState(fields.supplierName);
+  const [ico, setIco] = useState(fields.ico);
+  const [dic, setDic] = useState(fields.dic);
+  const [icDph, setIcDph] = useState(fields.icDph);
+  const [receiptNumber, setReceiptNumber] = useState(fields.receiptNumber);
+  const [receiptTimestampRaw, setReceiptTimestampRaw] = useState(
+    fields.receiptTimestampRaw,
+  );
+  const [currency, setCurrency] = useState(fields.currency);
+  const [amountLiteral, setAmountLiteral] = useState(fields.amountLiteral);
+  const [recapBaseLiteral, setRecapBaseLiteral] = useState(fields.recapBaseLiteral);
+  const [recapVatLiteral, setRecapVatLiteral] = useState(fields.recapVatLiteral);
+  const [vatRecap, setVatRecap] = useState<VatRecapRowInput[]>(
+    fields.vatRecap.length > 0
+      ? fields.vatRecap.map((row) => ({
+          rateLiteral: row.rateLiteral,
+          baseLiteral: row.baseLiteral,
+          vatLiteral: row.vatLiteral,
+        }))
+      : [{ rateLiteral: "", baseLiteral: "", vatLiteral: "" }],
+  );
+
+  useEffect(() => {
+    setSupplierName(fields.supplierName);
+    setIco(fields.ico);
+    setDic(fields.dic);
+    setIcDph(fields.icDph);
+    setReceiptNumber(fields.receiptNumber);
+    setReceiptTimestampRaw(fields.receiptTimestampRaw);
+    setCurrency(fields.currency);
+    setAmountLiteral(fields.amountLiteral);
+    setRecapBaseLiteral(fields.recapBaseLiteral);
+    setRecapVatLiteral(fields.recapVatLiteral);
+    setVatRecap(
+      fields.vatRecap.length > 0
+        ? fields.vatRecap.map((row) => ({
+            rateLiteral: row.rateLiteral,
+            baseLiteral: row.baseLiteral,
+            vatLiteral: row.vatLiteral,
+          }))
+        : [{ rateLiteral: "", baseLiteral: "", vatLiteral: "" }],
+    );
+  }, [document.driveFileId, fields]);
+
+  const draftFields = {
+    supplierName,
+    ico,
+    dic,
+    icDph,
+    receiptNumber,
+    receiptTimestampRaw,
+    receiptAt: fields.receiptAt,
+    currency,
+    amountLiteral,
+    amountCents: amountLiteral ? fields.amountCents : null,
+    recapBaseLiteral,
+    recapBaseCents: recapBaseLiteral ? fields.recapBaseCents : null,
+    recapVatLiteral,
+    recapVatCents: recapVatLiteral ? fields.recapVatCents : null,
+    vatRecap: fields.vatRecap,
+  };
+
+  const localWarning = checkArithmeticWarning({
+    ...draftFields,
+    amountCents: parseDraftCents(amountLiteral),
+    recapBaseCents: parseDraftCents(recapBaseLiteral),
+    recapVatCents: parseDraftCents(recapVatLiteral),
+  });
+
+  function handleSave() {
+    onSave({
+      supplierName,
+      ico,
+      dic,
+      icDph,
+      receiptNumber,
+      receiptTimestampRaw,
+      currency,
+      amountLiteral,
+      recapBaseLiteral,
+      recapVatLiteral,
+      vatRecap,
+    });
+  }
+
+  return (
+    <div className="mt-4 space-y-3" data-testid="document-field-editor">
+      <h3 className="text-sm font-medium">Document fields</h3>
+
+      {nonEurCurrency ? (
+        <p className="text-sm text-amber-800" data-testid="non-eur-warning">
+          Currency is {currency}. No exchange rate is applied — enter the EUR
+          amount you want booked.
+        </p>
+      ) : null}
+
+      {localWarning ? (
+        <p className="text-sm text-amber-800" data-testid="arithmetic-warning">
+          {localWarning}
+        </p>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <FieldInput
+          label="Supplier"
+          value={supplierName}
+          provenance={provenance.supplierName}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setSupplierName}
+          testId="field-supplier-name"
+        />
+        <FieldInput
+          label="IČO"
+          value={ico}
+          provenance={provenance.ico}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setIco}
+          testId="field-ico"
+        />
+        <FieldInput
+          label="DIČ"
+          value={dic}
+          provenance={provenance.dic}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setDic}
+          testId="field-dic"
+        />
+        <FieldInput
+          label="IČ DPH"
+          value={icDph}
+          provenance={provenance.icDph}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setIcDph}
+          testId="field-ic-dph"
+        />
+        <FieldInput
+          label="Document number"
+          value={receiptNumber}
+          provenance={provenance.receiptNumber}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setReceiptNumber}
+          testId="field-receipt-number"
+        />
+        <FieldInput
+          label="Date, time optional"
+          value={receiptTimestampRaw}
+          provenance={provenance.receiptTimestampRaw}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setReceiptTimestampRaw}
+          testId="field-receipt-timestamp"
+          placeholder="16.04.2026 or 16.04.2026 14:05:59"
+        />
+        <FieldInput
+          label="Currency"
+          value={currency}
+          provenance={provenance.currency}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setCurrency}
+          testId="field-currency"
+        />
+        <FieldInput
+          label="Total"
+          value={amountLiteral}
+          provenance={provenance.amountLiteral}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setAmountLiteral}
+          testId="field-amount"
+        />
+        <FieldInput
+          label="VAT base (SPOLU)"
+          value={recapBaseLiteral}
+          provenance={provenance.recapBaseLiteral}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setRecapBaseLiteral}
+          testId="field-recap-base"
+        />
+        <FieldInput
+          label="VAT amount (SPOLU)"
+          value={recapVatLiteral}
+          provenance={provenance.recapVatLiteral}
+          readOnly={readOnly}
+          disabled={disabled}
+          onChange={setRecapVatLiteral}
+          testId="field-recap-vat"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">VAT by rate</p>
+        {vatRecap.map((row, index) => (
+          <div
+            key={index}
+            className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
+            data-testid={`vat-recap-row-${index}`}
+          >
+            <input
+              className="rounded border border-border px-2 py-1 text-xs"
+              value={row.rateLiteral}
+              readOnly={readOnly}
+              disabled={disabled}
+              onChange={(event) =>
+                updateVatRow(index, { rateLiteral: event.target.value })
+              }
+              placeholder="Rate %"
+              data-testid={`field-vat-rate-${index}`}
+            />
+            <input
+              className="rounded border border-border px-2 py-1 text-xs"
+              value={row.baseLiteral}
+              readOnly={readOnly}
+              disabled={disabled}
+              onChange={(event) =>
+                updateVatRow(index, { baseLiteral: event.target.value })
+              }
+              placeholder="Base"
+              data-testid={`field-vat-base-${index}`}
+            />
+            <input
+              className="rounded border border-border px-2 py-1 text-xs"
+              value={row.vatLiteral}
+              readOnly={readOnly}
+              disabled={disabled}
+              onChange={(event) =>
+                updateVatRow(index, { vatLiteral: event.target.value })
+              }
+              placeholder="VAT"
+              data-testid={`field-vat-amount-${index}`}
+            />
+            {!readOnly && vatRecap.length > 1 ? (
+              <button
+                type="button"
+                className="text-xs underline"
+                disabled={disabled}
+                onClick={() => removeVatRow(index)}
+              >
+                Remove
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {!readOnly ? (
+          <button
+            type="button"
+            className="text-xs underline"
+            disabled={disabled}
+            onClick={addVatRow}
+            data-testid="add-vat-recap-row"
+          >
+            Add VAT rate
+          </button>
+        ) : null}
+        {provenance.vatRecap === "extracted" ? (
+          <p className="text-xs text-muted-foreground">From extraction</p>
+        ) : null}
+      </div>
+
+      {!readOnly ? (
+        <button
+          type="button"
+          className="rounded border border-border px-3 py-1 text-sm"
+          disabled={disabled}
+          onClick={handleSave}
+          data-testid="save-document-fields"
+        >
+          Save fields
+        </button>
+      ) : null}
+    </div>
+  );
+
+  function updateVatRow(index: number, patch: Partial<VatRecapRowInput>) {
+    setVatRecap((rows) =>
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...patch } : row,
+      ),
+    );
+  }
+
+  function addVatRow() {
+    setVatRecap((rows) => [
+      ...rows,
+      { rateLiteral: "", baseLiteral: "", vatLiteral: "" },
+    ]);
+  }
+
+  function removeVatRow(index: number) {
+    setVatRecap((rows) => rows.filter((_, rowIndex) => rowIndex !== index));
+  }
+}
+
+function FieldInput({
+  label,
+  value,
+  provenance,
+  readOnly,
+  disabled,
+  onChange,
+  testId,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  provenance: "confirmed" | "extracted" | "empty";
+  readOnly: boolean;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  testId: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      {provenance === "extracted" ? (
+        <span className="ml-1 text-muted-foreground">(from extraction)</span>
+      ) : null}
+      <input
+        className="mt-0.5 w-full rounded border border-border px-2 py-1"
+        value={value}
+        readOnly={readOnly}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        data-testid={testId}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
+function parseDraftCents(literal: string): number | null {
+  const trimmed = literal.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = /^(\d{1,10})(?:\.(\d{1,2}))?$/.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const whole = match[1]!;
+  const fraction = match[2] ?? "";
+  const centsFromFraction =
+    fraction.length === 0 ? 0 : fraction.length === 1 ? Number(fraction) * 10 : Number(fraction);
+  return Number(whole) * 100 + centsFromFraction;
 }
 
 function DocumentNoteEditor({

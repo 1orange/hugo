@@ -4,6 +4,8 @@ import { getDb } from "@/lib/db/migrate";
 import {
   emptyExtractedPayload,
   serializeExtractedPayload,
+  serializeConfirmedPayload,
+  type ConfirmedPayload,
   type EkasaExtractedPayload,
   type ExtractedPayload,
 } from "@/modules/document-payload";
@@ -198,6 +200,18 @@ export function writeExtractedPayload(
       extractionStatus: status,
       extractionFailureReason: failureReason,
     })
+    .where(eq(documents.driveFileId, driveFileId))
+    .run();
+  return getDocument(driveFileId);
+}
+
+export function writeConfirmedPayload(
+  driveFileId: string,
+  payload: ConfirmedPayload,
+): DocumentRow | undefined {
+  const db = getDb();
+  db.update(documents)
+    .set({ confirmedPayloadJson: serializeConfirmedPayload(payload) })
     .where(eq(documents.driveFileId, driveFileId))
     .run();
   return getDocument(driveFileId);

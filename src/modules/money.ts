@@ -10,11 +10,15 @@ export type MoneyParseError = {
 
 export type MoneyParseResult = ParsedMoney | MoneyParseError;
 
-const AMOUNT_PATTERN = /^(\d{1,10})(?:\.(\d{1,2}))?$/;
+// Either separator: documents print `1.20`, but she types on a Slovak keyboard
+// and will write `1,20`. Exactly one separator is allowed, so a thousands-grouped
+// string like `1,009.00` is still rejected rather than silently misread.
+const AMOUNT_PATTERN = /^(\d{1,10})(?:[.,](\d{1,2}))?$/;
 
 /**
  * Parse a decimal amount into integer minor units (cents). The literal source
- * string is preserved exactly — never round-trip through a float.
+ * string is preserved exactly — never round-trip through a float — including
+ * whichever decimal separator it arrived with; `cents` is the canonical value.
  */
 export function parseDecimalAmount(input: string): MoneyParseResult {
   const literal = input.trim();
@@ -24,7 +28,11 @@ export function parseDecimalAmount(input: string): MoneyParseResult {
 
   const match = AMOUNT_PATTERN.exec(literal);
   if (!match) {
-    return { ok: false, reason: "Amount must be a decimal with up to two fractional digits." };
+    return {
+      ok: false,
+      reason:
+        "Amount must be a decimal with up to two fractional digits, using either , or . as the separator.",
+    };
   }
 
   const whole = match[1]!;

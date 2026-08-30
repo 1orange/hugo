@@ -5,7 +5,6 @@ import {
   listDocumentsForMonth,
 } from "@/adapters/store/documents";
 import { getMonthByKey, getOpenMonthKey } from "@/adapters/store/months";
-import { formatEuroFromCents } from "@/modules/money";
 import {
   countAwaitingDecision,
   deriveDocumentStatus,
@@ -15,9 +14,24 @@ import {
   type ProcessedFolderSlot,
 } from "@/modules/document-state";
 import {
+  checkArithmeticWarning,
+  effectiveAmountDisplay,
+  mergeDocumentFields,
+  type EditableDocumentFields,
+  type FieldProvenanceMap,
+} from "@/modules/document-fields";
+import {
   isEkasaPayload,
+  parseConfirmedPayload,
   parseExtractedPayload,
 } from "@/modules/document-payload";
+
+export type DocumentFieldEditorView = {
+  fields: EditableDocumentFields;
+  provenance: FieldProvenanceMap;
+  arithmeticWarning: string | null;
+  nonEurCurrency: boolean;
+};
 
 export type DocumentListItem = {
   driveFileId: string;
@@ -34,6 +48,7 @@ export type DocumentListItem = {
   derivedStatus: DerivedDocumentStatus;
   extractionFailureReason: string | null;
   hasExtractedData: boolean;
+  fieldEditor: DocumentFieldEditorView;
 };
 
 export type MonthDocumentView = {
@@ -57,26 +72,12 @@ function formatReceiptAt(receiptAt: string | null): string {
   }).format(new Date(receiptAt));
 }
 
-function formatAmount(
-  amountLiteral: string | null,
-  amountCents: number | null,
-  currency: string,
-): string {
-  if (amountLiteral) {
-    return `${amountLiteral} ${currency}`;
-  }
-  if (amountCents !== null) {
-    return `${formatEuroFromCents(amountCents)} ${currency}`;
-  }
-  return "—";
-}
-
 function documentLabel(
   name: string,
-  payload: ReturnType<typeof parseExtractedPayload>,
+  fields: EditableDocumentFields,
 ): string {
-  if (isEkasaPayload(payload) && payload.supplierName) {
-    return payload.supplierName;
+  if (fields.supplierName) {
+    return fields.supplierName;
   }
   return name;
 }
@@ -116,12 +117,10 @@ export function buildMonthDocumentView(
       }
 
       const payload = parseExtractedPayload(document.extractedPayloadJson);
-      const amountDisplay = isEkasaPayload(payload)
-        ? formatAmount(payload.amountLiteral, payload.amountCents, payload.currency)
-        : "—";
-      const receiptDisplay = isEkasaPayload(payload)
-        ? formatReceiptAt(payload.receiptAt)
-        : "—";
+      const confirmed = parseConfirmedPayload(document.confirmedPayloadJson);
+      const merged = mergeDocumentFields(payload, confirmed);
+      const amountDisplay = effectiveAmountDisplay(merged.fields);
+      const receiptDisplay = formatReceiptAt(merged.fields.receiptAt);
 
       return {
         driveFileId: document.driveFileId,
@@ -135,7 +134,7 @@ export function buildMonthDocumentView(
             : null,
         notRelevantReason: document.notRelevantReason,
         note: document.note,
-        label: documentLabel(file.name, payload),
+        label: documentLabel(file.name, merged.fields),
         amountDisplay,
         receiptDisplay,
         derivedStatus: deriveDocumentStatus({
@@ -146,6 +145,12 @@ export function buildMonthDocumentView(
         }),
         extractionFailureReason: document.extractionFailureReason,
         hasExtractedData: isEkasaPayload(payload),
+        fieldEditor: {
+          fields: merged.fields,
+          provenance: merged.provenance,
+          arithmeticWarning: checkArithmeticWarning(merged.fields),
+          nonEurCurrency: merged.nonEurCurrency,
+        },
       };
     })
     .filter((item): item is DocumentListItem => item !== null)
