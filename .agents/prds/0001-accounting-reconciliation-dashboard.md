@@ -521,13 +521,21 @@ at the same thing; withdrawn and resolved entries keep their numbers.
    presence is the only signal (ADR 0013, ADR 0009 withdrawn). No decrypted sample and no password
    is needed from her, and the app stores no secret as a result.
 3. ~~**Which bank goes first.**~~ **Withdrawn** with open question 2.
-4. **`canMoveItemWithinDrive` on a real client-uploaded file.** Clients upload into her folders,
-   so clients own those files. Editor access through folder inheritance should permit the move,
-   but this must be verified against one real file before the move feature is built. Blocks:
-   `LateArrivals` execution (detection is unaffected).
-5. **Single shared parent folder.** The service-account design assumes every company folder can
-   sit under one parent that gets shared once. Needs confirmation that she can reorganise that
-   way.
+4. **`canMoveItemWithinDrive` on a real client-uploaded file.** **No longer blocking, 2026-08-30**,
+   after a read-only probe of the live Drive (`scripts/probe-drive.mts`, counts only, no names).
+   Across **353 real documents** under the configured parent, `canMoveItemWithinDrive` and
+   `canRename` are **true on every one**, and the capability is *reported* on every one — never
+   absent, which is what the optional field in `DriveCapabilities` was defensive about.
+   **The strict question is still unobserved:** there is exactly one distinct document owner and it
+   is not the service account, so these are one human account's uploads — almost certainly hers. A
+   file genuinely owned by a *client* does not exist in the data yet.
+   This stops blocking `LateArrivals` regardless, because the capability is per file and already
+   read per file: slice 13 must check the flag at move time and refuse with an explanation when it
+   is false, rather than assuming an answer. Re-run the probe once a client has uploaded, to confirm
+   the common case rather than to unblock the work.
+5. **Single shared parent folder.** **Confirmed in practice, 2026-08-30.** All 353 documents resolve
+   under the configured parent, so the design holds. Provisioning is only **partial**: 2 companies
+   are under the parent against an eventual 5–15, so slice 02 is not finished.
 6. ~~**eBloček text layer.**~~ **Resolved, 2026-08-28.** `pdfjs-dist` reads these receipts fully;
    the earlier crude extractor was simply inadequate. `bloček_O-35E6…pdf` yields
    `Dátum a čas: 25.07.2026 11:30:27`, `NA ÚHRADU EUR | 1.20`, `SPOLU: | 0.98 | 0.22`, per-item rate

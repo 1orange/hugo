@@ -60,6 +60,12 @@ Normalisation is not the same as the folded comparison used to pick a repair tar
 diacritics entirely and is only ever used to *suggest*; normalisation makes two spellings of the same
 name equal, which is a correctness requirement for matching.
 
+Confirmed against the live Drive on 2026-08-30, once real credentials existed: **78 of 115 folder
+names arrive as NFD**, along with 129 document names. Two thirds of her folders. Without this
+normalisation almost every canonical folder in the account would have been classified as a repair
+candidate proposing a visually identical rename, which is the failure this amendment exists to
+prevent — and at that scale she would have been offered dozens of them.
+
 This is bounded fuzziness in service of a *suggestion*, not the fallback chain this ADR rejected.
 Slot assignment remains exact-name-only: a repair candidate keeps its observed name until she
 confirms the rename, so no document is ever filed into a canonical slot on the strength of a guess.
