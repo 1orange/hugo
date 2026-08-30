@@ -42,8 +42,12 @@ test("month view groups documents and marks VAT outputs", async ({ page }) => {
 
   await page.goto("/companies/1/2026_01");
   await expect(page).toHaveURL(/\/companies\/1\/2026_01$/);
-  await expect(page.getByText("02 Prijaté faktúry")).toBeVisible();
-  await expect(page.getByText("supplier-invoice.pdf")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "02 Prijaté faktúry", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("month-document").filter({ hasText: "supplier-invoice.pdf" }),
+  ).toBeVisible();
   await expect(page.getByTestId("folder-group-vat-output")).toBeVisible();
   await expect(page.getByText("vat-output.pdf")).toBeVisible();
   await expect(page.getByRole("heading", { name: "VAT outputs (read-only)" })).toBeVisible();

@@ -1,4 +1,3 @@
-import { CANONICAL_FOLDER_NAMES } from "@/modules/folder-taxonomy";
 import {
   isEkasaReceipt,
   parseEkasaText,
@@ -7,17 +6,30 @@ import {
 import type { DriveClient } from "@/adapters/drive/port";
 import type { PdfAccess } from "@/adapters/pdf/port";
 import {
-  getDecodeJob,
-  getManualQueueEntry,
-  getPaymentByBlocekFileId,
-  setDecodeJobStatus,
-  upsertCashPayment,
-  upsertManualQueueEntry,
-} from "@/adapters/store/payments";
+  ensureDocumentsForMonth,
+  extractionAlreadyAttempted,
+  getDocument,
+  setExtractionStatus,
+  upsertEkasaExtractedPayload,
+  writeExtractedPayload,
+} from "@/adapters/store/documents";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
+import { emptyExtractedPayload } from "@/modules/document-payload";
 
-export const CASH_RECEIPTS_FOLDER = CANONICAL_FOLDER_NAMES[3];
+/**
+ * Both receipt folders, not just the cash one. Every eBloček in the real corpus
+ * sits in `05 Bločky_firemná karta`; `04 Bločky_hotovosť` holds none, so scoping
+ * extraction to `04` — as this did while it was called "cash discovery" — matched
+ * nothing at all on her actual data.
+ *
+ * Literal names rather than positions in the canonical list, which is editable in
+ * settings and would otherwise silently repoint this.
+ */
+export const RECEIPT_FOLDER_SLOTS = [
+  "04 Bločky_hotovosť",
+  "05 Bločky_firemná karta",
+] as const;
 
 export type CashDiscoveryDeps = {
   driveClient: DriveClient;
@@ -49,11 +61,26 @@ export async function extractReceiptTextLines(
   }
 }
 
+function markManualEntry(
+  input: {
+    driveFileId: string;
+    reason: string;
+  },
+): void {
+  writeExtractedPayload(
+    input.driveFileId,
+    emptyExtractedPayload(),
+    "failed",
+    input.reason,
+  );
+}
+
 export async function processCashReceiptFile(
   input: {
     companyId: number;
     monthKey: string;
     driveFileId: string;
+    folderSlot: string;
     pdfBytes: Uint8Array;
   },
   deps: Pick<CashDiscoveryDeps, "pdfAccess" | "now">,
@@ -64,107 +91,46 @@ export async function processCashReceiptFile(
     return;
   }
 
-  if (getPaymentByBlocekFileId(input.driveFileId)) {
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "done",
-      null,
-      now,
-    );
-    return;
-  }
+  ensureDocumentsForMonth(input.companyId, input.monthKey, now);
 
-  if (getManualQueueEntry(input.driveFileId)) {
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "done",
-      null,
-      now,
-    );
+  if (extractionAlreadyAttempted(input.driveFileId)) {
     return;
   }
 
   const extracted = await extractReceiptTextLines(input.pdfBytes, deps.pdfAccess);
   if (!extracted.ok) {
-    upsertManualQueueEntry({
+    markManualEntry({
       driveFileId: input.driveFileId,
-      companyId: input.companyId,
-      monthKey: input.monthKey,
       reason: extracted.reason,
-      createdAt: now,
     });
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "failed",
-      extracted.reason,
-      now,
-    );
     return;
   }
 
   if (!isEkasaReceipt(extracted.lines)) {
-    const reason = "Document is not an eBloček (missing UID, OKP or NA ÚHRADU markers).";
-    upsertManualQueueEntry({
+    const reason =
+      "Document is not an eBloček (missing UID, OKP or NA ÚHRADU markers).";
+    markManualEntry({
       driveFileId: input.driveFileId,
-      companyId: input.companyId,
-      monthKey: input.monthKey,
       reason,
-      createdAt: now,
     });
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "failed",
-      reason,
-      now,
-    );
     return;
   }
 
   const parsed = parseEkasaText(extracted.lines);
   if ("ok" in parsed) {
-    upsertManualQueueEntry({
+    markManualEntry({
       driveFileId: input.driveFileId,
-      companyId: input.companyId,
-      monthKey: input.monthKey,
       reason: parsed.reason,
-      createdAt: now,
     });
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "failed",
-      parsed.reason,
-      now,
-    );
     return;
   }
 
   const arithmetic = validateEkasaArithmetic(parsed);
   if (!arithmetic.ok) {
-    upsertManualQueueEntry({
+    markManualEntry({
       driveFileId: input.driveFileId,
-      companyId: input.companyId,
-      monthKey: input.monthKey,
       reason: arithmetic.reason,
-      createdAt: now,
     });
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "failed",
-      arithmetic.reason,
-      now,
-    );
     return;
   }
 
@@ -185,55 +151,8 @@ export async function processCashReceiptFile(
     vatCents: row.vatCents,
   }));
 
-  if (parsed.currency !== "EUR") {
-    upsertCashPayment({
-      companyId: input.companyId,
-      monthKey: input.monthKey,
-      blocekFileId: input.driveFileId,
-      amountCents: parsed.totalCents,
-      amountLiteral: parsed.totalLiteral,
-      currency: parsed.currency,
-      receiptAt: parsed.receiptAtUtc,
-      receiptTimestampRaw: parsed.timestampRaw,
-      ekasaUid: parsed.uid,
-      ekasaOkp: parsed.okp,
-      supplierName: parsed.supplierName,
-      dic: parsed.dic,
-      ico: parsed.ico,
-      icDph: parsed.icDph,
-      kp: parsed.kp,
-      receiptNumber: parsed.receiptNumber,
-      recapBaseCents: parsed.recapSpoluBaseCents,
-      recapBaseLiteral: parsed.recapSpoluBaseLiteral,
-      recapVatCents: parsed.recapSpoluVatCents,
-      recapVatLiteral: parsed.recapSpoluVatLiteral,
-      decodeStatus: "manual",
-      lineItems,
-      vatRecap,
-      createdAt: now,
-    });
-    upsertManualQueueEntry({
-      driveFileId: input.driveFileId,
-      companyId: input.companyId,
-      monthKey: input.monthKey,
-      reason: `Receipt is in ${parsed.currency} — enter the EUR amount manually.`,
-      createdAt: now,
-    });
-    setDecodeJobStatus(
-      input.driveFileId,
-      input.companyId,
-      input.monthKey,
-      "done",
-      null,
-      now,
-    );
-    return;
-  }
-
-  upsertCashPayment({
-    companyId: input.companyId,
-    monthKey: input.monthKey,
-    blocekFileId: input.driveFileId,
+  const payload = {
+    kind: "ekasa" as const,
     amountCents: parsed.totalCents,
     amountLiteral: parsed.totalLiteral,
     currency: parsed.currency,
@@ -251,19 +170,34 @@ export async function processCashReceiptFile(
     recapBaseLiteral: parsed.recapSpoluBaseLiteral,
     recapVatCents: parsed.recapSpoluVatCents,
     recapVatLiteral: parsed.recapSpoluVatLiteral,
-    decodeStatus: "complete",
     lineItems,
     vatRecap,
+  };
+
+  if (parsed.currency !== "EUR") {
+    upsertEkasaExtractedPayload({
+      driveFileId: input.driveFileId,
+      companyId: input.companyId,
+      monthKey: input.monthKey,
+      folderSlot: input.folderSlot,
+      payload,
+      extractionStatus: "failed",
+      extractionFailureReason: `Receipt is in ${parsed.currency} — enter the EUR amount manually.`,
+      createdAt: now,
+    });
+    return;
+  }
+
+  upsertEkasaExtractedPayload({
+    driveFileId: input.driveFileId,
+    companyId: input.companyId,
+    monthKey: input.monthKey,
+    folderSlot: input.folderSlot,
+    payload,
+    extractionStatus: "complete",
+    extractionFailureReason: null,
     createdAt: now,
   });
-  setDecodeJobStatus(
-    input.driveFileId,
-    input.companyId,
-    input.monthKey,
-    "done",
-    null,
-    now,
-  );
 }
 
 export function listCashReceiptCandidates(
@@ -273,18 +207,22 @@ export function listCashReceiptCandidates(
   driveFileId: string;
   name: string;
   mimeType: string;
+  folderSlot: string;
 }> {
   return listFilesForMonth(companyId, monthKey)
     .filter(
       (file) =>
         !file.deleted &&
-        file.folderSlot === CASH_RECEIPTS_FOLDER &&
+        (RECEIPT_FOLDER_SLOTS as readonly string[]).includes(
+          file.folderSlot ?? "",
+        ) &&
         file.mimeType === "application/pdf",
     )
     .map((file) => ({
       driveFileId: file.driveFileId,
       name: file.name,
       mimeType: file.mimeType,
+      folderSlot: file.folderSlot!,
     }));
 }
 
@@ -299,29 +237,16 @@ export async function discoverCashPaymentsForMonth(
   }
 
   const now = deps.now?.() ?? new Date().toISOString();
+  ensureDocumentsForMonth(companyId, monthKey, now);
   const candidates = listCashReceiptCandidates(companyId, monthKey);
 
   for (const file of candidates) {
-    if (getPaymentByBlocekFileId(file.driveFileId)) {
-      continue;
-    }
-    if (getManualQueueEntry(file.driveFileId)) {
-      continue;
-    }
-
-    const existingJob = getDecodeJob(file.driveFileId);
-    if (existingJob?.status === "pending") {
+    const existing = getDocument(file.driveFileId);
+    if (existing && existing.extractionStatus !== "pending") {
       continue;
     }
 
-    setDecodeJobStatus(
-      file.driveFileId,
-      companyId,
-      monthKey,
-      "pending",
-      null,
-      now,
-    );
+    setExtractionStatus(file.driveFileId, "pending", null);
 
     const pdfBytes = await deps.driveClient.download(file.driveFileId);
     await processCashReceiptFile(
@@ -329,6 +254,7 @@ export async function discoverCashPaymentsForMonth(
         companyId,
         monthKey,
         driveFileId: file.driveFileId,
+        folderSlot: file.folderSlot,
         pdfBytes,
       },
       deps,
@@ -342,6 +268,6 @@ export function scheduleCashPaymentDiscovery(
   deps: CashDiscoveryDeps,
 ): void {
   void discoverCashPaymentsForMonth(companyId, monthKey, deps).catch(() => {
-    // ponytail: month view stays fast; failures surface via pending/manual queue
+    // ponytail: month view stays fast; failures surface via extraction state
   });
 }

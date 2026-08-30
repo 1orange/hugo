@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isNull, sql } from "drizzle-orm";
 import { FakeDriveClient } from "../src/adapters/drive/fake-drive-client.ts";
 import {
   e2eDriveFixture,
@@ -7,11 +8,9 @@ import {
 } from "../src/adapters/drive/e2e-fixture.ts";
 import { setDriveParentFolderId } from "../src/adapters/store/settings.ts";
 import { runMigrations, resetDbForTests, getDb } from "../src/lib/db/migrate.ts";
+import { documents } from "../src/lib/db/schema.ts";
 import { runSweep } from "../src/lib/sweep/run-sweep.ts";
-import { ensureProofsForMonth } from "../src/adapters/store/proofs.ts";
-import { payments } from "../src/lib/db/schema.ts";
-
-import { pairPaymentWithProof } from "../src/lib/reconciliation/service.ts";
+import { ensureDocumentsForMonth, upsertEkasaExtractedPayload } from "../src/adapters/store/documents.ts";
 
 async function main(): Promise<void> {
   const dbPath = path.resolve(process.cwd(), "data", "e2e.db");
@@ -37,47 +36,52 @@ async function main(): Promise<void> {
   setDriveParentFolderId(E2E_DRIVE_PARENT_FOLDER_ID);
 
   await runSweep(driveClient);
-  ensureProofsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
+  const now = "2026-01-12T10:00:00.000Z";
+  ensureDocumentsForMonth(1, "2026_01", now);
 
-  const db = getDb();
-  db.insert(payments)
-    .values([
-      {
-        companyId: 1,
-        monthKey: "2026_01",
-        source: "bank",
-        blocekFileId: null,
-        amountCents: 4200,
-        amountLiteral: "42.00",
-        currency: "EUR",
-        receiptAt: "2026-01-09T10:00:00.000Z",
-        decodeStatus: "complete",
-        createdAt: "2026-01-09T10:00:00.000Z",
-      },
-      {
-        companyId: 1,
-        monthKey: "2026_01",
-        source: "cash",
-        blocekFileId: "e2e-doc-receipt",
-        amountCents: 1550,
-        amountLiteral: "15.50",
-        currency: "EUR",
-        receiptAt: "2026-01-11T12:00:00.000Z",
-        decodeStatus: "complete",
-        createdAt: "2026-01-11T12:00:00.000Z",
-      },
-    ])
-    .run();
-
-  pairPaymentWithProof({
+  upsertEkasaExtractedPayload({
+    driveFileId: "e2e-doc-receipt",
     companyId: 1,
     monthKey: "2026_01",
-    paymentId: 1,
-    proofDriveFileId: "e2e-doc-supplier",
-    now: "2026-01-12T11:00:00.000Z",
+    folderSlot: "04 Bločky_hotovosť",
+    payload: {
+      kind: "ekasa",
+      amountCents: 1550,
+      amountLiteral: "15.50",
+      currency: "EUR",
+      receiptAt: "2026-01-11T12:00:00.000Z",
+      receiptTimestampRaw: "2026-01-11 13:00:00",
+      ekasaUid: "uid",
+      ekasaOkp: "okp",
+      supplierName: "Test Shop",
+      dic: null,
+      ico: null,
+      icDph: null,
+      kp: null,
+      receiptNumber: null,
+      recapBaseCents: null,
+      recapBaseLiteral: null,
+      recapVatCents: null,
+      recapVatLiteral: null,
+      lineItems: [],
+      vatRecap: [],
+    },
+    extractionStatus: "complete",
+    extractionFailureReason: null,
+    createdAt: now,
   });
 
-  console.log("E2E reconciliation seed complete:", dbPath);
+  const db = getDb();
+  const awaiting = db
+    .select({ count: sql<number>`count(*)` })
+    .from(documents)
+    .where(isNull(documents.decision))
+    .get();
+  console.log(
+    "E2E document seed complete:",
+    dbPath,
+    `(${awaiting?.count ?? 0} documents awaiting decision)`,
+  );
 }
 
 main().catch((error) => {

@@ -3,29 +3,28 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
-import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
+import { eq } from "drizzle-orm";
 import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
-import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
-import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import {
-  paymentLineItems,
-  payments,
-  receiptManualQueue,
-  months,
   companies,
+  documents,
+  months,
   files,
 } from "../../../src/lib/db/schema.ts";
-import { eq } from "drizzle-orm";
 import {
   discoverCashPaymentsForMonth,
   processCashReceiptFile,
 } from "../../../src/lib/cash-discovery/discover-cash-payments.ts";
 import type { PdfAccess } from "../../../src/adapters/pdf/port.ts";
+import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
+import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
+import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
+import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import {
   syntheticEkasaLines,
   SYNTHETIC_FIXTURE,
 } from "./synthetic-ekasa-lines.ts";
+import { isEkasaPayload, parseExtractedPayload } from "../../../src/modules/document-payload.ts";
 
 const PARENT_ID = "cash-parent";
 const COMPANY_ID = "cash-company";
@@ -86,7 +85,7 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
   };
 }
 
-test("fixture eBloček produces exactly one cash payment with expected amount and timestamp", async () => {
+test("fixture eBloček produces one document with expected ekasa payload", async () => {
   const dbPath = tempDbPath();
   process.env.DATABASE_PATH = dbPath;
   resetDbForTests();
@@ -110,27 +109,80 @@ test("fixture eBloček produces exactly one cash payment with expected amount an
   await discoverCashPaymentsForMonth(1, "2026_01", deps);
 
   const db = getDb();
-  const paymentRows = db.select().from(payments).all();
-  assert.equal(paymentRows.length, 1);
-  assert.equal(paymentRows[0]?.source, "cash");
-  assert.equal(paymentRows[0]?.blocekFileId, RECEIPT_ID);
-  assert.equal(paymentRows[0]?.amountLiteral, SYNTHETIC_FIXTURE.totalLiteral);
-  assert.equal(paymentRows[0]?.amountCents, SYNTHETIC_FIXTURE.totalCents);
-  assert.equal(paymentRows[0]?.receiptTimestampRaw, SYNTHETIC_FIXTURE.timestampRaw);
-  assert.equal(paymentRows[0]?.receiptAt, SYNTHETIC_FIXTURE.receiptAtUtc);
-  assert.equal(paymentRows[0]?.ekasaUid, SYNTHETIC_FIXTURE.uid);
-  assert.equal(paymentRows[0]?.ekasaOkp, SYNTHETIC_FIXTURE.okp);
-  assert.equal(paymentRows[0]?.decodeStatus, "complete");
+  const documentRows = db.select().from(documents).all();
+  assert.equal(documentRows.length, 1);
+  const row = documentRows[0]!;
+  assert.equal(row.driveFileId, RECEIPT_ID);
+  assert.equal(row.extractionStatus, "complete");
 
-  const lineItems = db
-    .select()
-    .from(paymentLineItems)
-    .where(eq(paymentLineItems.paymentId, paymentRows[0]!.id))
-    .all();
-  assert.equal(lineItems.length, 2);
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+  if (isEkasaPayload(payload)) {
+    assert.equal(payload.amountLiteral, SYNTHETIC_FIXTURE.totalLiteral);
+    assert.equal(payload.amountCents, SYNTHETIC_FIXTURE.totalCents);
+    assert.equal(payload.receiptTimestampRaw, SYNTHETIC_FIXTURE.timestampRaw);
+    assert.equal(payload.receiptAt, SYNTHETIC_FIXTURE.receiptAtUtc);
+    assert.equal(payload.ekasaUid, SYNTHETIC_FIXTURE.uid);
+    assert.equal(payload.ekasaOkp, SYNTHETIC_FIXTURE.okp);
+    assert.equal(payload.lineItems.length, 2);
+    assert.equal(payload.vatRecap.length, 1);
+  }
 });
 
-test("non-eBloček PDF is queued for manual entry", async () => {
+test("a receipt in the card folder is extracted, not only the cash folder", async () => {
+  // Every eBloček in the real corpus sits in `05 Bločky_firemná karta`; `04` holds
+  // none. Scoping extraction to the cash folder matched nothing on real data, and
+  // the original fixtures all used `04`, so they agreed with the bug.
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const SLOT_05_ID = "card-slot-05";
+  const CARD_RECEIPT_ID = "card-receipt-doc";
+  const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
+  const driveClient = new FakeDriveClient(
+    [
+      ...fixtureTree.filter((node) => node.id !== RECEIPT_ID),
+      {
+        id: SLOT_05_ID,
+        name: "05 Bločky_firemná karta",
+        parents: [MONTH_ID],
+        createdTime: "2026-01-01T00:00:00.000Z",
+        mimeType: FOLDER_MIME,
+      },
+      {
+        id: CARD_RECEIPT_ID,
+        name: "fixture-blocek-card.pdf",
+        parents: [SLOT_05_ID],
+        createdTime: "2026-01-12T00:00:00.000Z",
+        mimeType: "application/pdf",
+      },
+    ],
+    { [CARD_RECEIPT_ID]: pdfBytes },
+  );
+
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+
+  await discoverCashPaymentsForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = getDb()
+    .select()
+    .from(documents)
+    .where(eq(documents.driveFileId, CARD_RECEIPT_ID))
+    .get();
+  assert.ok(row, "no document row for the card-folder receipt");
+  assert.equal(row.extractionStatus, "complete");
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+});
+
+test("non-eBloček PDF leaves empty payload with failure reason", async () => {
   const dbPath = tempDbPath();
   process.env.DATABASE_PATH = dbPath;
   resetDbForTests();
@@ -152,7 +204,7 @@ test("non-eBloček PDF is queued for manual entry", async () => {
     .run();
   db.insert(files)
     .values({
-      driveFileId: "manual-queue-doc",
+      driveFileId: "manual-entry-doc",
       companyId: 1,
       monthKey: "2026_01",
       folderSlot: "04 Bločky_hotovosť",
@@ -170,7 +222,8 @@ test("non-eBloček PDF is queued for manual entry", async () => {
     {
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: "manual-queue-doc",
+      driveFileId: "manual-entry-doc",
+      folderSlot: "04 Bločky_hotovosť",
       pdfBytes: new Uint8Array(Buffer.from("fixture")),
     },
     {
@@ -179,17 +232,18 @@ test("non-eBloček PDF is queued for manual entry", async () => {
     },
   );
 
-  const queueRow = db
+  const row = db
     .select()
-    .from(receiptManualQueue)
-    .where(eq(receiptManualQueue.driveFileId, "manual-queue-doc"))
+    .from(documents)
+    .where(eq(documents.driveFileId, "manual-entry-doc"))
     .get();
-  assert.ok(queueRow);
-  assert.match(queueRow.reason, /not an eBloček/i);
-  assert.equal(db.select().from(payments).all().length, 0);
+  assert.ok(row);
+  assert.equal(row.extractionStatus, "failed");
+  assert.match(row.extractionFailureReason ?? "", /not an eBloček/i);
+  assert.deepEqual(parseExtractedPayload(row.extractedPayloadJson), {});
 });
 
-test("arithmetic mismatch is queued without creating a payment", async () => {
+test("arithmetic mismatch leaves empty payload with failure reason", async () => {
   const dbPath = tempDbPath();
   process.env.DATABASE_PATH = dbPath;
   resetDbForTests();
@@ -234,6 +288,7 @@ test("arithmetic mismatch is queued without creating a payment", async () => {
       companyId: 1,
       monthKey: "2026_01",
       driveFileId: "bad-arithmetic-doc",
+      folderSlot: "04 Bločky_hotovosť",
       pdfBytes: new Uint8Array(Buffer.from("fixture")),
     },
     {
@@ -242,12 +297,13 @@ test("arithmetic mismatch is queued without creating a payment", async () => {
     },
   );
 
-  const queueRow = db
+  const row = db
     .select()
-    .from(receiptManualQueue)
-    .where(eq(receiptManualQueue.driveFileId, "bad-arithmetic-doc"))
+    .from(documents)
+    .where(eq(documents.driveFileId, "bad-arithmetic-doc"))
     .get();
-  assert.ok(queueRow);
-  assert.match(queueRow.reason, /Item line totals sum/);
-  assert.equal(db.select().from(payments).all().length, 0);
+  assert.ok(row);
+  assert.equal(row.extractionStatus, "failed");
+  assert.match(row.extractionFailureReason ?? "", /Item line totals sum/);
+  assert.deepEqual(parseExtractedPayload(row.extractedPayloadJson), {});
 });

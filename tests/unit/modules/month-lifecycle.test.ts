@@ -108,13 +108,13 @@ test("describeMissingSlots does not report a slot a repair candidate will become
   );
 });
 
-test("deriveCompanyStage reports collect with unknown unticked count", () => {
-  const stage = deriveCompanyStage({ openMonthKey: "2026_02", untickedCount: null });
+test("deriveCompanyStage reports collect with unknown awaiting count", () => {
+  const stage = deriveCompanyStage({ openMonthKey: "2026_02", awaitingCount: null });
   assert.equal(stage.stage, "collect");
-  assert.equal(stage.untickedCount, null);
+  assert.equal(stage.awaitingCount, null);
 });
 
 test("deriveCompanyStage degrades when no open month", () => {
-  const stage = deriveCompanyStage({ openMonthKey: null, untickedCount: null });
+  const stage = deriveCompanyStage({ openMonthKey: null, awaitingCount: null });
   assert.equal(stage.stage, "idle");
 });

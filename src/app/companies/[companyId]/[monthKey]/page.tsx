@@ -4,16 +4,22 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { scheduleCashDiscoveryForMonth } from "@/lib/cash-discovery/schedule";
 import { buildMonthView } from "@/lib/sweep/views";
+import {
+  buildMonthDocumentView,
+  listDocumentFolderFilters,
+} from "@/lib/documents/view";
 import { getSettings } from "@/adapters/store/settings";
 import { RefreshButton } from "../../refresh-button";
 import { FolderRepairPanel } from "./folder-repair-panel";
 import { MonthLifecyclePanel } from "./month-lifecycle-panel";
+import { DocumentPanel } from "./document-panel";
 
 type MonthPageProps = {
   params: Promise<{ companyId: string; monthKey: string }>;
+  searchParams: Promise<{ folder?: string }>;
 };
 
-export default async function MonthPage({ params }: MonthPageProps) {
+export default async function MonthPage({ params, searchParams }: MonthPageProps) {
   const session = await auth();
   const allowlist = loadAllowlistFromEnv();
 
@@ -26,13 +32,15 @@ export default async function MonthPage({ params }: MonthPageProps) {
   }
 
   const { companyId, monthKey } = await params;
+  const { folder } = await searchParams;
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
     notFound();
   }
 
   const view = buildMonthView(companyIdNum, monthKey);
-  if (!view) {
+  const documentView = buildMonthDocumentView(companyIdNum, monthKey, folder ?? null);
+  if (!view || !documentView) {
     notFound();
   }
 
@@ -41,9 +49,10 @@ export default async function MonthPage({ params }: MonthPageProps) {
   }
 
   const settings = getSettings();
+  const folderFilters = listDocumentFolderFilters(companyIdNum, monthKey);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 p-8">
+    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 p-8">
       <header className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm text-muted-foreground">
@@ -56,10 +65,6 @@ export default async function MonthPage({ params }: MonthPageProps) {
           </h1>
           <p className="text-sm text-muted-foreground">
             Month {view.monthKey}
-            {" · "}
-            <Link className="underline" href={`/companies/${companyId}/${monthKey}/reconcile`}>
-              Reconciliation
-            </Link>
             {" · "}
             <Link className="underline" href={`/companies/${companyId}/activity`}>
               Activity log
@@ -76,55 +81,12 @@ export default async function MonthPage({ params }: MonthPageProps) {
         isOpenMonth={view.isOpenMonth}
       />
 
-      <section className="rounded-lg border border-border p-4" data-testid="cash-payments">
-        <h2 className="mb-3 text-lg font-medium">Cash payments</h2>
-        {view.pendingDecodeCount > 0 ? (
-          <p className="mb-3 text-sm text-muted-foreground">
-            {view.pendingDecodeCount} receipt
-            {view.pendingDecodeCount === 1 ? "" : "s"} pending text extraction.
-          </p>
-        ) : null}
-        {view.cashPayments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No cash payments yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {view.cashPayments.map((payment) => (
-              <li
-                key={payment.id}
-                className="flex flex-col gap-1 rounded-md border border-border/60 p-3 text-sm"
-                data-testid="cash-payment"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-medium">{payment.amountDisplay}</span>
-                  <span className="text-muted-foreground">{payment.receiptDisplay}</span>
-                </div>
-                <Link
-                  className="text-muted-foreground underline"
-                  href={`https://drive.google.com/file/d/${payment.blocekFileId}/view`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {payment.documentName}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {view.manualQueue.length > 0 ? (
-        <section className="rounded-lg border border-border p-4" data-testid="manual-entry-queue">
-          <h2 className="mb-3 text-lg font-medium">Manual entry queue</h2>
-          <ul className="space-y-2">
-            {view.manualQueue.map((entry) => (
-              <li key={entry.driveFileId} className="rounded-md border border-border/60 p-3 text-sm">
-                <p className="font-medium">{entry.documentName}</p>
-                <p className="text-muted-foreground">{entry.reason}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <DocumentPanel
+        companyId={companyIdNum}
+        monthKey={monthKey}
+        view={documentView}
+        folderFilters={folderFilters}
+      />
 
       {view.missingSlots.length > 0 ? (
         <section

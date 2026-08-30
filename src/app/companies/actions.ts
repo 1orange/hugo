@@ -18,12 +18,10 @@ import {
   ensureAllOpenMonthsScaffolded,
 } from "@/lib/month-lifecycle/service";
 import {
-  confirmPayment,
-  pairPaymentWithProof,
-  savePaymentNote,
-  saveProofNote,
-  unpairPaymentFromProof,
-} from "@/lib/reconciliation/service";
+  confirmDocument,
+  dismissDocument,
+  saveDocumentNote,
+} from "@/lib/documents/service";
 import { runSweep } from "@/lib/sweep/run-sweep";
 import { revalidatePath } from "next/cache";
 
@@ -45,8 +43,7 @@ type MutationActionResult =
   | { ok: true }
   | { ok: false; message: string };
 
-function revalidateReconciliation(companyId: number, monthKey: string): void {
-  revalidatePath(`/companies/${companyId}/${monthKey}/reconcile`);
+function revalidateMonth(companyId: number, monthKey: string): void {
   revalidatePath(`/companies/${companyId}/${monthKey}`);
   revalidatePath("/companies");
 }
@@ -153,88 +150,63 @@ export async function reopenMonthAction(input: {
   return { ok: true };
 }
 
-export async function pairPaymentAction(input: {
+export async function confirmDocumentAction(input: {
   companyId: number;
   monthKey: string;
-  paymentId: number;
-  proofDriveFileId: string;
-}): Promise<MutationActionResult> {
-  const result = pairPaymentWithProof(input);
-  if (result.ok) {
-    revalidateReconciliation(input.companyId, input.monthKey);
-  }
-  return result;
-}
-
-export async function pairPaymentFormAction(
-  formData: FormData,
-): Promise<void> {
-  await pairPaymentAction({
-    companyId: Number(formData.get("companyId")),
-    monthKey: String(formData.get("monthKey") ?? ""),
-    paymentId: Number(formData.get("paymentId")),
-    proofDriveFileId: String(formData.get("proofDriveFileId") ?? ""),
-  });
-}
-
-export async function unpairPaymentAction(input: {
-  companyId: number;
-  monthKey: string;
-  pairingId: number;
-}): Promise<MutationActionResult> {
-  const result = unpairPaymentFromProof(input);
-  if (result.ok) {
-    revalidateReconciliation(input.companyId, input.monthKey);
-  }
-  return result;
-}
-
-export async function confirmPaymentAction(input: {
-  companyId: number;
-  monthKey: string;
-  paymentId: number;
+  driveFileId: string;
   confirmed: boolean;
 }): Promise<MutationActionResult> {
-  const result = confirmPayment(input);
+  const result = confirmDocument(input);
   if (result.ok) {
-    revalidateReconciliation(input.companyId, input.monthKey);
+    revalidateMonth(input.companyId, input.monthKey);
   }
   return result;
 }
 
-export async function confirmPaymentFormAction(
+export async function confirmDocumentFormAction(
   formData: FormData,
 ): Promise<void> {
-  await confirmPaymentAction({
+  await confirmDocumentAction({
     companyId: Number(formData.get("companyId")),
     monthKey: String(formData.get("monthKey") ?? ""),
-    paymentId: Number(formData.get("paymentId")),
+    driveFileId: String(formData.get("driveFileId") ?? ""),
     confirmed: formData.get("confirmed") === "true",
   });
 }
 
-export async function savePaymentNoteAction(input: {
+export async function dismissDocumentAction(input: {
   companyId: number;
   monthKey: string;
-  paymentId: number;
-  note: string;
+  driveFileId: string;
+  reason?: string;
 }): Promise<MutationActionResult> {
-  const result = savePaymentNote(input);
+  const result = dismissDocument(input);
   if (result.ok) {
-    revalidateReconciliation(input.companyId, input.monthKey);
+    revalidateMonth(input.companyId, input.monthKey);
   }
   return result;
 }
 
-export async function saveProofNoteAction(input: {
+export async function dismissDocumentFormAction(
+  formData: FormData,
+): Promise<void> {
+  await dismissDocumentAction({
+    companyId: Number(formData.get("companyId")),
+    monthKey: String(formData.get("monthKey") ?? ""),
+    driveFileId: String(formData.get("driveFileId") ?? ""),
+    reason: String(formData.get("reason") ?? ""),
+  });
+}
+
+export async function saveDocumentNoteAction(input: {
   companyId: number;
   monthKey: string;
-  proofDriveFileId: string;
+  driveFileId: string;
   note: string;
 }): Promise<MutationActionResult> {
-  const result = saveProofNote(input);
+  const result = saveDocumentNote(input);
   if (result.ok) {
-    revalidateReconciliation(input.companyId, input.monthKey);
+    revalidateMonth(input.companyId, input.monthKey);
   }
   return result;
 }

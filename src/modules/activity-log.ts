@@ -19,8 +19,6 @@ export const USER_COMPANY_EVENT_TYPES = [
   "MonthReopened",
   "Moved",
   "Extracted",
-  "Paired",
-  "Unpaired",
   "Confirmed",
   "Exported",
 ] as const;
@@ -57,9 +55,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   MonthReopened: "Month reopened",
   Moved: "Document moved",
   Extracted: "Fields extracted",
-  Paired: "Payment paired",
-  Unpaired: "Payment unpaired",
-  Confirmed: "Payment confirmed",
+  Confirmed: "Document confirmed",
   Exported: "Month exported",
   DriveParentFolderIdChanged: "Drive parent folder changed",
   CanonicalFolderNamesChanged: "Canonical folder names changed",
@@ -112,8 +108,6 @@ export function eventMonthKey(
     case "MonthReopened":
     case "Moved":
     case "Extracted":
-    case "Paired":
-    case "Unpaired":
     case "Confirmed":
     case "Exported":
       return text(payload.monthKey);
@@ -178,12 +172,8 @@ export function summarizeEventPayload(
       return "Updated which folders late arrivals may leave";
     case "Extracted":
       return `Extracted fields for ${text(payload.driveFileId) ?? "document"}`;
-    case "Paired":
-      return `Paired payment ${text(payload.paymentId) ?? "?"}`;
-    case "Unpaired":
-      return `Unpaired payment ${text(payload.paymentId) ?? "?"}`;
     case "Confirmed":
-      return `Confirmed payment ${text(payload.paymentId) ?? "?"}`;
+      return `Confirmed document ${text(payload.driveFileId) ?? "?"}`;
     case "Exported":
       return `Exported month ${text(payload.monthKey) ?? "?"}`;
     default:

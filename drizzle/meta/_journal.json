@@ -50,6 +50,13 @@
       "when": 1787952000000,
       "tag": "0006_reconciliation_pairings",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787952600000,
+      "tag": "0007_documents_domain",
+      "breakpoints": true
     }
   ]
 }

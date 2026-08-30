@@ -1,6 +1,6 @@
 import type { FolderClassification } from "./folder-taxonomy";
 
-export type CompanyStage = "idle" | "collect" | "extract" | "pair" | "tick" | "export" | "close";
+export type CompanyStage = "idle" | "collect" | "extract" | "tick" | "export" | "close";
 
 export type ExistingMonthFolder = {
   name: string;
@@ -9,7 +9,7 @@ export type ExistingMonthFolder = {
 
 export type CompanyStageView = {
   stage: CompanyStage;
-  untickedCount: number | null;
+  awaitingCount: number | null;
 };
 
 const MONTH_KEY_PATTERN = /^(\d{4})_(\d{2})$/;
@@ -136,22 +136,20 @@ export function describeMissingSlots(
 
 export function deriveCompanyStage(input: {
   openMonthKey: string | null;
-  untickedCount: number | null;
-  hasPayments?: boolean;
+  awaitingCount: number | null;
+  hasDocuments?: boolean;
 }): CompanyStageView {
   if (!input.openMonthKey) {
-    return { stage: "idle", untickedCount: input.untickedCount };
+    return { stage: "idle", awaitingCount: input.awaitingCount };
   }
 
-  // Later slices add payments, extraction and export signals. Until then the
-  // earliest knowable stage is collect.
-  if (!input.hasPayments) {
-    return { stage: "collect", untickedCount: null };
+  if (!input.hasDocuments) {
+    return { stage: "collect", awaitingCount: null };
   }
 
-  if (input.untickedCount !== null && input.untickedCount > 0) {
-    return { stage: "tick", untickedCount: input.untickedCount };
+  if (input.awaitingCount !== null && input.awaitingCount > 0) {
+    return { stage: "tick", awaitingCount: input.awaitingCount };
   }
 
-  return { stage: "close", untickedCount: input.untickedCount };
+  return { stage: "close", awaitingCount: input.awaitingCount };
 }

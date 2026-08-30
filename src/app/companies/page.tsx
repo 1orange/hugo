@@ -20,11 +20,11 @@ function formatStage(stage: string): string {
   return stage;
 }
 
-function formatUnticked(count: number | null): string {
+function formatAwaiting(count: number | null): string {
   if (count === null) {
-    return "— unticked";
+    return "— awaiting";
   }
-  return `${count} unticked`;
+  return `${count} awaiting`;
 }
 
 export default async function CompaniesPage() {
@@ -99,7 +99,7 @@ export default async function CompaniesPage() {
                 className="block rounded-lg border border-border p-4 hover:bg-muted"
                 href={
                   company.openMonth
-                    ? `/companies/${company.id}/${company.openMonth}/reconcile`
+                    ? `/companies/${company.id}/${company.openMonth}`
                     : `/companies/${company.id}`
                 }
                 data-testid={`company-${company.id}`}
@@ -108,7 +108,7 @@ export default async function CompaniesPage() {
                   <span className="font-medium">{company.name}</span>
                 <div className="flex flex-col items-end gap-1 text-sm text-muted-foreground">
                   <span data-testid={`company-stage-${company.id}`}>
-                    {formatStage(company.stage)} · {formatUnticked(company.untickedCount)}
+                    {formatStage(company.stage)} · {formatAwaiting(company.awaitingCount)}
                   </span>
                   <span>
                     {company.openMonth

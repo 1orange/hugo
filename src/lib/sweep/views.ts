@@ -3,18 +3,14 @@ import { getActiveMutationForFolder } from "@/adapters/store/drive-mutations";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { listMonthFolders } from "@/adapters/store/month-folders";
 import {
-  countUntickedPayments,
-  companyHasPayments,
-  listCashPaymentsForMonth,
-  listManualQueueForMonth,
-  listPendingDecodeJobsForMonth,
-} from "@/adapters/store/payments";
+  countAwaitingDecision,
+  companyHasDocuments,
+} from "@/adapters/store/documents";
 import {
   getMonthByKey,
   getOpenMonthKey,
 } from "@/adapters/store/months";
 import { getSettings } from "@/adapters/store/settings";
-import { formatEuroFromCents } from "@/modules/money";
 import { classifyFolder } from "@/modules/folder-taxonomy";
 import {
   describeMissingSlots,
@@ -28,24 +24,7 @@ export type CompanyListItem = {
   name: string;
   openMonth: string | null;
   stage: CompanyStage;
-  untickedCount: number | null;
-};
-
-export type MonthPaymentItem = {
-  id: number;
-  amountLiteral: string | null;
-  amountDisplay: string;
-  receiptAt: string | null;
-  receiptDisplay: string;
-  blocekFileId: string | null;
-  documentName: string;
-  decodeStatus: string;
-};
-
-export type MonthManualQueueItem = {
-  driveFileId: string;
-  documentName: string;
-  reason: string;
+  awaitingCount: number | null;
 };
 
 export type MonthDocumentGroup = {
@@ -67,19 +46,19 @@ export type MonthDocumentGroup = {
 export function listCompanySummaries(): CompanyListItem[] {
   return listCompanies().map((company) => {
     const openMonth = getOpenMonthKey(company.id);
-    const untickedCount =
-      openMonth === null ? null : countUntickedPayments(company.id, openMonth);
+    const awaitingCount =
+      openMonth === null ? null : countAwaitingDecision(company.id, openMonth);
     const stageView = deriveCompanyStage({
       openMonthKey: openMonth,
-      untickedCount,
-      hasPayments: companyHasPayments(company.id),
+      awaitingCount,
+      hasDocuments: companyHasDocuments(company.id),
     });
     return {
       id: company.id,
       name: company.name,
       openMonth,
       stage: stageView.stage,
-      untickedCount: stageView.untickedCount,
+      awaitingCount: stageView.awaitingCount,
     };
   });
 }
@@ -89,31 +68,6 @@ function renameBlockedReason(canRename: boolean): string | null {
     return "Drive reports this folder cannot be renamed. It may be owned by the client or shared with restricted permissions.";
   }
   return null;
-}
-
-function formatReceiptAt(receiptAt: string | null): string {
-  if (!receiptAt) {
-    return "Pending timestamp";
-  }
-  return new Intl.DateTimeFormat("sk-SK", {
-    timeZone: "Europe/Bratislava",
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(receiptAt));
-}
-
-function formatPaymentAmount(
-  amountLiteral: string | null,
-  amountCents: number | null,
-  currency: string,
-): string {
-  if (amountLiteral) {
-    return `${amountLiteral} ${currency}`;
-  }
-  if (amountCents !== null) {
-    return `${formatEuroFromCents(amountCents)} ${currency}`;
-  }
-  return "Pending amount";
 }
 
 export function buildMonthView(
@@ -126,9 +80,6 @@ export function buildMonthView(
   readOnly: boolean;
   isOpenMonth: boolean;
   closedAt: string | null;
-  cashPayments: MonthPaymentItem[];
-  pendingDecodeCount: number;
-  manualQueue: MonthManualQueueItem[];
   missingSlots: MissingSlot[];
   groups: MonthDocumentGroup[];
 } | null {
@@ -145,33 +96,8 @@ export function buildMonthView(
   const openMonthKey = getOpenMonthKey(companyId);
   const settings = getSettings();
   const files = listFilesForMonth(companyId, monthKey);
-  const fileNameById = new Map(files.map((file) => [file.driveFileId, file.name]));
   const monthFolders = listMonthFolders(companyId, monthKey);
   const groups = new Map<string, MonthDocumentGroup>();
-  const cashPayments = listCashPaymentsForMonth(companyId, monthKey).map((payment) => ({
-    id: payment.id,
-    amountLiteral: payment.amountLiteral,
-    amountDisplay: formatPaymentAmount(
-      payment.amountLiteral,
-      payment.amountCents,
-      payment.currency,
-    ),
-    receiptAt: payment.receiptAt,
-    receiptDisplay: formatReceiptAt(payment.receiptAt),
-    blocekFileId: payment.blocekFileId,
-    documentName: payment.blocekFileId
-      ? fileNameById.get(payment.blocekFileId) ?? payment.blocekFileId
-      : "Bank payment",
-    decodeStatus: payment.decodeStatus,
-  }));
-  const manualQueue = listManualQueueForMonth(companyId, monthKey)
-    .filter((entry) => !cashPayments.some((payment) => payment.blocekFileId === entry.driveFileId))
-    .map((entry) => ({
-      driveFileId: entry.driveFileId,
-      documentName: fileNameById.get(entry.driveFileId) ?? entry.driveFileId,
-      reason: entry.reason,
-    }));
-  const pendingDecodeCount = listPendingDecodeJobsForMonth(companyId, monthKey).length;
 
   for (const folder of monthFolders) {
     const classification = classifyFolder(folder.name, {
@@ -284,9 +210,6 @@ export function buildMonthView(
     readOnly: month.closedAt !== null,
     isOpenMonth: openMonthKey === monthKey,
     closedAt: month.closedAt,
-    cashPayments,
-    pendingDecodeCount,
-    manualQueue,
     missingSlots: describeMissingSlots(
       monthFolders.map((folder) => ({
         name: folder.name,
