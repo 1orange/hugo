@@ -57,6 +57,8 @@ export type EkasaExtractedPayload = {
   recapVatLiteral: string | null;
   lineItems: DocumentLineItem[];
   vatRecap: DocumentVatRecapRow[];
+  /** The UID she typed into the UID box, kept even when the lookup knew nothing. */
+  typedEkasaUid?: string;
 };
 
 import type { ExtractionCheckFlags } from "./extraction-checks";
@@ -77,12 +79,21 @@ export type ModelExtractedPayload = {
   docTypeHint: DocTypeHint | null;
   /** Set when extraction checks ran (model / OCR path). */
   fieldChecks?: ExtractionCheckFlags;
+  /** The UID she typed into the UID box, kept even when the lookup knew nothing. */
+  typedEkasaUid?: string;
+};
+
+/** No parser produced data; she fills the document in, possibly after typing a UID. */
+export type EmptyExtractedPayload = {
+  kind?: undefined;
+  /** The UID she typed into the UID box, kept even when the lookup knew nothing. */
+  typedEkasaUid?: string;
 };
 
 export type ExtractedPayload =
   | EkasaExtractedPayload
   | ModelExtractedPayload
-  | Record<string, never>;
+  | EmptyExtractedPayload;
 
 export function emptyExtractedPayload(): ExtractedPayload {
   return {};

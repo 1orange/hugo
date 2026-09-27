@@ -36,6 +36,7 @@ import {
 } from "@/modules/document-payload";
 import { folderSlotPrefix, formatDateTime } from "@/modules/format-sk";
 import type { HomeCurrency } from "@/modules/company-profile";
+import type { DocTypeHint } from "@/modules/document-payload";
 import {
   readExportSectionOverride,
   resolveExportSection,
@@ -47,7 +48,7 @@ export type DocumentFieldEditorView = {
   fields: EditableDocumentFields;
   provenance: FieldProvenanceMap;
   fieldChecks: EditorScalarFieldChecks | null;
-  docTypeHint: string | null;
+  docTypeHint: DocTypeHint | null;
   arithmeticWarning: string | null;
   nonEurCurrency: boolean;
   homeCurrency: HomeCurrency;

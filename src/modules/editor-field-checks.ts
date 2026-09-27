@@ -4,7 +4,9 @@ import type { ExtractionCheckFlags } from "./extraction-checks";
 import type { CompanyProfileFields } from "./company-profile";
 import { partyRoleIndices } from "./party-roles";
 
-export type EditorScalarFieldChecks = Partial<Record<ScalarFieldKey, FieldCheckState>>;
+export type EditorScalarFieldChecks = Partial<
+  Record<ScalarFieldKey | "vatRecap", FieldCheckState>
+>;
 
 export function editorFieldChecksFromModel(input: {
   extracted: ModelExtractedPayload;

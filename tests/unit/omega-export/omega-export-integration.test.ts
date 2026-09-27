@@ -53,7 +53,9 @@ function seedFile(db: ReturnType<typeof getDb>, input: {
     .run();
 }
 
-function fieldInput(partial: Record<string, unknown>) {
+function fieldInput(
+  partial: Partial<import("../../../src/modules/document-fields.ts").DocumentFieldFormInput>,
+): import("../../../src/modules/document-fields.ts").DocumentFieldFormInput {
   return {
     exportSection: "",
     supplierName: "",

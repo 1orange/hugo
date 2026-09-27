@@ -26,6 +26,7 @@ import {
 } from "@/lib/documents/service";
 import { lookupEkasaUidForDocument } from "@/lib/documents/lookup-ekasa-uid";
 import { runSweep } from "@/lib/sweep/run-sweep";
+import type { DocumentFieldFormInput } from "@/modules/document-fields";
 import { revalidatePath } from "next/cache";
 
 export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
@@ -242,23 +243,7 @@ export async function saveDocumentFieldsAction(input: {
   companyId: number;
   monthKey: string;
   driveFileId: string;
-  fields: {
-    supplierName: string;
-    ico: string;
-    dic: string;
-    icDph: string;
-    receiptNumber: string;
-    receiptTimestampRaw: string;
-    currency: string;
-    amountLiteral: string;
-    recapBaseLiteral: string;
-    recapVatLiteral: string;
-    vatRecap: Array<{
-      rateLiteral: string;
-      baseLiteral: string;
-      vatLiteral: string;
-    }>;
-  };
+  fields: DocumentFieldFormInput;
 }): Promise<MutationActionResult> {
   const result = saveDocumentFields(input);
   if (result.ok) {

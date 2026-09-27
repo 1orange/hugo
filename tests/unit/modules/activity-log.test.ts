@@ -97,9 +97,14 @@ test("formatActivityEntry surfaces first-seen time for discoveries", () => {
     type: "FileDiscovered",
     payloadJson: JSON.stringify({
       type: "FileDiscovered",
-      name: "supplier-a.pdf",
-      firstSeenAt: "2026-02-05T09:30:00.000Z",
+      driveFileId: "file-supplier-a",
+      companyDriveFolderId: "company-folder",
       monthKey: "2026_02",
+      folderSlot: "02 Prijaté faktúry",
+      name: "supplier-a.pdf",
+      mimeType: "application/pdf",
+      driveCreatedTime: "2026-02-05T09:30:00.000Z",
+      firstSeenAt: "2026-02-05T09:30:00.000Z",
     } satisfies DomainEvent),
   });
 

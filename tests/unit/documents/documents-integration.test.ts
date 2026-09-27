@@ -55,7 +55,7 @@ const INVOICE_B = "doc-invoice-b";
 
 function emptyFieldInput(
   partial: Partial<import("../../../src/modules/document-fields.ts").DocumentFieldFormInput> = {},
-) {
+): import("../../../src/modules/document-fields.ts").DocumentFieldFormInput {
   return {
     exportSection: "",
     supplierName: "",

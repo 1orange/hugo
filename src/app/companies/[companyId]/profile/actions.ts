@@ -19,7 +19,7 @@ function parseCountry(raw: string): CompanyCountry {
   return raw === "CZ" ? "CZ" : "SK";
 }
 
-async function assertAllowed(): Promise<ActionResult<never> | null> {
+async function assertAllowed(): Promise<{ ok: false; message: string } | null> {
   const session = await auth();
   const allowlist = loadAllowlistFromEnv();
 

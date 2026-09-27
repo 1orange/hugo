@@ -353,12 +353,14 @@ function mergePartyFields(
   const customerDic = mergeScalar("customerDic", "customerDic", fromExtracted, confirmed);
   const customerIcDph = mergeScalar("customerIcDph", "customerIcDph", fromExtracted, confirmed);
 
+  const folderSlot = options?.folderSlot;
   const invoiceFolder =
-    options?.folderSlot?.startsWith("01 ") || options?.folderSlot?.startsWith("02 ");
+    folderSlot !== undefined &&
+    (folderSlot.startsWith("01 ") || folderSlot.startsWith("02 "));
   if (invoiceFolder && (hasLabeledSupplier || hasLabeledCustomer || supplier.provenance !== "empty")) {
     const validation = validateLabeledPartyRoles({
-      folderSlot: options.folderSlot,
-      profile: options.profile ?? null,
+      folderSlot,
+      profile: options?.profile ?? null,
       supplier: {
         name: supplier.value,
         ico: ico.value,

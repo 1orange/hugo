@@ -322,10 +322,9 @@ test("applyFolderRename refuses when canRename is false", async () => {
   const fixture = buildFixture();
   const blockedFolder = fixture.find((entry) => entry.id === TYPO_SLOT_ID);
   if (blockedFolder) {
-    blockedFolder.capabilities = {
-      canRename: false,
-      canMoveItemWithinDrive: true,
-    };
+    Object.assign(blockedFolder, {
+      capabilities: { canRename: false, canMoveItemWithinDrive: true },
+    });
   }
 
   const client = new FakeDriveClient(fixture);
