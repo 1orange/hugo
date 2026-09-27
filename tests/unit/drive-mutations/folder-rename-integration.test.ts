@@ -8,6 +8,7 @@ import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
 import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
+import { buildMonthView } from "../../../src/lib/sweep/views.ts";
 import {
   applyFolderRename,
   undoFolderRename,
@@ -154,6 +155,57 @@ test("folder rename: propose, confirm, verify fake Drive, undo, verify events", 
       (row) => row.timestamp <= allRenamedEvents[1]!.timestamp,
     ),
   );
+});
+
+test("a repaired folder reads as canonical-with-undo, not as an open problem", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+  setDriveParentFolderId(PARENT_ID);
+
+  const client = new FakeDriveClient(buildFixture());
+  await runSweep(client);
+  const company = getDb().select().from(companies).get();
+  assert.ok(company);
+
+  const before = buildMonthView(company.id, "2026_03");
+  const beforeGroup = before?.groups.find(
+    (group) => group.driveFolderId === TYPO_SLOT_ID,
+  );
+  assert.equal(beforeGroup?.kind, "repair-candidate");
+  assert.equal(beforeGroup?.activeMutationId, null);
+
+  assert.equal(
+    (
+      await applyFolderRename(client, company.id, {
+        driveFileId: TYPO_SLOT_ID,
+        currentName: "04 Bločky_hotorvosť",
+        targetName: "04 Bločky_hotovosť",
+        parentId: MONTH_ID,
+      })
+    ).ok,
+    true,
+  );
+
+  /*
+   * After the rename the folder is canonical. It still carries the mutation id
+   * because undo stays available (ADR 0006), but that is a finished action, not
+   * an unresolved problem — the screen must not keep counting it as one and
+   * offering undo as the only move.
+   */
+  const after = buildMonthView(company.id, "2026_03");
+  const afterGroup = after?.groups.find(
+    (group) => group.driveFolderId === TYPO_SLOT_ID,
+  );
+  assert.equal(afterGroup?.kind, "canonical");
+  assert.equal(afterGroup?.observedName, "04 Bločky_hotovosť");
+  assert.ok(afterGroup?.activeMutationId);
+
+  const stillBroken = after?.groups.filter(
+    (group) => group.kind === "repair-candidate" || group.kind === "unknown",
+  );
+  assert.deepEqual(stillBroken, []);
 });
 
 test("a rename that fails mid-flight still leaves a reversible record", async () => {

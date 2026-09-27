@@ -5,6 +5,7 @@ import {
   countAwaitingDecision,
   deriveDocumentStatus,
   deriveReceiptKind,
+  hasAutomaticExtraction,
   isProcessedFolderSlot,
 } from "../../../src/modules/document-state.ts";
 import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts";
@@ -53,14 +54,16 @@ test("cash versus card is derived from folder slot only", () => {
 });
 
 test("derived status is advisory and reflects extraction state", () => {
+  // A receipt PDF is genuinely queued for the eKasa parser.
   assert.deepEqual(
     deriveDocumentStatus({
       decision: null,
       extractionStatus: "pending",
       extractionFailureReason: null,
-      folderSlot: "02 Prijaté faktúry",
+      folderSlot: "04 Bločky_hotovosť",
+      mimeType: "application/pdf",
     }),
-    { kind: "pending-extraction", hint: "Extraction pending" },
+    { kind: "pending-extraction", hint: "Spracúva sa…" },
   );
   assert.deepEqual(
     deriveDocumentStatus({
@@ -68,6 +71,7 @@ test("derived status is advisory and reflects extraction state", () => {
       extractionStatus: "failed",
       extractionFailureReason: "No text layer",
       folderSlot: "04 Bločky_hotovosť",
+      mimeType: "application/pdf",
     }),
     { kind: "manual-entry", hint: "No text layer" },
   );
@@ -77,8 +81,72 @@ test("derived status is advisory and reflects extraction state", () => {
       extractionStatus: "complete",
       extractionFailureReason: null,
       folderSlot: "04 Bločky_hotovosť",
+      mimeType: "application/pdf",
     }),
-    { kind: "extracted", hint: "Extracted" },
+    { kind: "extracted", hint: "Spracované" },
+  );
+});
+
+test("a document no parser handles says so instead of waiting forever", () => {
+  assert.deepEqual(
+    deriveDocumentStatus({
+      decision: null,
+      extractionStatus: "pending",
+      extractionFailureReason: null,
+      folderSlot: "02 Prijaté faktúry",
+      mimeType: "application/pdf",
+    }),
+    { kind: "pending-extraction", hint: "Spracúva sa…" },
+  );
+
+  // A photo in a receipt folder has no text layer to read, so it is hers too.
+  assert.deepEqual(
+    deriveDocumentStatus({
+      decision: null,
+      extractionStatus: "pending",
+      extractionFailureReason: null,
+      folderSlot: "04 Bločky_hotovosť",
+      mimeType: "image/heic",
+    }),
+    { kind: "manual-only", hint: "Vyplň ručne" },
+  );
+});
+
+test("automatic extraction covers text-layer PDFs in processed folders", () => {
+  assert.equal(
+    hasAutomaticExtraction({
+      folderSlot: "04 Bločky_hotovosť",
+      mimeType: "application/pdf",
+    }),
+    true,
+  );
+  assert.equal(
+    hasAutomaticExtraction({
+      folderSlot: "05 Bločky_firemná karta",
+      mimeType: "application/pdf",
+    }),
+    true,
+  );
+  assert.equal(
+    hasAutomaticExtraction({
+      folderSlot: "05 Bločky_firemná karta",
+      mimeType: "image/jpeg",
+    }),
+    false,
+  );
+  assert.equal(
+    hasAutomaticExtraction({
+      folderSlot: "01 Vystavené faktúry",
+      mimeType: "application/pdf",
+    }),
+    true,
+  );
+  assert.equal(
+    hasAutomaticExtraction({
+      folderSlot: "02 Prijaté faktúry",
+      mimeType: "application/pdf",
+    }),
+    true,
   );
 });
 

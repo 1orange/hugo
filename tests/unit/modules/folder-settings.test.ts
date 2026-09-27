@@ -42,7 +42,7 @@ test("validateCanonicalFolderNames rejects an empty list", () => {
   const result = validateCanonicalFolderNames([]);
   assert.equal(result.ok, false);
   if (!result.ok) {
-    assert.match(result.errors[0]!.message, /empty/i);
+    assert.match(result.errors[0]!.message, /prázdny/i);
   }
 });
 
@@ -51,7 +51,7 @@ test("validateCanonicalFolderNames rejects blank entries with index", () => {
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.errors[0]!.index, 1);
-    assert.match(result.errors[0]!.message, /blank/i);
+    assert.match(result.errors[0]!.message, /prázdna/i);
   }
 });
 
@@ -63,7 +63,7 @@ test("validateCanonicalFolderNames rejects exact duplicates", () => {
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.errors[0]!.index, 1);
-    assert.match(result.errors[0]!.message, /duplicate/i);
+    assert.match(result.errors[0]!.message, /rovnaká ako/i);
   }
 });
 
@@ -76,7 +76,7 @@ test("validateCanonicalFolderNames rejects entries that differ only by normalisa
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.errors[0]!.index, 1);
-    assert.match(result.errors[0]!.message, /normalis/i);
+    assert.match(result.errors[0]!.message, /normalizáciou/i);
   }
 });
 
@@ -88,7 +88,7 @@ test("validateCanonicalFolderNames rejects entries that differ only by case", ()
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.errors[0]!.index, 1);
-    assert.match(result.errors[0]!.message, /case/i);
+    assert.match(result.errors[0]!.message, /veľkosťou písmen/i);
   }
 });
 

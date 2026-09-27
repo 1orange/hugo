@@ -2,17 +2,16 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
-import { scheduleCashDiscoveryForMonth } from "@/lib/cash-discovery/schedule";
+import { AppBar } from "@/components/app/app-bar";
+import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
 import { buildMonthView } from "@/lib/sweep/views";
-import {
-  buildMonthDocumentView,
-  listDocumentFolderFilters,
-} from "@/lib/documents/view";
+import { buildMonthDocumentView } from "@/lib/documents/view";
 import { getSettings } from "@/adapters/store/settings";
-import { RefreshButton } from "../../refresh-button";
-import { FolderRepairPanel } from "./folder-repair-panel";
-import { MonthLifecyclePanel } from "./month-lifecycle-panel";
-import { DocumentPanel } from "./document-panel";
+import { listMonthsForCompany } from "@/adapters/store/months";
+import { monthLabel } from "@/modules/format-sk";
+import { DocumentWorkbench } from "./document-workbench";
+import { MonthRail } from "./month-rail";
+import { OmegaExportPanel } from "./omega-export-panel";
 
 type MonthPageProps = {
   params: Promise<{ companyId: string; monthKey: string }>;
@@ -45,125 +44,78 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
   }
 
   if (!view.readOnly) {
-    scheduleCashDiscoveryForMonth(companyIdNum, monthKey);
+    scheduleDocumentExtractionForMonth(companyIdNum, monthKey);
   }
 
   const settings = getSettings();
-  const folderFilters = listDocumentFolderFilters(companyIdNum, monthKey);
+  const months = listMonthsForCompany(companyIdNum).map((month) => ({
+    monthKey: month.monthKey,
+    closed: month.closedAt !== null,
+  }));
+
+  // Only folders that actually need a decision from her count as problems. A
+  // folder the app already renamed is canonical now — a finished action whose
+  // undo is still on offer — so it is listed separately and not counted.
+  const repairGroups = view.groups.filter(
+    (group) => group.kind === "repair-candidate" || group.kind === "unknown",
+  );
+  const repairedGroups = view.groups.filter(
+    (group) => group.kind === "canonical" && group.activeMutationId !== null,
+  );
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-8 p-8">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link className="underline" href="/companies">
-              Companies
-            </Link>
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {view.companyName}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Month {view.monthKey}
-            {" · "}
-            <Link className="underline" href={`/companies/${companyId}/activity`}>
-              Activity log
-            </Link>
-          </p>
-        </div>
-        <RefreshButton lastSweepAt={settings.lastSweepAt} />
-      </header>
-
-      <MonthLifecyclePanel
-        companyId={companyIdNum}
-        monthKey={monthKey}
-        readOnly={view.readOnly}
-        isOpenMonth={view.isOpenMonth}
+    <div className="flex min-h-screen flex-col bg-surface lg:h-screen lg:overflow-hidden">
+      <AppBar
+        crumbs={[
+          { label: "Firmy", href: "/companies" },
+          {
+            label: view.companyName,
+            href: `/companies/${companyId}/activity`,
+          },
+          { label: monthKey, mono: true },
+        ]}
+        email={session.user.email}
+        lastSweepAt={settings.lastSweepAt}
       />
 
-      <DocumentPanel
+      <MonthRail
+        companyId={companyIdNum}
+        monthKey={monthKey}
+        months={months}
+        awaitingCount={documentView.awaitingCount}
+        decidedCount={documentView.decidedCount}
+        totalCount={documentView.totalCount}
+        pendingExtractionCount={documentView.pendingExtractionCount}
+        readOnly={view.readOnly}
+        isOpenMonth={view.isOpenMonth}
+        missingSlots={view.missingSlots}
+        repairGroups={repairGroups}
+        repairedGroups={repairedGroups}
+        canonicalFolderNames={view.canonicalFolderNames}
+      />
+
+      <DocumentWorkbench
         companyId={companyIdNum}
         monthKey={monthKey}
         view={documentView}
-        folderFilters={folderFilters}
+        autoAdvance={settings.autoAdvanceAfterDecision}
+        basePath={`/companies/${companyId}/${monthKey}`}
       />
 
-      {view.missingSlots.length > 0 ? (
-        <section
-          className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4"
-          data-testid="missing-slots"
-        >
-          <h2 className="mb-3 text-lg font-medium">Expected folders missing</h2>
-          <ul className="space-y-2">
-            {view.missingSlots.map((slot) => (
-              <li
-                key={slot.canonicalName}
-                className="rounded-md border border-border/60 p-3 text-sm"
-              >
-                <p className="font-medium">{slot.canonicalName}</p>
-                <p className="text-muted-foreground">
-                  {slot.blockedByFolderName
-                    ? `Not created because "${slot.blockedByFolderName}" already uses this number. Repair or rename that folder, then refresh.`
-                    : "Not present yet. It is created when the month is scaffolded."}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      <div className="grid gap-6">
-        {view.groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No documents in this month.</p>
-        ) : (
-          view.groups.map((group) => (
-            <section
-              key={group.driveFolderId}
-              className="rounded-lg border border-border p-4"
-              data-testid={`folder-group-${group.kind}`}
-            >
-              <h2 className="mb-3 text-lg font-medium">{group.title}</h2>
-              {group.kind === "vat-output" ? (
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Omega VAT outputs at month root — read-only, never processed as
-                  input documents.
-                </p>
-              ) : null}
-              {view.readOnly ? null : group.kind === "repair-candidate" ||
-              group.kind === "unknown" ||
-              (group.kind === "canonical" && group.activeMutationId) ? (
-                <FolderRepairPanel
-                  companyId={companyIdNum}
-                  monthKey={monthKey}
-                  driveFolderId={group.driveFolderId}
-                  observedName={group.observedName}
-                  proposedTargetName={group.proposedTargetName}
-                  kind={group.kind}
-                  canRename={group.canRename}
-                  renameBlockedReason={group.renameBlockedReason}
-                  activeMutationId={group.activeMutationId}
-                  canonicalFolderNames={view.canonicalFolderNames}
-                />
-              ) : null}
-              {group.documents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No documents.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {group.documents.map((document) => (
-                    <li
-                      key={document.driveFileId}
-                      className="text-sm"
-                      data-testid="month-document"
-                    >
-                      {document.name}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))
-        )}
+      <div className="shrink-0 border-t border-line px-3.5 py-3">
+        <OmegaExportPanel companyId={companyIdNum} monthKey={monthKey} />
       </div>
-    </main>
+
+      <p className="shrink-0 border-t border-line bg-surface-2 px-3.5 py-1.5 text-[11px] text-ink-3">
+        <span className="sr-only">Klávesové skratky: </span>
+        <b className="font-mono">C</b> potvrdiť · <b className="font-mono">N</b>{" "}
+        nerelevantné · <b className="font-mono">J</b> /{" "}
+        <b className="font-mono">K</b> ďalší a predchádzajúci doklad ·{" "}
+        {monthLabel(monthKey)} ·{" "}
+        <Link className="text-accent underline" href={`/companies/${companyId}/activity`}>
+          Denník aktivity
+        </Link>
+      </p>
+    </div>
   );
 }

@@ -142,6 +142,7 @@ test("global settings events appear only in global activity scope", async () => 
       "08 Test slot",
     ],
     movableFolderNames: ["02 Prijaté faktúry"],
+    autoAdvanceAfterDecision: false,
   });
 
   const companyActivity = listCompanyActivity(company.id, {});

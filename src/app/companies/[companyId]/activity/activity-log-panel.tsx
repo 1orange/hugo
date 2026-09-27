@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ActivityLogView } from "@/lib/activity-log/view";
+import { formatDateTime, monthLabel } from "@/modules/format-sk";
 
 type ActivityLogPanelProps = {
   view: ActivityLogView;
@@ -35,14 +36,14 @@ export function ActivityLogPanel({ view, basePath }: ActivityLogPanelProps) {
     <div className="flex flex-col gap-6" data-testid="activity-log">
       <form className="flex flex-wrap gap-3" method="get" action={basePath}>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Event type</span>
+          <span className="text-ink-3">Typ udalosti</span>
           <select
-            className="rounded-md border border-border bg-background px-3 py-2"
+            className="rounded-md border border-line bg-surface-2 px-3 py-2"
             name="type"
             defaultValue={view.filters.eventType ?? ""}
             data-testid="activity-type-filter"
           >
-            <option value="">All types</option>
+            <option value="">Všetky typy</option>
             {view.eventTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -53,14 +54,14 @@ export function ActivityLogPanel({ view, basePath }: ActivityLogPanelProps) {
 
         {view.scope === "company" ? (
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Month</span>
+            <span className="text-ink-3">Mesiac</span>
             <select
-              className="rounded-md border border-border bg-background px-3 py-2"
+              className="rounded-md border border-line bg-surface-2 px-3 py-2"
               name="month"
               defaultValue={selectedMonth}
               data-testid="activity-month-filter"
             >
-              <option value="">All months</option>
+              <option value="">Všetky mesiace</option>
               {view.monthOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -73,35 +74,35 @@ export function ActivityLogPanel({ view, basePath }: ActivityLogPanelProps) {
         <div className="flex items-end">
           <button
             type="submit"
-            className="inline-flex h-10 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-muted"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-line-2 bg-surface px-4 text-sm font-medium hover:border-accent hover:text-accent"
             data-testid="activity-apply-filters"
           >
-            Apply filters
+            Použiť filtre
           </button>
         </div>
       </form>
 
       {view.entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground" data-testid="activity-empty">
-          No activity recorded yet.
+        <p className="text-sm text-ink-3" data-testid="activity-empty">
+          Zatiaľ sa nezaznamenala žiadna aktivita.
         </p>
       ) : (
         <ol className="space-y-3">
           {view.entries.map((entry) => (
             <li
               key={entry.id}
-              className="rounded-lg border border-border p-4 text-sm"
+              className="rounded-lg border border-line bg-surface p-4 text-sm"
               data-testid="activity-entry"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium">{entry.typeLabel}</span>
-                <time className="text-muted-foreground" dateTime={entry.timestamp}>
-                  {entry.timestamp}
+                <time className="font-mono text-ink-3" dateTime={entry.timestamp}>
+                  {formatDateTime(entry.timestamp)}
                 </time>
               </div>
-              <p className="mt-1 text-muted-foreground">
+              <p className="mt-1 text-ink-3">
                 {entry.actorLabel}
-                {entry.monthKey ? ` · ${entry.monthKey.replace("_", "-")}` : null}
+                {entry.monthKey ? ` · ${monthLabel(entry.monthKey)}` : null}
               </p>
               <p className="mt-2">{entry.summary}</p>
             </li>
@@ -111,11 +112,11 @@ export function ActivityLogPanel({ view, basePath }: ActivityLogPanelProps) {
 
       {view.hasMore && view.oldestId ? (
         <Link
-          className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-muted"
+          className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-line-2 bg-surface px-4 text-sm font-medium hover:border-accent hover:text-accent"
           href={buildHref(basePath, view.filters, view.oldestId)}
           data-testid="activity-load-older"
         >
-          Load older
+          Načítať staršie
         </Link>
       ) : null}
     </div>

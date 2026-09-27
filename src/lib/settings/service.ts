@@ -3,6 +3,7 @@ import { appendGlobalUserEvent } from "@/adapters/store/events";
 import { listAllMonthFolders } from "@/adapters/store/month-folders";
 import {
   getSettings,
+  setAutoAdvanceAfterDecision,
   setDriveParentFolderId,
   updateCanonicalFolderNames,
   updateMovableFolderNames,
@@ -21,6 +22,7 @@ export type SettingsFormData = {
   driveParentFolderId: string;
   canonicalFolderNames: string[];
   movableFolderNames: string[];
+  autoAdvanceAfterDecision: boolean;
 };
 
 export function buildExistingFolderRefs() {
@@ -119,6 +121,16 @@ export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResul
     }, {
       driveParentFolderId: trimmedParentId,
     });
+  }
+
+  const autoAdvance = input.autoAdvanceAfterDecision === true;
+  if (autoAdvance !== previous.autoAdvanceAfterDecision) {
+    setAutoAdvanceAfterDecision(autoAdvance);
+    recordSettingsEvent(
+      "AutoAdvanceChanged",
+      previous.autoAdvanceAfterDecision,
+      autoAdvance,
+    );
   }
 
   const next = getSettings();

@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
+/*
+ * Hugo's palette. Quiet chrome, loud state: colour is spent on what needs a
+ * decision, never on decoration. The neutrals carry a cool blue bias so the
+ * ground never reads as flat grey, and the brand petrol sits far enough from
+ * the confirmed green that a row's state is never ambiguous.
+ *
+ * Light only for now — she works in daylight next to scanned invoices.
+ */
 @theme inline {
-  --color-background: oklch(1 0 0);
-  --color-foreground: oklch(0.145 0 0);
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.145 0 0);
-  --color-primary: oklch(0.205 0 0);
-  --color-primary-foreground: oklch(0.985 0 0);
-  --color-muted: oklch(0.97 0 0);
-  --color-muted-foreground: oklch(0.556 0 0);
-  --color-border: oklch(0.922 0 0);
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
+  --color-ground: oklch(0.955 0.004 240);
+  --color-surface: oklch(1 0 0);
+  --color-surface-2: oklch(0.978 0.003 240);
+  --color-surface-3: oklch(0.933 0.006 240);
+
+  --color-ink: oklch(0.205 0.012 240);
+  --color-ink-2: oklch(0.475 0.017 240);
+  --color-ink-3: oklch(0.625 0.016 240);
+
+  --color-line: oklch(0.895 0.007 240);
+  --color-line-2: oklch(0.835 0.011 240);
+
+  --color-accent: oklch(0.435 0.062 225);
+  --color-accent-ink: oklch(1 0 0);
+  --color-accent-soft: oklch(0.935 0.021 225);
+
+  --color-good: oklch(0.505 0.103 152);
+  --color-good-ink: oklch(1 0 0);
+  --color-good-soft: oklch(0.945 0.032 152);
+
+  --color-warn: oklch(0.505 0.098 75);
+  --color-warn-soft: oklch(0.947 0.038 85);
+
+  --color-bad: oklch(0.483 0.153 27);
+  --color-bad-soft: oklch(0.945 0.032 27);
+
+  /* Aliases kept so the existing Button and Card primitives still resolve. */
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-accent-ink);
+  --color-muted: var(--color-surface-2);
+  --color-muted-foreground: var(--color-ink-3);
+  --color-border: var(--color-line);
+  --color-destructive: var(--color-bad);
+
+  --font-sans: var(--font-archivo), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.3125rem;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-line;
+  }
+
+  html {
+    color-scheme: light;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-ground text-ink antialiased;
+    font-synthesis-weight: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-semibold tracking-tight;
+    text-wrap: balance;
+  }
+
+  /* Every figure she compares against a document lines up in its column. */
+  .font-mono,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /* Uppercase micro-label used for pane headings and field-group titles. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-3;
   }
 }

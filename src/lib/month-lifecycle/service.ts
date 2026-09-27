@@ -26,12 +26,12 @@ export function assertMonthEditable(
 ): MonthReadOnlyBlock | null {
   const month = getMonthByKey(companyId, monthKey);
   if (!month) {
-    return { ok: false, message: "Month not found." };
+    return { ok: false, message: "Mesiac sa nenašiel." };
   }
   if (month.closedAt) {
     return {
       ok: false,
-      message: "This month is closed and read-only.",
+      message: "Tento mesiac je uzavretý a len na čítanie.",
     };
   }
   return null;
@@ -148,27 +148,27 @@ export async function closeCompanyMonth(
     return editable;
   }
 
-  const openMonthKey = getOpenMonthKey(companyId);
-  if (openMonthKey !== monthKey) {
-    return {
-      ok: false,
-      message: "Only the open month can be closed.",
-    };
-  }
-
+  /*
+   * Any month that is not already closed can be closed, not only the most
+   * recent one. ADR 0005 anchors the lifecycle on the explicit click and
+   * *derives* the open month as the newest without a `closedAt`; that
+   * derivation still holds when an older month is closed out of order, which
+   * happens whenever a late month is finished after a newer one was started.
+   * `assertMonthEditable` above already rejects an already-closed month.
+   */
   const month = getMonthByKey(companyId, monthKey);
   if (!month) {
-    return { ok: false, message: "Month not found." };
+    return { ok: false, message: "Mesiac sa nenašiel." };
   }
 
   const company = getCompanyById(companyId);
   if (!company) {
-    return { ok: false, message: "Company not found." };
+    return { ok: false, message: "Firma sa nenašla." };
   }
 
   const nextKey = nextMonthKey(monthKey);
   if (!nextKey) {
-    return { ok: false, message: "Invalid month key." };
+    return { ok: false, message: "Neplatný kľúč mesiaca." };
   }
 
   const closedAt = new Date().toISOString();
@@ -200,10 +200,10 @@ export async function reopenCompanyMonth(
 ): Promise<MonthActionResult> {
   const month = getMonthByKey(companyId, monthKey);
   if (!month) {
-    return { ok: false, message: "Month not found." };
+    return { ok: false, message: "Mesiac sa nenašiel." };
   }
   if (!month.closedAt) {
-    return { ok: false, message: "Month is not closed." };
+    return { ok: false, message: "Mesiac nie je uzavretý." };
   }
 
   const reopenedAt = new Date().toISOString();

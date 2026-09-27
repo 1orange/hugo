@@ -1,7 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
+import { AppBar } from "@/components/app/app-bar";
+import { getSettings } from "@/adapters/store/settings";
 import { buildGlobalActivityView } from "@/lib/activity-log/view";
 import { ActivityLogPanel } from "@/app/companies/[companyId]/activity/activity-log-panel";
 
@@ -35,26 +36,29 @@ export default async function GlobalActivityPage({
   );
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 p-8">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            <Link className="underline" href="/companies">
-              Companies
-            </Link>
-            {" · "}
-            <Link className="underline" href="/settings">
-              Settings
-            </Link>
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight">All activity</h1>
-          <p className="text-sm text-muted-foreground">
-            Global changes that are not tied to one company.
-          </p>
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col bg-surface">
+      <AppBar
+        crumbs={[
+          { label: "Firmy", href: "/companies" },
+          { label: "Nastavenia", href: "/settings" },
+          { label: "Celý denník" },
+        ]}
+        email={session.user.email}
+        lastSweepAt={getSettings().lastSweepAt}
+      />
 
-      <ActivityLogPanel view={view} basePath="/activity" />
-    </main>
+      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">
+        <header>
+          <h1 className="text-2xl">Celý denník aktivity</h1>
+          <p className="mt-1 text-sm text-ink-2">
+            Zmeny, ktoré nepatria ku konkrétnej firme.
+          </p>
+        </header>
+
+        <div className="mt-6">
+          <ActivityLogPanel view={view} basePath="/activity" />
+        </div>
+      </main>
+    </div>
   );
 }

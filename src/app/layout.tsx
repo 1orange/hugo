@@ -1,21 +1,30 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+/*
+ * Archivo for chrome and prose, IBM Plex Mono for every figure, identifier,
+ * file name and month key. Both cover the full Slovak diacritic set, which most
+ * grotesques quietly do not.
+ */
+const archivo = Archivo({
+  variable: "--font-archivo",
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Hugo",
-  description: "Accounting reconciliation dashboard",
+  description: "Prehľad dokladov klientov",
 };
 
 export default function RootLayout({
@@ -24,8 +33,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans`}>
+    <html lang="sk">
+      <body className={`${archivo.variable} ${plexMono.variable} font-sans`}>
         <Providers>{children}</Providers>
       </body>
     </html>

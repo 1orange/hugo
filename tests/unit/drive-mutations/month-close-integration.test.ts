@@ -18,6 +18,7 @@ import {
 import {
   applyFolderRename,
 } from "../../../src/lib/drive-mutations/apply-rename.ts";
+import { getOpenMonthKey } from "../../../src/adapters/store/months.ts";
 import { companies, driveMutations, events, files, months } from "../../../src/lib/db/schema.ts";
 
 const PARENT_ID = "close-parent";
@@ -79,6 +80,49 @@ function setup() {
   const client = new FakeDriveClient(fixture);
   return { client, fixture, dbPath };
 }
+
+test("an older month can be closed after a newer one is already open", async () => {
+  const { client } = setup();
+  await runSweep(client);
+  const company = getDb().select().from(companies).get();
+  assert.ok(company);
+
+  // Closing March opens April, which is now the newest month without a
+  // closedAt. March is reopened, so both are open at once — exactly the state
+  // she is in when a late month is finished after a newer one was started.
+  assert.equal((await closeCompanyMonth(client, company.id, "2026_03")).ok, true);
+  assert.equal((await reopenCompanyMonth(company.id, "2026_03")).ok, true);
+  assert.equal(getOpenMonthKey(company.id), "2026_04");
+
+  const closedOlder = await closeCompanyMonth(client, company.id, "2026_03");
+  assert.equal(closedOlder.ok, true);
+
+  assert.ok(
+    getDb().select().from(months).where(eq(months.monthKey, "2026_03")).get()
+      ?.closedAt,
+  );
+  // April is untouched by closing a month behind it.
+  assert.equal(
+    getDb().select().from(months).where(eq(months.monthKey, "2026_04")).get()
+      ?.closedAt,
+    null,
+  );
+  assert.equal(getOpenMonthKey(company.id), "2026_04");
+});
+
+test("a month that is already closed still cannot be closed again", async () => {
+  const { client } = setup();
+  await runSweep(client);
+  const company = getDb().select().from(companies).get();
+  assert.ok(company);
+
+  assert.equal((await closeCompanyMonth(client, company.id, "2026_03")).ok, true);
+  const again = await closeCompanyMonth(client, company.id, "2026_03");
+  assert.equal(again.ok, false);
+  if (!again.ok) {
+    assert.match(again.message, /uzavretý/i);
+  }
+});
 
 test("close month writes closedAt, scaffolds next month, leaves VAT PDF untouched", async () => {
   const { client, fixture } = setup();
@@ -237,6 +281,6 @@ test("closed month rejects folder rename server-side", async () => {
   });
   assert.equal(rename.ok, false);
   if (!rename.ok) {
-    assert.match(rename.message, /read-only/i);
+    assert.match(rename.message, /len na čítanie/i);
   }
 });

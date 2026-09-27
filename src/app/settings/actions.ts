@@ -51,6 +51,7 @@ export async function saveSettingsAction(input: {
   driveParentFolderId: string;
   canonicalFolderNames: string[];
   movableFolderNames: string[];
+  autoAdvanceAfterDecision: boolean;
 }): Promise<ActionResult<{ settings: ReturnType<typeof loadSettingsFormData> }>> {
   const denied = await assertAllowedSettingsAccess();
   if (denied) {

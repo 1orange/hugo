@@ -77,6 +77,7 @@ test("saveGlobalSettings emits settings change events", () => {
     driveParentFolderId: "stored-parent",
     canonicalFolderNames: [...CANONICAL_FOLDER_NAMES],
     movableFolderNames: ["02 Prijaté faktúry", "06 Iné doklady"],
+    autoAdvanceAfterDecision: true,
   });
   assert.equal(result.ok, true);
 

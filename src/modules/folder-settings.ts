@@ -70,7 +70,7 @@ export function validateFolderNameList(
     }
     return {
       ok: false,
-      errors: [{ index: 0, message: "The list cannot be empty." }],
+      errors: [{ index: 0, message: "Zoznam nemôže byť prázdny." }],
     };
   }
 
@@ -86,7 +86,7 @@ export function validateFolderNameList(
     if (!trimmed) {
       errors.push({
         index,
-        message: `Entry ${index + 1} is blank or whitespace-only.`,
+        message: `Položka ${index + 1} je prázdna.`,
       });
       continue;
     }
@@ -97,17 +97,17 @@ export function validateFolderNameList(
     if (seenExact.has(trimmed)) {
       errors.push({
         index,
-        message: `Entry ${index + 1} duplicates entry ${seenExact.get(trimmed)! + 1}.`,
+        message: `Položka ${index + 1} je rovnaká ako položka ${seenExact.get(trimmed)! + 1}.`,
       });
     } else if (seenNfc.has(nfc)) {
       errors.push({
         index,
-        message: `Entry ${index + 1} differs from entry ${seenNfc.get(nfc)! + 1} only by Unicode normalisation.`,
+        message: `Položka ${index + 1} sa od položky ${seenNfc.get(nfc)! + 1} líši len normalizáciou Unicode.`,
       });
     } else if (seenFolded.has(folded)) {
       errors.push({
         index,
-        message: `Entry ${index + 1} differs from entry ${seenFolded.get(folded)! + 1} only by case.`,
+        message: `Položka ${index + 1} sa od položky ${seenFolded.get(folded)! + 1} líši len veľkosťou písmen.`,
       });
     }
 
@@ -149,7 +149,7 @@ export function validateMovableFolderNames(
     if (!canonicalNfc.has(name)) {
       errors.push({
         index,
-        message: `Entry ${index + 1} ("${name}") is not one of the canonical folder names.`,
+        message: `Položka ${index + 1} („${name}“) nie je jedným z kanonických názvov priečinkov.`,
       });
     }
   }

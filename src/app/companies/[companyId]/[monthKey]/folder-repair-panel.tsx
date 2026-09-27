@@ -80,46 +80,49 @@ export function FolderRepairPanel({
   }
 
   return (
-    <div className="mb-4 space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+    <div className="space-y-2.5 rounded-md border border-warn/30 bg-warn-soft p-2.5 text-[12.5px]">
       {showRepairUi ? (
         <>
-          <p className="text-amber-950">
-            {kind === "repair-candidate"
-              ? "This folder name is close to a canonical slot but not exact. Documents here are hidden from canonical views until repaired."
-              : "This folder is not recognised. Choose a canonical target if it belongs in the standard month structure."}
+          <p className="font-medium text-ink">
+            {observedName}
           </p>
-          <p className="text-xs text-amber-900">
-            Renaming a folder in Drive does not break your clients&apos; links —
-            file and folder IDs stay the same, so shortcuts and shared links keep
-            working.
+          <p className="text-ink-2">
+            {kind === "repair-candidate"
+              ? "Názov priečinka je blízky kanonickému, ale nie presný. Doklady v ňom sa nezobrazujú, kým sa neopraví."
+              : "Tento priečinok nie je rozpoznaný. Ak patrí do štandardnej štruktúry mesiaca, vyber kanonický cieľ."}
+          </p>
+          <p className="text-[11.5px] text-ink-3">
+            Premenovanie priečinka v Drive nerozbije odkazy klientov — ID súborov a
+            priečinkov zostávajú rovnaké, takže skratky a zdieľané odkazy fungujú
+            ďalej.
           </p>
         </>
       ) : (
-        <p className="text-xs text-amber-900">
-          This folder was renamed by the app. Undo restores the previous name in
-          Drive.
+        <p className="text-[11.5px] text-ink-3">
+          Tento priečinok premenovala aplikácia. Vrátenie obnoví predchádzajúci
+          názov v Drive.
         </p>
       )}
 
       {renameBlockedReason ? (
-        <p className="text-xs text-red-700" data-testid="rename-blocked-warning">
+        <p className="text-[11.5px] text-bad" data-testid="rename-blocked-warning">
           {renameBlockedReason}
         </p>
       ) : null}
 
       {kind === "unknown" ? (
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-amber-950">
-            Canonical target
+          <span className="text-[11.5px] font-medium text-ink-2">
+            Kanonický cieľ
           </span>
           <select
-            className="rounded border border-amber-300 bg-white px-2 py-1"
+            className="rounded-md border border-line-2 bg-surface px-2 py-1"
             value={manualTarget}
             onChange={(event) => setManualTarget(event.target.value)}
             disabled={pending}
             data-testid="manual-canonical-select"
           >
-            <option value="">Select a folder name…</option>
+            <option value="">Vyber názov priečinka…</option>
             {canonicalFolderNames.map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -133,29 +136,29 @@ export function FolderRepairPanel({
         {showRepairUi && canRename && targetName ? (
           <button
             type="button"
-            className="rounded bg-amber-900 px-3 py-1.5 text-xs font-medium text-amber-50 disabled:opacity-50"
+            className="rounded-md bg-warn px-3 py-1.5 text-[11.5px] font-semibold text-warn-soft disabled:opacity-50"
             onClick={onConfirm}
             disabled={pending}
             data-testid="confirm-folder-rename"
           >
-            {pending ? "Renaming…" : `Rename to “${targetName}”`}
+            {pending ? "Premenúvam…" : `Premenovať na „${targetName}“`}
           </button>
         ) : null}
         {activeMutationId ? (
           <button
             type="button"
-            className="rounded border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-950 disabled:opacity-50"
+            className="rounded-md border border-line-2 bg-surface px-3 py-1.5 text-[11.5px] font-medium text-ink-2 disabled:opacity-50"
             onClick={onUndo}
             disabled={pending}
             data-testid="undo-folder-rename"
           >
-            Undo rename
+            Vrátiť premenovanie
           </button>
         ) : null}
       </div>
 
       {error ? (
-        <p className="text-xs text-red-700" data-testid="folder-repair-error">
+        <p className="text-[11.5px] text-bad" data-testid="folder-repair-error">
           {error}
         </p>
       ) : null}

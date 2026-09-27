@@ -23,7 +23,7 @@ const AMOUNT_PATTERN = /^(\d{1,10})(?:[.,](\d{1,2}))?$/;
 export function parseDecimalAmount(input: string): MoneyParseResult {
   const literal = input.trim();
   if (literal.length < 1 || literal.length > 12) {
-    return { ok: false, reason: "Amount must be 1–12 characters." };
+    return { ok: false, reason: "Suma musí mať 1 až 12 znakov." };
   }
 
   const match = AMOUNT_PATTERN.exec(literal);
@@ -31,7 +31,7 @@ export function parseDecimalAmount(input: string): MoneyParseResult {
     return {
       ok: false,
       reason:
-        "Amount must be a decimal with up to two fractional digits, using either , or . as the separator.",
+        "Suma musí byť desatinné číslo s najviac dvoma desatinnými miestami, oddelené čiarkou alebo bodkou.",
     };
   }
 

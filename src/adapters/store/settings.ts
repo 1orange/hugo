@@ -16,6 +16,15 @@ export type SettingsRow = {
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   lastSweepAt: string | null;
+  autoAdvanceAfterDecision: boolean;
+  omegaT01EvidenceCode: string;
+  omegaT01SeriesCode: string;
+  omegaT01ReceivedEvidenceCode: string;
+  omegaT01ReceivedSeriesCode: string;
+  omegaT00EvidenceCode: string;
+  omegaT00SeriesCode: string;
+  omegaT00DocumentTypeCode: string;
+  omegaT00ForeignDocumentTypeCode: string;
 };
 
 function defaultMovableFolderNames(): string[] {
@@ -50,6 +59,15 @@ export function getSettings(): SettingsRow {
       canonicalFolderNames: [...CANONICAL_FOLDER_NAMES],
       movableFolderNames: defaultMovableFolderNames(),
       lastSweepAt: null,
+      autoAdvanceAfterDecision: false,
+      omegaT01EvidenceCode: "OF",
+      omegaT01SeriesCode: "OF",
+      omegaT01ReceivedEvidenceCode: "DF",
+      omegaT01ReceivedSeriesCode: "DF",
+      omegaT00EvidenceCode: "IDk",
+      omegaT00SeriesCode: "IDk",
+      omegaT00DocumentTypeCode: "180",
+      omegaT00ForeignDocumentTypeCode: "380",
     };
   }
 
@@ -58,7 +76,53 @@ export function getSettings(): SettingsRow {
     canonicalFolderNames: JSON.parse(row.canonicalFolderNamesJson) as string[],
     movableFolderNames: parseMovableFolderNames(row.movableFolderNamesJson),
     lastSweepAt: row.lastSweepAt,
+    autoAdvanceAfterDecision: row.autoAdvanceAfterDecision,
+    omegaT01EvidenceCode: row.omegaT01EvidenceCode ?? "OF",
+    omegaT01SeriesCode: row.omegaT01SeriesCode ?? "OF",
+    omegaT01ReceivedEvidenceCode: row.omegaT01ReceivedEvidenceCode ?? "DF",
+    omegaT01ReceivedSeriesCode: row.omegaT01ReceivedSeriesCode ?? "DF",
+    omegaT00EvidenceCode: row.omegaT00EvidenceCode ?? "IDk",
+    omegaT00SeriesCode: row.omegaT00SeriesCode ?? "IDk",
+    omegaT00DocumentTypeCode: row.omegaT00DocumentTypeCode ?? "180",
+    omegaT00ForeignDocumentTypeCode: row.omegaT00ForeignDocumentTypeCode ?? "380",
   };
+}
+
+export function setOmegaExportDefaults(input: {
+  t01EvidenceCode: string;
+  t01SeriesCode: string;
+  t01ReceivedEvidenceCode: string;
+  t01ReceivedSeriesCode: string;
+  t00EvidenceCode: string;
+  t00SeriesCode: string;
+  t00DocumentTypeCode: string;
+  t00ForeignDocumentTypeCode: string;
+}): void {
+  const db = getDb();
+  getSettings();
+  db.update(settings)
+    .set({
+      omegaT01EvidenceCode: input.t01EvidenceCode.trim() || "OF",
+      omegaT01SeriesCode: input.t01SeriesCode.trim() || "OF",
+      omegaT01ReceivedEvidenceCode: input.t01ReceivedEvidenceCode.trim() || "DF",
+      omegaT01ReceivedSeriesCode: input.t01ReceivedSeriesCode.trim() || "DF",
+      omegaT00EvidenceCode: input.t00EvidenceCode.trim() || "IDk",
+      omegaT00SeriesCode: input.t00SeriesCode.trim() || "IDk",
+      omegaT00DocumentTypeCode: input.t00DocumentTypeCode.trim() || "180",
+      omegaT00ForeignDocumentTypeCode:
+        input.t00ForeignDocumentTypeCode.trim() || "380",
+    })
+    .where(eq(settings.id, SETTINGS_ID))
+    .run();
+}
+
+export function setAutoAdvanceAfterDecision(enabled: boolean): void {
+  const db = getDb();
+  getSettings();
+  db.update(settings)
+    .set({ autoAdvanceAfterDecision: enabled })
+    .where(eq(settings.id, SETTINGS_ID))
+    .run();
 }
 
 export function resolveDriveParentFolderId(

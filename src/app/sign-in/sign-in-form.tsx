@@ -1,19 +1,11 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 function E2eSignInForm() {
   return (
     <form
-      className="flex flex-col gap-3 border-t border-border pt-4"
+      className="flex flex-col gap-3 border-t border-line pt-4"
       onSubmit={async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -24,22 +16,26 @@ function E2eSignInForm() {
         });
       }}
     >
-      <p className="text-xs text-muted-foreground">
-        E2E test sign-in (disabled in production)
+      <p className="text-xs text-ink-3">
+        Testovacie prihlásenie E2E (vypnuté v produkcii)
       </p>
       <label className="flex flex-col gap-1 text-sm">
-        Email
+        E-mail
         <input
-          className="rounded-md border border-border px-3 py-2"
+          className="rounded-md border border-line bg-surface-2 px-3 py-2"
           name="email"
           type="email"
           required
           data-testid="e2e-email"
         />
       </label>
-      <Button type="submit" variant="outline" data-testid="e2e-submit">
-        E2E sign in
-      </Button>
+      <button
+        type="submit"
+        data-testid="e2e-submit"
+        className="rounded-md border border-line-2 bg-surface px-4 py-2 text-sm font-medium text-ink-2 hover:border-accent hover:text-accent"
+      >
+        Prihlásiť sa (E2E)
+      </button>
     </form>
   );
 }
@@ -51,44 +47,48 @@ type SignInPageProps = {
 
 const ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin:
-    "Sign in failed. Your account is not on the allowlist or the credentials were invalid.",
+    "Prihlásenie zlyhalo. Tvoj účet nie je na zozname povolených alebo boli údaje neplatné.",
   AccessDenied:
-    "Access refused. Your Google account is not on the allowlist for this application.",
+    "Prístup odmietnutý. Tvoj účet Google nie je na zozname povolených pre túto aplikáciu.",
 };
 
 export function SignInForm({ e2eTestAuthEnabled, error }: SignInPageProps) {
-  const errorMessage = error ? ERROR_MESSAGES[error] ?? "Sign in failed." : null;
+  const errorMessage = error
+    ? (ERROR_MESSAGES[error] ?? "Prihlásenie zlyhalo.")
+    : null;
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Sign in</CardTitle>
-          <CardDescription>
-            Use your Google account to access the reconciliation dashboard.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+    <main className="flex min-h-screen items-center justify-center bg-ground p-6">
+      <div className="w-full max-w-md rounded-lg border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(16,21,25,0.06),0_14px_34px_-18px_rgba(16,21,25,0.34)]">
+        <p className="text-[22px] font-bold tracking-[-0.03em]">
+          hug<span className="text-accent">o</span>
+        </p>
+        <h1 className="mt-4 text-lg">Prihlásenie</h1>
+        <p className="mt-1 text-sm text-ink-2">
+          Prihlás sa účtom Google, ktorý má prístup k priečinkom klientov.
+        </p>
+
+        <div className="mt-5 flex flex-col gap-4">
           {errorMessage ? (
             <p
-              className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
+              className="rounded-md border-l-2 border-bad bg-bad-soft px-3 py-2 text-sm text-bad"
               role="alert"
             >
               {errorMessage}
             </p>
           ) : null}
-          <Button
+
+          <button
             type="button"
             onClick={() => signIn("google", { callbackUrl: "/companies" })}
+            className="rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-ink hover:brightness-110"
           >
-            Continue with Google
-          </Button>
+            Pokračovať cez Google
+          </button>
 
-          {e2eTestAuthEnabled ? (
-            <E2eSignInForm />
-          ) : null}
-        </CardContent>
-      </Card>
+          {e2eTestAuthEnabled ? <E2eSignInForm /> : null}
+        </div>
+      </div>
     </main>
   );
 }

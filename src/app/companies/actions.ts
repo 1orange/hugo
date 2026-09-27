@@ -17,12 +17,14 @@ import {
   reopenCompanyMonth,
   ensureAllOpenMonthsScaffolded,
 } from "@/lib/month-lifecycle/service";
+import { createEkasaLookup } from "@/adapters/ekasa-lookup/create-ekasa-lookup";
 import {
   confirmDocument,
   dismissDocument,
   saveDocumentFields,
   saveDocumentNote,
 } from "@/lib/documents/service";
+import { lookupEkasaUidForDocument } from "@/lib/documents/lookup-ekasa-uid";
 import { runSweep } from "@/lib/sweep/run-sweep";
 import { revalidatePath } from "next/cache";
 
@@ -207,6 +209,30 @@ export async function saveDocumentNoteAction(input: {
 }): Promise<MutationActionResult> {
   const result = saveDocumentNote(input);
   if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function lookupEkasaUidAction(input: {
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  uid: string;
+}): Promise<
+  | { ok: true; found: true }
+  | { ok: true; found: false; message: string }
+  | { ok: false; message: string }
+> {
+  const result = await lookupEkasaUidForDocument({
+    ...input,
+    uidRaw: input.uid,
+    ekasaLookup: createEkasaLookup(),
+  });
+  if (result.ok && result.found) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  if (result.ok && !result.found) {
     revalidateMonth(input.companyId, input.monthKey);
   }
   return result;
