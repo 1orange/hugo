@@ -3,19 +3,37 @@ import {
   parseReceiptDatetimeRaw,
 } from "./ekasa-timestamp";
 import { parseDecimalAmount } from "./money";
+import type { CompanyProfileFields } from "./company-profile";
+import { homeCurrencyForCountry, type HomeCurrency } from "./company-profile";
 import type {
   ConfirmedPayload,
   DocumentVatRecapRow,
   EkasaExtractedPayload,
   ExtractedPayload,
 } from "./document-payload";
-import { isEkasaPayload } from "./document-payload";
+import { isEkasaPayload, isModelExtractedPayload } from "./document-payload";
+import {
+  assignPartiesFromExtracted,
+  validateLabeledPartyRoles,
+} from "./party-roles";
 
 export type EditableDocumentFields = {
   supplierName: string;
   ico: string;
   dic: string;
   icDph: string;
+  customerName: string;
+  customerIco: string;
+  customerDic: string;
+  customerIcDph: string;
+  documentNumber: string;
+  variableSymbol: string;
+  issueDateRaw: string;
+  issueDateAt: string | null;
+  taxableSupplyDateRaw: string;
+  taxableSupplyDateAt: string | null;
+  dueDateRaw: string;
+  dueDateAt: string | null;
   receiptNumber: string;
   receiptTimestampRaw: string;
   receiptAt: string | null;
@@ -31,11 +49,22 @@ export type EditableDocumentFields = {
 
 export type FieldProvenance = "confirmed" | "extracted" | "empty";
 
+export type FieldCheckState = "correct" | "flagged" | "empty";
+
 export type ScalarFieldKey =
   | "supplierName"
   | "ico"
   | "dic"
   | "icDph"
+  | "customerName"
+  | "customerIco"
+  | "customerDic"
+  | "customerIcDph"
+  | "documentNumber"
+  | "variableSymbol"
+  | "issueDateRaw"
+  | "taxableSupplyDateRaw"
+  | "dueDateRaw"
   | "receiptNumber"
   | "receiptTimestampRaw"
   | "currency"
@@ -51,13 +80,33 @@ export type MergedDocumentFields = {
   fields: EditableDocumentFields;
   provenance: FieldProvenanceMap;
   nonEurCurrency: boolean;
+  rolesFlagged: boolean;
+  missingProfile: boolean;
 };
 
+export type MergeDocumentFieldsOptions = {
+  folderSlot?: string;
+  profile?: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  homeCurrency?: HomeCurrency;
+};
+
+export type ExportSectionFormValue = "" | "T01" | "T00";
+
 export type DocumentFieldFormInput = {
+  exportSection: ExportSectionFormValue;
   supplierName: string;
   ico: string;
   dic: string;
   icDph: string;
+  customerName: string;
+  customerIco: string;
+  customerDic: string;
+  customerIcDph: string;
+  documentNumber: string;
+  variableSymbol: string;
+  issueDateRaw: string;
+  taxableSupplyDateRaw: string;
+  dueDateRaw: string;
   receiptNumber: string;
   receiptTimestampRaw: string;
   currency: string;
@@ -75,19 +124,56 @@ export type ParseConfirmedFieldsResult =
   | { ok: true; payload: ConfirmedPayload }
   | { ok: false; reason: string };
 
-function extractedEditableFields(
-  extracted: ExtractedPayload,
-): Partial<EditableDocumentFields> {
-  if (!isEkasaPayload(extracted)) {
-    return {};
+function calendarIsoToSkRaw(iso: string | null | undefined): string {
+  if (!iso) {
+    return "";
   }
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!match) {
+    return "";
+  }
+  return `${match[3]}.${match[2]}.${match[1]}`;
+}
+
+function calendarIsoToUtc(iso: string | null | undefined): string | null {
+  const raw = calendarIsoToSkRaw(iso);
+  if (!raw) {
+    return null;
+  }
+  const parsed = parseReceiptDatetimeRaw(`${raw} 00:00:00`);
+  if ("ok" in parsed) {
+    return null;
+  }
+  return bratislavaLocalToUtcIso(parsed);
+}
+
+function ekasaDateOnly(raw: string | null): string {
+  if (!raw) {
+    return "";
+  }
+  const trimmed = raw.trim();
+  const dateMatch = /^(\d{2}\.\d{2}\.\d{4})/.exec(trimmed);
+  if (dateMatch) {
+    return dateMatch[1]!;
+  }
+  return trimmed.split(/\s+/)[0] ?? trimmed;
+}
+
+function extractedFromEkasa(extracted: EkasaExtractedPayload): Partial<EditableDocumentFields> {
+  const receiptRaw = extracted.receiptTimestampRaw ?? "";
+  const issueRaw = ekasaDateOnly(receiptRaw);
   return {
     supplierName: extracted.supplierName ?? "",
     ico: extracted.ico ?? "",
     dic: extracted.dic ?? "",
     icDph: extracted.icDph ?? "",
     receiptNumber: extracted.receiptNumber ?? "",
-    receiptTimestampRaw: extracted.receiptTimestampRaw ?? "",
+    documentNumber: extracted.receiptNumber ?? "",
+    receiptTimestampRaw: receiptRaw,
+    issueDateRaw: issueRaw,
+    issueDateAt: extracted.receiptAt,
+    taxableSupplyDateRaw: issueRaw,
+    taxableSupplyDateAt: extracted.receiptAt,
     receiptAt: extracted.receiptAt,
     currency: extracted.currency ?? "",
     amountLiteral: extracted.amountLiteral ?? "",
@@ -100,17 +186,40 @@ function extractedEditableFields(
   };
 }
 
-function hasConfirmedScalar(
-  confirmed: ConfirmedPayload,
-  key: ScalarFieldKey,
-): boolean {
+function extractedFromModel(extracted: ExtractedPayload): Partial<EditableDocumentFields> {
+  if (!isModelExtractedPayload(extracted)) {
+    return {};
+  }
+  return {
+    documentNumber: extracted.documentNumber ?? "",
+    variableSymbol: extracted.variableSymbol ?? "",
+    issueDateRaw: calendarIsoToSkRaw(extracted.issueDate),
+    issueDateAt: calendarIsoToUtc(extracted.issueDate),
+    taxableSupplyDateRaw: calendarIsoToSkRaw(extracted.taxableSupplyDate),
+    taxableSupplyDateAt: calendarIsoToUtc(extracted.taxableSupplyDate),
+    dueDateRaw: calendarIsoToSkRaw(extracted.dueDate),
+    dueDateAt: calendarIsoToUtc(extracted.dueDate),
+    currency: extracted.currency ?? "",
+    amountLiteral: extracted.amountLiteral ?? "",
+    amountCents: extracted.amountCents,
+    vatRecap: extracted.vatRecap ?? [],
+  };
+}
+
+function extractedEditableFields(
+  extracted: ExtractedPayload,
+): Partial<EditableDocumentFields> {
+  if (isEkasaPayload(extracted)) {
+    return extractedFromEkasa(extracted);
+  }
+  return extractedFromModel(extracted);
+}
+
+function hasConfirmedKey(confirmed: ConfirmedPayload, key: keyof ConfirmedPayload): boolean {
   return Object.prototype.hasOwnProperty.call(confirmed, key);
 }
 
-function scalarFromConfirmed(
-  confirmed: ConfirmedPayload,
-  key: ScalarFieldKey,
-): string {
+function scalarFromConfirmed(confirmed: ConfirmedPayload, key: keyof ConfirmedPayload): string {
   const value = confirmed[key];
   if (value === null || value === undefined) {
     return "";
@@ -120,13 +229,14 @@ function scalarFromConfirmed(
 
 function mergeScalar(
   key: ScalarFieldKey,
+  confirmedKey: keyof ConfirmedPayload,
   extracted: Partial<EditableDocumentFields>,
   confirmed: ConfirmedPayload,
 ): { value: string; provenance: FieldProvenance } {
-  if (hasConfirmedScalar(confirmed, key)) {
-    return { value: scalarFromConfirmed(confirmed, key), provenance: "confirmed" };
+  if (hasConfirmedKey(confirmed, confirmedKey)) {
+    return { value: scalarFromConfirmed(confirmed, confirmedKey), provenance: "confirmed" };
   }
-  const extractedValue = extracted[key];
+  const extractedValue = extracted[key as keyof EditableDocumentFields];
   if (typeof extractedValue === "string" && extractedValue.length > 0) {
     return { value: extractedValue, provenance: "extracted" };
   }
@@ -139,7 +249,7 @@ function mergeMoneyLiteral(
   extracted: Partial<EditableDocumentFields>,
   confirmed: ConfirmedPayload,
 ): { literal: string; cents: number | null; provenance: FieldProvenance } {
-  if (hasConfirmedScalar(confirmed, literalKey)) {
+  if (hasConfirmedKey(confirmed, literalKey)) {
     const literal = scalarFromConfirmed(confirmed, literalKey);
     const cents = confirmed[centsKey] ?? null;
     return { literal, cents, provenance: "confirmed" };
@@ -155,29 +265,169 @@ function mergeMoneyLiteral(
   return { literal: "", cents: null, provenance: "empty" };
 }
 
+function mergeDateAt(
+  atKey: "issueDateAt" | "taxableSupplyDateAt" | "dueDateAt" | "receiptAt",
+  extracted: Partial<EditableDocumentFields>,
+  confirmed: ConfirmedPayload,
+): string | null {
+  if (hasConfirmedKey(confirmed, atKey)) {
+    return (confirmed[atKey] as string | null | undefined) ?? null;
+  }
+  return (extracted[atKey] as string | null | undefined) ?? null;
+}
+
+function mergePartyFields(
+  extracted: ExtractedPayload,
+  confirmed: ConfirmedPayload,
+  fromExtracted: Partial<EditableDocumentFields>,
+  options?: MergeDocumentFieldsOptions,
+): {
+  supplier: ReturnType<typeof mergeScalar>;
+  ico: ReturnType<typeof mergeScalar>;
+  dic: ReturnType<typeof mergeScalar>;
+  icDph: ReturnType<typeof mergeScalar>;
+  customerName: ReturnType<typeof mergeScalar>;
+  customerIco: ReturnType<typeof mergeScalar>;
+  customerDic: ReturnType<typeof mergeScalar>;
+  customerIcDph: ReturnType<typeof mergeScalar>;
+  rolesFlagged: boolean;
+  missingProfile: boolean;
+} {
+  const hasLabeledSupplier =
+    hasConfirmedKey(confirmed, "supplierName") ||
+    hasConfirmedKey(confirmed, "ico") ||
+    hasConfirmedKey(confirmed, "dic") ||
+    hasConfirmedKey(confirmed, "icDph");
+  const hasLabeledCustomer =
+    hasConfirmedKey(confirmed, "customerName") ||
+    hasConfirmedKey(confirmed, "customerIco") ||
+    hasConfirmedKey(confirmed, "customerDic") ||
+    hasConfirmedKey(confirmed, "customerIcDph");
+
+  let roleSeed = {
+    supplierName: fromExtracted.supplierName ?? "",
+    ico: fromExtracted.ico ?? "",
+    dic: fromExtracted.dic ?? "",
+    icDph: fromExtracted.icDph ?? "",
+    customerName: fromExtracted.customerName ?? "",
+    customerIco: fromExtracted.customerIco ?? "",
+    customerDic: fromExtracted.customerDic ?? "",
+    customerIcDph: fromExtracted.customerIcDph ?? "",
+  };
+
+  let rolesFlagged = false;
+  let missingProfile = false;
+
+  if (
+    isModelExtractedPayload(extracted) &&
+    !hasLabeledSupplier &&
+    !hasLabeledCustomer &&
+    options?.folderSlot
+  ) {
+    const assigned = assignPartiesFromExtracted({
+      folderSlot: options.folderSlot,
+      profile: options.profile ?? null,
+      parties: extracted.parties,
+    });
+    roleSeed = {
+      supplierName: assigned.supplier.name,
+      ico: assigned.supplier.ico,
+      dic: assigned.supplier.dic,
+      icDph: assigned.supplier.icDph,
+      customerName: assigned.customer.name,
+      customerIco: assigned.customer.ico,
+      customerDic: assigned.customer.dic,
+      customerIcDph: assigned.customer.icDph,
+    };
+    rolesFlagged = assigned.rolesFlagged;
+    missingProfile = assigned.missingProfile;
+    fromExtracted = { ...fromExtracted, ...roleSeed };
+  }
+
+  const supplier = mergeScalar("supplierName", "supplierName", fromExtracted, confirmed);
+  const ico = mergeScalar("ico", "ico", fromExtracted, confirmed);
+  const dic = mergeScalar("dic", "dic", fromExtracted, confirmed);
+  const icDph = mergeScalar("icDph", "icDph", fromExtracted, confirmed);
+  const customerName = mergeScalar("customerName", "customerName", fromExtracted, confirmed);
+  const customerIco = mergeScalar("customerIco", "customerIco", fromExtracted, confirmed);
+  const customerDic = mergeScalar("customerDic", "customerDic", fromExtracted, confirmed);
+  const customerIcDph = mergeScalar("customerIcDph", "customerIcDph", fromExtracted, confirmed);
+
+  const invoiceFolder =
+    options?.folderSlot?.startsWith("01 ") || options?.folderSlot?.startsWith("02 ");
+  if (invoiceFolder && (hasLabeledSupplier || hasLabeledCustomer || supplier.provenance !== "empty")) {
+    const validation = validateLabeledPartyRoles({
+      folderSlot: options.folderSlot,
+      profile: options.profile ?? null,
+      supplier: {
+        name: supplier.value,
+        ico: ico.value,
+        dic: dic.value,
+        icDph: icDph.value,
+      },
+      customer: {
+        name: customerName.value,
+        ico: customerIco.value,
+        dic: customerDic.value,
+        icDph: customerIcDph.value,
+      },
+    });
+    rolesFlagged = rolesFlagged || validation.rolesFlagged;
+    missingProfile = missingProfile || validation.missingProfile;
+  }
+
+  return {
+    supplier,
+    ico,
+    dic,
+    icDph,
+    customerName,
+    customerIco,
+    customerDic,
+    customerIcDph,
+    rolesFlagged,
+    missingProfile,
+  };
+}
+
 export function mergeDocumentFields(
   extracted: ExtractedPayload,
   confirmed: ConfirmedPayload,
+  options?: MergeDocumentFieldsOptions,
 ): MergedDocumentFields {
-  const fromExtracted = extractedEditableFields(extracted);
+  let fromExtracted = extractedEditableFields(extracted);
 
-  const supplier = mergeScalar("supplierName", fromExtracted, confirmed);
-  const ico = mergeScalar("ico", fromExtracted, confirmed);
-  const dic = mergeScalar("dic", fromExtracted, confirmed);
-  const icDph = mergeScalar("icDph", fromExtracted, confirmed);
-  const receiptNumber = mergeScalar("receiptNumber", fromExtracted, confirmed);
+  const parties = mergePartyFields(extracted, confirmed, fromExtracted, options);
+
+  const documentNumber = mergeScalar(
+    "documentNumber",
+    "documentNumber",
+    fromExtracted,
+    confirmed,
+  );
+  const variableSymbol = mergeScalar(
+    "variableSymbol",
+    "variableSymbol",
+    fromExtracted,
+    confirmed,
+  );
+  const issueDateRaw = mergeScalar("issueDateRaw", "issueDateRaw", fromExtracted, confirmed);
+  const taxableSupplyDateRaw = mergeScalar(
+    "taxableSupplyDateRaw",
+    "taxableSupplyDateRaw",
+    fromExtracted,
+    confirmed,
+  );
+  const dueDateRaw = mergeScalar("dueDateRaw", "dueDateRaw", fromExtracted, confirmed);
+  const receiptNumber = mergeScalar("receiptNumber", "receiptNumber", fromExtracted, confirmed);
   const receiptTimestampRaw = mergeScalar(
+    "receiptTimestampRaw",
     "receiptTimestampRaw",
     fromExtracted,
     confirmed,
   );
-  const currency = mergeScalar("currency", fromExtracted, confirmed);
-  const amount = mergeMoneyLiteral(
-    "amountLiteral",
-    "amountCents",
-    fromExtracted,
-    confirmed,
-  );
+  const currency = mergeScalar("currency", "currency", fromExtracted, confirmed);
+  const amount = mergeMoneyLiteral("amountLiteral", "amountCents", fromExtracted, confirmed);
   const recapBase = mergeMoneyLiteral(
     "recapBaseLiteral",
     "recapBaseCents",
@@ -193,7 +443,7 @@ export function mergeDocumentFields(
 
   let vatRecap: DocumentVatRecapRow[];
   let vatRecapProvenance: FieldProvenance;
-  if (Object.prototype.hasOwnProperty.call(confirmed, "vatRecap")) {
+  if (hasConfirmedKey(confirmed, "vatRecap")) {
     vatRecap = confirmed.vatRecap ?? [];
     vatRecapProvenance = "confirmed";
   } else if ((fromExtracted.vatRecap?.length ?? 0) > 0) {
@@ -204,24 +454,37 @@ export function mergeDocumentFields(
     vatRecapProvenance = "empty";
   }
 
-  let receiptAt: string | null = null;
-  if (Object.prototype.hasOwnProperty.call(confirmed, "receiptAt")) {
-    receiptAt = confirmed.receiptAt ?? null;
-  } else {
-    receiptAt = fromExtracted.receiptAt ?? null;
-  }
+  const homeCurrency =
+    options?.homeCurrency ??
+    (options?.profile?.country != null
+      ? homeCurrencyForCountry(options.profile.country)
+      : "EUR");
+  const effectiveCurrency = currency.value || homeCurrency;
 
-  const effectiveCurrency = currency.value || "EUR";
+  const effectiveDocumentNumber =
+    documentNumber.value || receiptNumber.value;
 
   return {
     fields: {
-      supplierName: supplier.value,
-      ico: ico.value,
-      dic: dic.value,
-      icDph: icDph.value,
-      receiptNumber: receiptNumber.value,
+      supplierName: parties.supplier.value,
+      ico: parties.ico.value,
+      dic: parties.dic.value,
+      icDph: parties.icDph.value,
+      customerName: parties.customerName.value,
+      customerIco: parties.customerIco.value,
+      customerDic: parties.customerDic.value,
+      customerIcDph: parties.customerIcDph.value,
+      documentNumber: effectiveDocumentNumber,
+      variableSymbol: variableSymbol.value,
+      issueDateRaw: issueDateRaw.value,
+      issueDateAt: mergeDateAt("issueDateAt", fromExtracted, confirmed),
+      taxableSupplyDateRaw: taxableSupplyDateRaw.value,
+      taxableSupplyDateAt: mergeDateAt("taxableSupplyDateAt", fromExtracted, confirmed),
+      dueDateRaw: dueDateRaw.value,
+      dueDateAt: mergeDateAt("dueDateAt", fromExtracted, confirmed),
+      receiptNumber: receiptNumber.value || effectiveDocumentNumber,
       receiptTimestampRaw: receiptTimestampRaw.value,
-      receiptAt,
+      receiptAt: mergeDateAt("receiptAt", fromExtracted, confirmed),
       currency: effectiveCurrency,
       amountLiteral: amount.literal,
       amountCents: amount.cents,
@@ -232,10 +495,19 @@ export function mergeDocumentFields(
       vatRecap,
     },
     provenance: {
-      supplierName: supplier.provenance,
-      ico: ico.provenance,
-      dic: dic.provenance,
-      icDph: icDph.provenance,
+      supplierName: parties.supplier.provenance,
+      ico: parties.ico.provenance,
+      dic: parties.dic.provenance,
+      icDph: parties.icDph.provenance,
+      customerName: parties.customerName.provenance,
+      customerIco: parties.customerIco.provenance,
+      customerDic: parties.customerDic.provenance,
+      customerIcDph: parties.customerIcDph.provenance,
+      documentNumber: documentNumber.provenance,
+      variableSymbol: variableSymbol.provenance,
+      issueDateRaw: issueDateRaw.provenance,
+      taxableSupplyDateRaw: taxableSupplyDateRaw.provenance,
+      dueDateRaw: dueDateRaw.provenance,
       receiptNumber: receiptNumber.provenance,
       receiptTimestampRaw: receiptTimestampRaw.provenance,
       currency: currency.provenance,
@@ -245,7 +517,9 @@ export function mergeDocumentFields(
       vatRecap: vatRecapProvenance,
     },
     nonEurCurrency:
-      effectiveCurrency.length > 0 && effectiveCurrency !== "EUR",
+      effectiveCurrency.length > 0 && effectiveCurrency !== homeCurrency,
+    rolesFlagged: parties.rolesFlagged,
+    missingProfile: parties.missingProfile,
   };
 }
 
@@ -262,6 +536,26 @@ function parseOptionalMoney(
     return { ok: false, reason: `${label} must be a decimal amount.` };
   }
   return { literal: parsed.literal, cents: parsed.cents };
+}
+
+function parseOptionalDateField(
+  raw: string | undefined,
+): { raw: string; at: string | null } | { ok: false; reason: string } {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed.length === 0) {
+    return { raw: "", at: null };
+  }
+  const withTime = /^\d{2}\.\d{2}\.\d{4}$/.test(trimmed)
+    ? `${trimmed} 00:00:00`
+    : trimmed;
+  const timestamp = parseReceiptDatetimeRaw(withTime);
+  if ("ok" in timestamp) {
+    return {
+      ok: false,
+      reason: "Dátum musí byť v tvare DD.MM.RRRR, prípadne s časom HH:MM:SS.",
+    };
+  }
+  return { raw: trimmed, at: bratislavaLocalToUtcIso(timestamp) };
 }
 
 export function parseConfirmedFieldsFromInput(
@@ -290,7 +584,7 @@ export function parseConfirmedFieldsFromInput(
       continue;
     }
     if (row.rateLiteral.trim().length === 0) {
-      return { ok: false, reason: "Each VAT row needs a rate." };
+      return { ok: false, reason: "Každý riadok DPH potrebuje sadzbu." };
     }
     const base = parseOptionalMoney(row.baseLiteral, "VAT base");
     if ("ok" in base) {
@@ -313,30 +607,55 @@ export function parseConfirmedFieldsFromInput(
   const receiptTimestampRaw = input.receiptTimestampRaw.trim();
   let receiptAt: string | null = null;
   if (receiptTimestampRaw.length > 0) {
-    // An invoice carries a date and no time, so require only the date and treat
-    // it as local midnight. Extraction keeps the strict form: a receipt whose
-    // printed time cannot be read should fail rather than invent one.
-    const withTime = /^\d{2}\.\d{2}\.\d{4}$/.test(receiptTimestampRaw)
-      ? `${receiptTimestampRaw} 00:00:00`
-      : receiptTimestampRaw;
-    const timestamp = parseReceiptDatetimeRaw(withTime);
-    if ("ok" in timestamp) {
-      return {
-        ok: false,
-        reason: "Date must be DD.MM.YYYY, optionally followed by HH:MM:SS.",
-      };
+    const parsedReceipt = parseOptionalDateField(receiptTimestampRaw);
+    if ("ok" in parsedReceipt) {
+      return parsedReceipt;
     }
-    receiptAt = bratislavaLocalToUtcIso(timestamp);
+    receiptAt = parsedReceipt.at;
   }
 
+  const issueDate = parseOptionalDateField(input.issueDateRaw);
+  if ("ok" in issueDate) {
+    return issueDate;
+  }
+  const taxableSupplyDate = parseOptionalDateField(input.taxableSupplyDateRaw);
+  if ("ok" in taxableSupplyDate) {
+    return taxableSupplyDate;
+  }
+  const dueDate = parseOptionalDateField(input.dueDateRaw);
+  if ("ok" in dueDate) {
+    return dueDate;
+  }
+
+  const documentNumber = input.documentNumber.trim() || input.receiptNumber.trim();
+
+  const exportSectionRaw = input.exportSection.trim();
+  const exportSection: ConfirmedPayload["exportSection"] =
+    exportSectionRaw === "T01" || exportSectionRaw === "T00"
+      ? exportSectionRaw
+      : null;
+
   const payload: ConfirmedPayload = {
+    exportSection,
     supplierName: input.supplierName.trim() || null,
     ico: input.ico.trim() || null,
     dic: input.dic.trim() || null,
     icDph: input.icDph.trim() || null,
-    receiptNumber: input.receiptNumber.trim() || null,
-    receiptTimestampRaw: receiptTimestampRaw || null,
-    receiptAt,
+    customerName: input.customerName.trim() || null,
+    customerIco: input.customerIco.trim() || null,
+    customerDic: input.customerDic.trim() || null,
+    customerIcDph: input.customerIcDph.trim() || null,
+    documentNumber: documentNumber || null,
+    variableSymbol: input.variableSymbol.trim() || null,
+    issueDateRaw: issueDate.raw || null,
+    issueDateAt: issueDate.at,
+    taxableSupplyDateRaw: taxableSupplyDate.raw || null,
+    taxableSupplyDateAt: taxableSupplyDate.at,
+    dueDateRaw: dueDate.raw || null,
+    dueDateAt: dueDate.at,
+    receiptNumber: documentNumber || null,
+    receiptTimestampRaw: receiptTimestampRaw || issueDate.raw || null,
+    receiptAt: receiptAt ?? issueDate.at,
     currency,
     amountLiteral: amount.literal || null,
     amountCents: amount.literal ? amount.cents : null,
@@ -350,21 +669,81 @@ export function parseConfirmedFieldsFromInput(
   return { ok: true, payload };
 }
 
+export function fieldCheckState(
+  provenance: FieldProvenance,
+  flagged: boolean,
+): FieldCheckState {
+  if (provenance === "empty") {
+    return "empty";
+  }
+  if (flagged) {
+    return "flagged";
+  }
+  return "correct";
+}
+
 export function checkArithmeticWarning(
   fields: EditableDocumentFields,
 ): string | null {
+  const warnings = checkArithmeticWarnings(fields);
+  return warnings[0] ?? null;
+}
+
+export function checkArithmeticWarnings(
+  fields: EditableDocumentFields,
+): string[] {
   if (fields.amountCents === null) {
-    return null;
+    return [];
   }
+
+  const warnings: string[] = [];
+
+  if (fields.vatRecap.length > 0) {
+    let baseSum = 0;
+    let vatSum = 0;
+    let rowsWithAmounts = 0;
+    for (const row of fields.vatRecap) {
+      if (row.baseLiteral.trim().length === 0 && row.vatLiteral.trim().length === 0) {
+        continue;
+      }
+      rowsWithAmounts += 1;
+      baseSum += row.baseCents;
+      vatSum += row.vatCents;
+    }
+    if (rowsWithAmounts === 0) {
+      return [];
+    }
+    const sum = baseSum + vatSum;
+    if (sum !== fields.amountCents) {
+      const sumLiteral = (sum / 100).toFixed(2);
+      warnings.push(
+        `Súčet základov DPH (${(baseSum / 100).toFixed(2)}) a DPH (${(vatSum / 100).toFixed(2)}) je ${sumLiteral}, ale celková suma je ${fields.amountLiteral}.`,
+      );
+      for (const row of fields.vatRecap) {
+        if (row.baseLiteral.trim().length === 0 && row.vatLiteral.trim().length === 0) {
+          continue;
+        }
+        const rowSum = row.baseCents + row.vatCents;
+        const rowSumLiteral = (rowSum / 100).toFixed(2);
+        warnings.push(
+          `Sadzba ${row.rateLiteral} %: základ ${row.baseLiteral} plus DPH ${row.vatLiteral} je ${rowSumLiteral}.`,
+        );
+      }
+    }
+    return warnings;
+  }
+
   if (fields.recapBaseCents === null || fields.recapVatCents === null) {
-    return null;
+    return [];
   }
   const sum = fields.recapBaseCents + fields.recapVatCents;
   if (sum === fields.amountCents) {
-    return null;
+    return [];
   }
   const sumLiteral = (sum / 100).toFixed(2);
-  return `VAT base (${fields.recapBaseLiteral}) plus VAT (${fields.recapVatLiteral}) equals ${sumLiteral}, but the total is ${fields.amountLiteral}.`;
+  return [
+    `Základ DPH (${fields.recapBaseLiteral}) plus DPH (${fields.recapVatLiteral}) je ${sumLiteral}, ale celková suma je ${fields.amountLiteral}.`,
+  ];
 }
 
 export function effectiveAmountDisplay(fields: EditableDocumentFields): string {

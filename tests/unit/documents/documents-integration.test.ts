@@ -13,6 +13,7 @@ import {
   months,
 } from "../../../src/lib/db/schema.ts";
 import { ensureDocumentsForMonth } from "../../../src/adapters/store/documents.ts";
+import { saveCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
 import {
   confirmDocument,
   dismissDocument,
@@ -22,6 +23,10 @@ import {
 import { buildMonthDocumentView } from "../../../src/lib/documents/view.ts";
 import { countAwaitingDecision } from "../../../src/adapters/store/documents.ts";
 import { discoverCashPaymentsForMonth } from "../../../src/lib/cash-discovery/discover-cash-payments.ts";
+import { createStubExtractor } from "../../../src/adapters/extractor/stub-extractor.ts";
+import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
+import { failingEkasaLookup } from "../../../src/adapters/ekasa-lookup/fake-ekasa-lookup.ts";
+import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
 import type { PdfAccess } from "../../../src/adapters/pdf/port.ts";
@@ -48,6 +53,35 @@ const RECEIPT_ID = "doc-receipt";
 const INVOICE_A = "doc-invoice-a";
 const INVOICE_B = "doc-invoice-b";
 
+function emptyFieldInput(
+  partial: Partial<import("../../../src/modules/document-fields.ts").DocumentFieldFormInput> = {},
+) {
+  return {
+    exportSection: "",
+    supplierName: "",
+    ico: "",
+    dic: "",
+    icDph: "",
+    customerName: "",
+    customerIco: "",
+    customerDic: "",
+    customerIcDph: "",
+    documentNumber: "",
+    variableSymbol: "",
+    issueDateRaw: "",
+    taxableSupplyDateRaw: "",
+    dueDateRaw: "",
+    receiptNumber: "",
+    receiptTimestampRaw: "",
+    currency: "EUR",
+    amountLiteral: "",
+    recapBaseLiteral: "",
+    recapVatLiteral: "",
+    vatRecap: [] as Array<{ rateLiteral: string; baseLiteral: string; vatLiteral: string }>,
+    ...partial,
+  };
+}
+
 function tempDbPath(): string {
   return path.join(
     fs.mkdtempSync(path.join(os.tmpdir(), "hugo-doc-")),
@@ -59,6 +93,9 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
   return {
     async extractTextLines() {
       return lines;
+    },
+    async extractPageImages() {
+      return [];
     },
   };
 }
@@ -216,6 +253,10 @@ test("discovery creates ekasa payload without touching confirmed payload", async
   await discoverCashPaymentsForMonth(1, "2026_01", {
     driveClient,
     pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: failingEkasaLookup(),
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
@@ -364,19 +405,17 @@ test("saveDocumentFields writes confirmed payload only", () => {
       companyId: 1,
       monthKey: "2026_01",
       driveFileId: RECEIPT_ID,
-      fields: {
+      fields: emptyFieldInput({
         supplierName: "Manual Shop",
         ico: "99999999",
-        dic: "",
-        icDph: "",
         receiptNumber: "77",
+        documentNumber: "77",
         receiptTimestampRaw: "16.04.2026 14:05:59",
-        currency: "EUR",
         amountLiteral: "20.00",
         recapBaseLiteral: "16.26",
         recapVatLiteral: "3.74",
         vatRecap: [{ rateLiteral: "23.0", baseLiteral: "16.26", vatLiteral: "3.74" }],
-      },
+      }),
     }).ok,
     true,
   );
@@ -450,24 +489,19 @@ test("confirmed field values survive re-extraction", async () => {
     companyId: 1,
     monthKey: "2026_01",
     driveFileId: RECEIPT_ID,
-    fields: {
+    fields: emptyFieldInput({
       supplierName: "Her corrected name",
-      ico: "",
-      dic: "",
-      icDph: "",
-      receiptNumber: "",
-      receiptTimestampRaw: "",
-      currency: "EUR",
       amountLiteral: "99.99",
-      recapBaseLiteral: "",
-      recapVatLiteral: "",
-      vatRecap: [],
-    },
+    }),
   });
 
   await discoverCashPaymentsForMonth(1, "2026_01", {
     driveClient,
     pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: failingEkasaLookup(),
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
@@ -493,19 +527,12 @@ test("arithmetic mismatch does not block saving fields", () => {
     companyId: 1,
     monthKey: "2026_01",
     driveFileId: RECEIPT_ID,
-    fields: {
+    fields: emptyFieldInput({
       supplierName: "Shop",
-      ico: "",
-      dic: "",
-      icDph: "",
-      receiptNumber: "",
-      receiptTimestampRaw: "",
-      currency: "EUR",
       amountLiteral: "16.85",
       recapBaseLiteral: "13.70",
       recapVatLiteral: "3.00",
-      vatRecap: [],
-    },
+    }),
   });
   assert.equal(result.ok, true);
 
@@ -513,6 +540,60 @@ test("arithmetic mismatch does not block saving fields", () => {
   const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
   const confirmed = parseConfirmedPayload(row.confirmedPayloadJson);
   assert.equal(confirmed.recapVatLiteral, "3.00");
+});
+
+test("company profile saved after extraction assigns party roles without re-extraction", () => {
+  const dbPath = tempDbPath();
+  seedMonth(dbPath);
+  const db = getDb();
+
+  const modelPayload = {
+    kind: "extracted" as const,
+    parties: [
+      { name: "Dodávateľ s.r.o.", ico: "87654321", dic: null, icDph: "SK8765432100" },
+      { name: "Beta s.r.o.", ico: "31333532", dic: null, icDph: "SK7120001713" },
+    ],
+    documentNumber: "2026001",
+    variableSymbol: "2026001",
+    issueDate: "2026-01-10",
+    taxableSupplyDate: "2026-01-10",
+    dueDate: "2026-01-20",
+    currency: "EUR",
+    amountCents: 10000,
+    amountLiteral: "100.00",
+    vatRecap: [],
+    docTypeHint: "invoice" as const,
+  };
+
+  db.update(documents)
+    .set({
+      extractedPayloadJson: serializeExtractedPayload(modelPayload),
+      extractionStatus: "complete",
+    })
+    .where(eq(documents.driveFileId, INVOICE_A))
+    .run();
+
+  let view = buildMonthDocumentView(1, "2026_01")!;
+  let invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
+  assert.equal(invoice.fieldEditor.missingProfile, true);
+  assert.equal(invoice.fieldEditor.rolesFlagged, true);
+
+  saveCompanyProfile(1, {
+    country: "SK",
+    legalName: "Delta s.r.o.",
+    address: "Bratislava",
+    ico: "31333532",
+    dic: "2020311335",
+    icDph: "SK7120001713",
+    registerSource: "fake",
+    savedAt: "2026-01-12T10:00:00.000Z",
+  });
+
+  view = buildMonthDocumentView(1, "2026_01")!;
+  invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
+  assert.equal(invoice.fieldEditor.fields.customerName, "Beta s.r.o.");
+  assert.equal(invoice.fieldEditor.fields.supplierName, "Dodávateľ s.r.o.");
+  assert.equal(invoice.fieldEditor.rolesFlagged, false);
 });
 
 test("closed month rejects saving fields", () => {
@@ -529,19 +610,10 @@ test("closed month rejects saving fields", () => {
       companyId: 1,
       monthKey: "2026_01",
       driveFileId: RECEIPT_ID,
-      fields: {
+      fields: emptyFieldInput({
         supplierName: "Shop",
-        ico: "",
-        dic: "",
-        icDph: "",
-        receiptNumber: "",
-        receiptTimestampRaw: "",
-        currency: "EUR",
         amountLiteral: "1.00",
-        recapBaseLiteral: "",
-        recapVatLiteral: "",
-        vatRecap: [],
-      },
+      }),
     }).ok,
     false,
   );
