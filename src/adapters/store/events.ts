@@ -64,3 +64,21 @@ export function appendGlobalUserEvent(
     })
     .run();
 }
+
+export function appendCompanySystemEvent(
+  timestamp: string,
+  companyId: number,
+  type: UserCompanyEventType,
+  payload: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.insert(events)
+    .values({
+      timestamp,
+      companyId,
+      actor: "system",
+      type,
+      payloadJson: JSON.stringify(payload),
+    })
+    .run();
+}

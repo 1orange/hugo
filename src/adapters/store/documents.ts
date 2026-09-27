@@ -26,6 +26,7 @@ export type DocumentRow = {
   note: string | null;
   exportedAt: string | null;
   exportBatch: string | null;
+  exportNumber: string | null;
   createdAt: string;
 };
 
@@ -278,4 +279,44 @@ export function listPendingExtractionForMonth(
 export function extractionAlreadyAttempted(driveFileId: string): boolean {
   const document = getDocument(driveFileId);
   return document !== undefined && document.extractionStatus !== "pending";
+}
+
+export function listExportNumbersForCompany(companyId: number): string[] {
+  const db = getDb();
+  const rows = db
+    .select({ exportNumber: documents.exportNumber })
+    .from(documents)
+    .where(eq(documents.companyId, companyId))
+    .all();
+  return rows
+    .map((row) => row.exportNumber)
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+export function setDocumentExportNumber(
+  driveFileId: string,
+  exportNumber: string,
+): void {
+  const db = getDb();
+  db.update(documents)
+    .set({ exportNumber })
+    .where(eq(documents.driveFileId, driveFileId))
+    .run();
+}
+
+export function markDocumentsExported(input: {
+  driveFileIds: readonly string[];
+  exportedAt: string;
+  exportBatch: string;
+}): void {
+  const db = getDb();
+  for (const driveFileId of input.driveFileIds) {
+    db.update(documents)
+      .set({
+        exportedAt: input.exportedAt,
+        exportBatch: input.exportBatch,
+      })
+      .where(eq(documents.driveFileId, driveFileId))
+      .run();
+  }
 }
