@@ -5,6 +5,8 @@ import {
   updateDocumentNote,
   writeConfirmedPayload,
 } from "@/adapters/store/documents";
+import { parseConfirmedPayload } from "@/modules/document-payload";
+import { readExportSectionOverride } from "@/modules/omega-export-section";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import {
   parseConfirmedFieldsFromInput,
@@ -33,7 +35,7 @@ export function confirmDocument(input: {
     document.companyId !== input.companyId ||
     document.monthKey !== input.monthKey
   ) {
-    return { ok: false, message: "Document not found in this month." };
+    return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
   const now = input.now ?? new Date().toISOString();
@@ -74,7 +76,7 @@ export function dismissDocument(input: {
     document.companyId !== input.companyId ||
     document.monthKey !== input.monthKey
   ) {
-    return { ok: false, message: "Document not found in this month." };
+    return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
   const now = input.now ?? new Date().toISOString();
@@ -103,7 +105,7 @@ export function saveDocumentNote(input: {
     document.companyId !== input.companyId ||
     document.monthKey !== input.monthKey
   ) {
-    return { ok: false, message: "Document not found in this month." };
+    return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
   updateDocumentNote(input.driveFileId, input.note.trim() || null);
@@ -127,7 +129,7 @@ export function saveDocumentFields(input: {
     document.companyId !== input.companyId ||
     document.monthKey !== input.monthKey
   ) {
-    return { ok: false, message: "Document not found in this month." };
+    return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
   const parsed = parseConfirmedFieldsFromInput(input.fields);
@@ -135,6 +137,21 @@ export function saveDocumentFields(input: {
     return { ok: false, message: parsed.reason };
   }
 
+  const previous = readExportSectionOverride(
+    parseConfirmedPayload(document.confirmedPayloadJson),
+  );
+  const next = readExportSectionOverride(parsed.payload);
+
   writeConfirmedPayload(input.driveFileId, parsed.payload);
+
+  if (previous !== next) {
+    appendUserEvent(new Date().toISOString(), input.companyId, "ExportSectionChanged", {
+      monthKey: input.monthKey,
+      driveFileId: input.driveFileId,
+      previous,
+      next,
+    });
+  }
+
   return { ok: true };
 }
