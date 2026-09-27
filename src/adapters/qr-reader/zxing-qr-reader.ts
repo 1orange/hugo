@@ -1,7 +1,10 @@
-import type { QrDecodeInput, QrRasterImage, QrReader } from "./port";
+import type { ReaderOptions } from "zxing-wasm/reader";
 
-const QR_READER_OPTIONS = {
-  formats: ["QRCode"] as const,
+import type { QrDecodeInput, QrRasterImage, QrReader } from "./port";
+import { stretchRasterContrast } from "@/modules/raster-contrast";
+
+const QR_READER_OPTIONS: ReaderOptions = {
+  formats: ["QRCode"],
   tryHarder: true,
   maxNumberOfSymbols: 32,
 };
@@ -49,15 +52,22 @@ async function decodeOnce(input: QrDecodeInput): Promise<string[]> {
     return textsFromReadResults(await readBarcodes(input.bytes, QR_READER_OPTIONS));
   }
   return textsFromReadResults(
-    await readBarcodes(
-      {
-        data: input.image.data,
-        width: input.image.width,
-        height: input.image.height,
-      },
-      QR_READER_OPTIONS,
-    ),
+    await readBarcodes(asImageData(input.image), QR_READER_OPTIONS),
   );
+}
+
+/**
+ * Node has no `ImageData` class. zxing-wasm reads `data`, `width` and `height`
+ * off the object, so a plain raster works at runtime; only the declared type
+ * insists on the browser class.
+ */
+function asImageData(image: QrRasterImage): ImageData {
+  return {
+    data: image.data,
+    width: image.width,
+    height: image.height,
+    colorSpace: "srgb",
+  } as unknown as ImageData;
 }
 
 export function createZxingQrReader(): QrReader {
@@ -72,6 +82,13 @@ export function createZxingQrReader(): QrReader {
       }
       if (input.image.width <= 1 && input.image.height <= 1) {
         return first;
+      }
+      const stretched = stretchRasterContrast(input.image);
+      if (stretched) {
+        const fromStretched = await decodeOnce({ kind: "rgba", image: stretched });
+        if (fromStretched.length > 0) {
+          return fromStretched;
+        }
       }
       const scaled = scaleRgba(input.image, 0.5);
       return decodeOnce({ kind: "rgba", image: scaled });
