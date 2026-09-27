@@ -24,7 +24,14 @@ import {
   syntheticEkasaLines,
   SYNTHETIC_FIXTURE,
 } from "./synthetic-ekasa-lines.ts";
+import { failingEkasaLookup, FakeEkasaLookup } from "../../../src/adapters/ekasa-lookup/fake-ekasa-lookup.ts";
+import { createStubExtractor } from "../../../src/adapters/extractor/stub-extractor.ts";
+import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
+import { emptyQrReader, FakeQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
+import type { PdfPageImage } from "../../../src/adapters/pdf/port.ts";
 import { isEkasaPayload, parseExtractedPayload } from "../../../src/modules/document-payload.ts";
+import { syntheticEkasaOpdResponse } from "./synthetic-ekasa-opd.ts";
+import { events } from "../../../src/lib/db/schema.ts";
 
 const PARENT_ID = "cash-parent";
 const COMPANY_ID = "cash-company";
@@ -77,10 +84,16 @@ function tempDbPath(): string {
   );
 }
 
-function syntheticPdfAccess(lines: string[]): PdfAccess {
+function syntheticPdfAccess(
+  lines: string[],
+  pageImages: PdfPageImage[] = [],
+): PdfAccess {
   return {
     async extractTextLines() {
       return lines;
+    },
+    async extractPageImages() {
+      return pageImages;
     },
   };
 }
@@ -102,6 +115,10 @@ test("fixture eBloček produces one document with expected ekasa payload", async
   const deps = {
     driveClient,
     pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: failingEkasaLookup(),
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
     now: () => "2026-01-12T10:00:00.000Z",
   };
 
@@ -126,6 +143,7 @@ test("fixture eBloček produces one document with expected ekasa payload", async
     assert.equal(payload.ekasaOkp, SYNTHETIC_FIXTURE.okp);
     assert.equal(payload.lineItems.length, 2);
     assert.equal(payload.vatRecap.length, 1);
+    assert.equal(payload.source, "text-layer");
   }
 });
 
@@ -168,6 +186,10 @@ test("a receipt in the card folder is extracted, not only the cash folder", asyn
   await discoverCashPaymentsForMonth(1, "2026_01", {
     driveClient,
     pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: failingEkasaLookup(),
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
@@ -224,10 +246,15 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
       monthKey: "2026_01",
       driveFileId: "manual-entry-doc",
       folderSlot: "04 Bločky_hotovosť",
-      pdfBytes: new Uint8Array(Buffer.from("fixture")),
+      mimeType: "application/pdf",
+      fileBytes: new Uint8Array(Buffer.from("fixture")),
     },
     {
       pdfAccess: syntheticPdfAccess(["RegioJet ticket", "Celkem | 14.60 EUR"]),
+      qrReader: emptyQrReader(),
+      ekasaLookup: failingEkasaLookup(),
+      ocr: new FakeOcr(),
+      extractor: createStubExtractor(),
       now: () => "2026-01-12T10:00:00.000Z",
     },
   );
@@ -238,9 +265,12 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
     .where(eq(documents.driveFileId, "manual-entry-doc"))
     .get();
   assert.ok(row);
-  assert.equal(row.extractionStatus, "failed");
-  assert.match(row.extractionFailureReason ?? "", /not an eBloček/i);
-  assert.deepEqual(parseExtractedPayload(row.extractedPayloadJson), {});
+  assert.equal(row.extractionStatus, "complete");
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(payload.kind, "extracted");
+  if (payload.kind === "extracted") {
+    assert.equal(payload.source, "model");
+  }
 });
 
 test("arithmetic mismatch leaves empty payload with failure reason", async () => {
@@ -289,10 +319,15 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
       monthKey: "2026_01",
       driveFileId: "bad-arithmetic-doc",
       folderSlot: "04 Bločky_hotovosť",
-      pdfBytes: new Uint8Array(Buffer.from("fixture")),
+      mimeType: "application/pdf",
+      fileBytes: new Uint8Array(Buffer.from("fixture")),
     },
     {
       pdfAccess: syntheticPdfAccess(brokenLines),
+      qrReader: emptyQrReader(),
+      ekasaLookup: failingEkasaLookup(),
+      ocr: new FakeOcr(),
+      extractor: createStubExtractor(),
       now: () => "2026-01-12T10:00:00.000Z",
     },
   );
@@ -306,4 +341,230 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
   assert.equal(row.extractionStatus, "failed");
   assert.match(row.extractionFailureReason ?? "", /Item line totals sum/);
   assert.deepEqual(parseExtractedPayload(row.extractedPayloadJson), {});
+});
+
+test("fake lookup produces lookup source and stores raw OPD response", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
+  const uid = "O-11111111111111111111111111111111";
+  const lookup = new FakeEkasaLookup({
+    responses: {
+      [uid]: { ok: true, raw: syntheticEkasaOpdResponse() },
+    },
+  });
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [RECEIPT_ID]: pdfBytes,
+  });
+
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+
+  await discoverCashPaymentsForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: lookup,
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = getDb().select().from(documents).get()!;
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+  if (isEkasaPayload(payload)) {
+    assert.equal(payload.source, "lookup");
+    assert.ok(payload.opdResponse);
+  }
+  assert.equal(lookup.calls.length, 1);
+
+  const extractedEvents = getDb()
+    .select()
+    .from(events)
+    .where(eq(events.type, "Extracted"))
+    .all();
+  assert.equal(extractedEvents.length, 1);
+  const eventPayload = JSON.parse(extractedEvents[0]!.payloadJson) as {
+    source?: string;
+  };
+  assert.equal(eventPayload.source, "lookup");
+});
+
+test("failing fake lookup falls back to text-layer source", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [RECEIPT_ID]: pdfBytes,
+  });
+
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+
+  const lookup = failingEkasaLookup("OPD down");
+  await discoverCashPaymentsForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+    qrReader: emptyQrReader(),
+    ekasaLookup: lookup,
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = getDb().select().from(documents).get()!;
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+  if (isEkasaPayload(payload)) {
+    assert.equal(payload.source, "text-layer");
+    assert.equal(payload.opdResponse, undefined);
+  }
+});
+
+test("cached OPD response skips a second lookup call", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const db = getDb();
+  db.insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
+    .run();
+  db.insert(months)
+    .values({
+      id: 1,
+      companyId: 1,
+      monthKey: "2026_01",
+      driveFolderId: MONTH_ID,
+      closedAt: null,
+      openedAt: "2026-01-01T00:00:00.000Z",
+    })
+    .run();
+  db.insert(files)
+    .values({
+      driveFileId: RECEIPT_ID,
+      companyId: 1,
+      monthKey: "2026_01",
+      folderSlot: "04 Bločky_hotovosť",
+      parentId: SLOT_04_ID,
+      name: "fixture-blocek.pdf",
+      mimeType: "application/pdf",
+      driveCreatedTime: "2026-01-12T00:00:00.000Z",
+      firstSeenAt: "2026-01-12T00:00:00.000Z",
+      lastSeenAt: "2026-01-12T00:00:00.000Z",
+      deleted: false,
+    })
+    .run();
+
+  const opdRaw = syntheticEkasaOpdResponse();
+  db.insert(documents)
+    .values({
+      driveFileId: RECEIPT_ID,
+      companyId: 1,
+      monthKey: "2026_01",
+      folderSlot: "04 Bločky_hotovosť",
+      extractionStatus: "pending",
+      extractionFailureReason: null,
+      extractedPayloadJson: JSON.stringify({
+        kind: "ekasa",
+        source: "lookup",
+        opdResponse: opdRaw,
+      }),
+      confirmedPayloadJson: "{}",
+      createdAt: "2026-01-12T09:00:00.000Z",
+    })
+    .run();
+
+  const lookup = new FakeEkasaLookup({
+    defaultResult: { ok: false, reason: "should not be called" },
+  });
+
+  await processCashReceiptFile(
+    {
+      companyId: 1,
+      monthKey: "2026_01",
+      driveFileId: RECEIPT_ID,
+      folderSlot: "04 Bločky_hotovosť",
+      mimeType: "application/pdf",
+      fileBytes: new Uint8Array(Buffer.from("fixture")),
+    },
+    {
+      pdfAccess: syntheticPdfAccess(syntheticEkasaLines()),
+      qrReader: emptyQrReader(),
+      ekasaLookup: lookup,
+      ocr: new FakeOcr(),
+      extractor: createStubExtractor(),
+      now: () => "2026-01-12T10:00:00.000Z",
+    },
+  );
+
+  assert.equal(lookup.calls.length, 0);
+  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+  if (isEkasaPayload(payload)) {
+    assert.equal(payload.source, "lookup");
+  }
+});
+
+test("image-only PDF with QR resolves through fake lookup", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const uid = SYNTHETIC_FIXTURE.uid;
+  const lookup = new FakeEkasaLookup({
+    responses: {
+      [uid]: { ok: true, raw: syntheticEkasaOpdResponse() },
+    },
+  });
+  const qrReader = new FakeQrReader([
+    ["https://slovnaft.sk/move", uid],
+  ]);
+  const pageImages: PdfPageImage[] = [
+    {
+      kind: "rgba",
+      data: new Uint8ClampedArray([0, 0, 0, 255]),
+      width: 1,
+      height: 1,
+    },
+  ];
+
+  const pdfBytes = new Uint8Array(Buffer.from("scanned-pdf"));
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [RECEIPT_ID]: pdfBytes,
+  });
+
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+
+  await discoverCashPaymentsForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess: syntheticPdfAccess([], pageImages),
+    qrReader,
+    ekasaLookup: lookup,
+    ocr: new FakeOcr(),
+    extractor: createStubExtractor(),
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = getDb().select().from(documents).get()!;
+  assert.equal(row.extractionStatus, "complete");
+  const payload = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isEkasaPayload(payload), true);
+  if (isEkasaPayload(payload)) {
+    assert.equal(payload.source, "lookup");
+    assert.equal(payload.ekasaUid, uid);
+  }
+  assert.equal(lookup.calls.length, 1);
+  assert.equal(qrReader.calls.length, 1);
 });

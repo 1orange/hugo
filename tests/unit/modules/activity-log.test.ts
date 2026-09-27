@@ -53,7 +53,7 @@ test("summarizeEventPayload describes drive mutations with previous values", () 
       newName: "04 Bločky_hotorvosť",
       undone: true,
     }),
-    /undo/i,
+    /vrátené/i,
   );
   assert.match(
     summarizeEventPayload("FileRenamedInDrive", {
@@ -61,6 +61,30 @@ test("summarizeEventPayload describes drive mutations with previous values", () 
       newName: "new.pdf",
     }),
     /old\.pdf/,
+  );
+});
+
+test("summarizeEventPayload includes extraction source when present", () => {
+  assert.match(
+    summarizeEventPayload("Extracted", {
+      driveFileId: "doc-1",
+      source: "lookup",
+    }),
+    /Finančná správa/,
+  );
+  assert.match(
+    summarizeEventPayload("Extracted", {
+      driveFileId: "doc-1",
+      source: "text-layer",
+    }),
+    /text PDF/i,
+  );
+  assert.match(
+    summarizeEventPayload("Extracted", {
+      driveFileId: "doc-1",
+      source: "model",
+    }),
+    /model/i,
   );
 });
 
@@ -79,8 +103,8 @@ test("formatActivityEntry surfaces first-seen time for discoveries", () => {
     } satisfies DomainEvent),
   });
 
-  assert.equal(entry.actorLabel, "System");
+  assert.equal(entry.actorLabel, "Systém");
   assert.match(entry.summary, /supplier-a\.pdf/);
-  assert.match(entry.summary, /2026-02-05T09:30:00\.000Z/);
+  assert.match(entry.summary, /05\.02\.2026 10:30/);
   assert.equal(entry.monthKey, "2026_02");
 });

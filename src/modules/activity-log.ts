@@ -1,4 +1,5 @@
 import type { DomainEvent } from "./drive-tree";
+import { formatDateTime } from "./format-sk";
 
 /**
  * Single source of truth for the append-only event vocabulary (ADR 0012).
@@ -19,14 +20,18 @@ export const USER_COMPANY_EVENT_TYPES = [
   "MonthReopened",
   "Moved",
   "Extracted",
+  "EkasaUidEntered",
   "Confirmed",
   "Exported",
+  "CompanyProfileSaved",
+  "ExportSectionChanged",
 ] as const;
 
 export const GLOBAL_EVENT_TYPES = [
   "DriveParentFolderIdChanged",
   "CanonicalFolderNamesChanged",
   "MovableFolderNamesChanged",
+  "AutoAdvanceChanged",
 ] as const;
 
 export const COMPANY_SCOPED_EVENT_TYPES = [
@@ -45,21 +50,25 @@ export type GlobalEventType = (typeof GLOBAL_EVENT_TYPES)[number];
 export type KnownEventType = (typeof ALL_EVENT_TYPES)[number];
 
 export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
-  FileDiscovered: "Document discovered",
-  FileRenamedInDrive: "Document renamed in Drive",
-  FileMovedByClient: "Document moved in Drive",
-  FileDeleted: "Document deleted",
-  FolderCreated: "Folder created",
-  Renamed: "Folder renamed",
-  MonthClosed: "Month closed",
-  MonthReopened: "Month reopened",
-  Moved: "Document moved",
-  Extracted: "Fields extracted",
-  Confirmed: "Document confirmed",
-  Exported: "Month exported",
-  DriveParentFolderIdChanged: "Drive parent folder changed",
-  CanonicalFolderNamesChanged: "Canonical folder names changed",
-  MovableFolderNamesChanged: "Movable folder names changed",
+  FileDiscovered: "Nájdený doklad",
+  FileRenamedInDrive: "Doklad premenovaný v Drive",
+  FileMovedByClient: "Doklad presunutý v Drive",
+  FileDeleted: "Doklad odstránený",
+  FolderCreated: "Priečinok vytvorený",
+  Renamed: "Priečinok premenovaný",
+  MonthClosed: "Mesiac uzavretý",
+  MonthReopened: "Mesiac znovu otvorený",
+  Moved: "Doklad presunutý",
+  Extracted: "Údaje spracované",
+  EkasaUidEntered: "Zadaný UID eBločku",
+  Confirmed: "Doklad potvrdený",
+  Exported: "Mesiac exportovaný",
+  CompanyProfileSaved: "Profil firmy uložený",
+  ExportSectionChanged: "Zmenená sekcia exportu",
+  DriveParentFolderIdChanged: "Zmenený nadradený priečinok Drive",
+  CanonicalFolderNamesChanged: "Zmenený zoznam názvov priečinkov",
+  MovableFolderNamesChanged: "Zmenené presunuteľné priečinky",
+  AutoAdvanceChanged: "Zmenený automatický posun na ďalší doklad",
 };
 
 export type StoredActivityEvent = {
@@ -108,8 +117,10 @@ export function eventMonthKey(
     case "MonthReopened":
     case "Moved":
     case "Extracted":
+    case "EkasaUidEntered":
     case "Confirmed":
     case "Exported":
+    case "ExportSectionChanged":
       return text(payload.monthKey);
     default:
       return null;
@@ -122,60 +133,109 @@ export function summarizeEventPayload(
 ): string {
   switch (type) {
     case "FileDiscovered": {
-      const name = text(payload.name) ?? "document";
+      const name = text(payload.name) ?? "doklad";
       const firstSeenAt = text(payload.firstSeenAt);
       return firstSeenAt
-        ? `${name} first seen at ${firstSeenAt}`
-        : `${name} discovered`;
+        ? `${name} — prvýkrát videný ${formatDateTime(firstSeenAt)}`
+        : `${name} — nájdený`;
     }
     case "FileRenamedInDrive": {
       const previousName = text(payload.previousName) ?? "?";
       const newName = text(payload.newName) ?? "?";
-      return `Renamed "${previousName}" to "${newName}" in Drive`;
+      return `Premenované „${previousName}“ na „${newName}“ v Drive`;
     }
     case "FileMovedByClient": {
-      const driveFileId = text(payload.driveFileId) ?? "document";
+      const driveFileId = text(payload.driveFileId) ?? "doklad";
       const monthKey = text(payload.monthKey);
       return monthKey
-        ? `${driveFileId} moved to month ${monthKey}`
-        : `${driveFileId} moved in Drive`;
+        ? `${driveFileId} presunutý do mesiaca ${monthKey}`
+        : `${driveFileId} presunutý v Drive`;
     }
     case "FileDeleted":
-      return `Removed ${text(payload.driveFileId) ?? "document"}`;
+      return `Odstránený ${text(payload.driveFileId) ?? "doklad"}`;
     case "FolderCreated": {
-      const name = text(payload.name) ?? "folder";
-      return `Created folder "${name}"`;
+      const name = text(payload.name) ?? "priečinok";
+      return `Vytvorený priečinok „${name}“`;
     }
     case "Renamed": {
       const previousName = text(payload.previousName) ?? "?";
       const newName = text(payload.newName) ?? "?";
       if (payload.undone === true) {
-        return `Undo: restored folder name from "${previousName}" to "${newName}"`;
+        return `Vrátené: názov priečinka obnovený z „${previousName}“ na „${newName}“`;
       }
-      return `Renamed folder from "${previousName}" to "${newName}"`;
+      return `Priečinok premenovaný z „${previousName}“ na „${newName}“`;
     }
     case "MonthClosed":
-      return `Closed month ${text(payload.monthKey) ?? "?"}`;
+      return `Uzavretý mesiac ${text(payload.monthKey) ?? "?"}`;
     case "MonthReopened":
-      return `Reopened month ${text(payload.monthKey) ?? "?"}`;
+      return `Znovu otvorený mesiac ${text(payload.monthKey) ?? "?"}`;
     case "Moved": {
       const previousParent = text(payload.previousParent) ?? "?";
       const newParent = text(payload.newParent) ?? "?";
-      const name = text(payload.name) ?? text(payload.driveFileId) ?? "document";
-      return `Moved "${name}" from parent ${previousParent} to ${newParent}`;
+      const name = text(payload.name) ?? text(payload.driveFileId) ?? "doklad";
+      return `Presunuté „${name}“ z priečinka ${previousParent} do ${newParent}`;
     }
     case "DriveParentFolderIdChanged":
-      return "Changed which Drive folder holds client companies";
+      return "Zmenený priečinok Drive, v ktorom sú firmy klientov";
     case "CanonicalFolderNamesChanged":
-      return "Updated the canonical folder name list";
+      return "Aktualizovaný zoznam kanonických názvov priečinkov";
     case "MovableFolderNamesChanged":
-      return "Updated which folders late arrivals may leave";
-    case "Extracted":
-      return `Extracted fields for ${text(payload.driveFileId) ?? "document"}`;
+      return "Aktualizované priečinky, z ktorých sa smú presúvať neskoré doklady";
+    case "AutoAdvanceChanged":
+      return payload.next === true
+        ? "Po rozhodnutí sa automaticky prejde na ďalší doklad"
+        : "Po rozhodnutí sa zostáva na tom istom doklade";
+    case "Extracted": {
+      const driveFileId = text(payload.driveFileId) ?? "doklad";
+      const source = text(payload.source);
+      if (source === "lookup") {
+        return `Spracované údaje pre ${driveFileId} (Finančná správa)`;
+      }
+      if (source === "text-layer") {
+        return `Spracované údaje pre ${driveFileId} (text PDF)`;
+      }
+      if (source === "model") {
+        return `Spracované údaje pre ${driveFileId} (model)`;
+      }
+      if (source === "ocr") {
+        return `Spracované údaje pre ${driveFileId} (OCR)`;
+      }
+      return `Spracované údaje pre ${driveFileId}`;
+    }
+    case "EkasaUidEntered": {
+      const uid = text(payload.uid) ?? "?";
+      if (payload.found === true) {
+        return `UID ${uid} — údaje načítané z Finančnej správy`;
+      }
+      return `UID ${uid} — v eKase nenájdený`;
+    }
     case "Confirmed":
-      return `Confirmed document ${text(payload.driveFileId) ?? "?"}`;
-    case "Exported":
-      return `Exported month ${text(payload.monthKey) ?? "?"}`;
+      return `Potvrdený doklad ${text(payload.driveFileId) ?? "?"}`;
+    case "Exported": {
+      const included = Array.isArray(payload.included) ? payload.included.length : null;
+      const heldBack = Array.isArray(payload.heldBack) ? payload.heldBack.length : null;
+      const month = text(payload.monthKey) ?? "?";
+      if (included !== null && heldBack !== null) {
+        return `Export mesiaca ${month}: ${included} v súbore, ${heldBack} zadržaných`;
+      }
+      return `Exportovaný mesiac ${month}`;
+    }
+    case "CompanyProfileSaved": {
+      const legalName = text(payload.legalName) ?? "firma";
+      const ico = text(payload.ico);
+      return ico ? `${legalName} (IČO ${ico})` : legalName;
+    }
+    case "ExportSectionChanged": {
+      const driveFileId = text(payload.driveFileId) ?? "doklad";
+      const next = text(payload.next);
+      if (next === "T01") {
+        return `${driveFileId} → Fakturácia (T01)`;
+      }
+      if (next === "T00") {
+        return `${driveFileId} → EUD (T00)`;
+      }
+      return `${driveFileId} → automaticky podľa typu`;
+    }
     default:
       return type;
   }
@@ -183,10 +243,10 @@ export function summarizeEventPayload(
 
 export function formatActor(actor: string): string {
   if (actor === "system") {
-    return "System";
+    return "Systém";
   }
   if (actor === "user") {
-    return "User";
+    return "Ja";
   }
   return actor;
 }

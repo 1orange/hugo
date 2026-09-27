@@ -1,10 +1,10 @@
-import {
-  isEkasaReceipt,
-  parseEkasaText,
-  validateEkasaArithmetic,
-} from "@/modules/ekasa-text";
+import type { EkasaLookup } from "@/adapters/ekasa-lookup/port";
+import type { Extractor } from "@/adapters/extractor/port";
+import type { Ocr } from "@/adapters/ocr/port";
 import type { DriveClient } from "@/adapters/drive/port";
 import type { PdfAccess } from "@/adapters/pdf/port";
+import type { QrReader } from "@/adapters/qr-reader/port";
+import { appendCompanySystemEvent } from "@/adapters/store/events";
 import {
   ensureDocumentsForMonth,
   extractionAlreadyAttempted,
@@ -15,7 +15,18 @@ import {
 } from "@/adapters/store/documents";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
-import { emptyExtractedPayload } from "@/modules/document-payload";
+import {
+  emptyExtractedPayload,
+  isEkasaPayload,
+  parseExtractedPayload,
+} from "@/modules/document-payload";
+import { extractEkasaForReceipt, extractEkasaFromTextLines } from "./ekasa-extraction";
+import { findEkasaUidInLines } from "@/modules/ekasa-identifiers";
+import { ocrDocumentToLines } from "@/lib/ocr/document-ocr";
+import { isReceiptImageMimeType } from "./ekasa-qr-extraction";
+import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
+import { processModelExtractionFromLines } from "@/lib/model-extraction/process-model-extraction";
+import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 
 /**
  * Both receipt folders, not just the cash one. Every eBloček in the real corpus
@@ -34,6 +45,10 @@ export const RECEIPT_FOLDER_SLOTS = [
 export type CashDiscoveryDeps = {
   driveClient: DriveClient;
   pdfAccess: PdfAccess;
+  qrReader: QrReader;
+  ekasaLookup: EkasaLookup;
+  ocr: Ocr;
+  extractor: Extractor;
   now?: () => string;
 };
 
@@ -81,9 +96,13 @@ export async function processCashReceiptFile(
     monthKey: string;
     driveFileId: string;
     folderSlot: string;
-    pdfBytes: Uint8Array;
+    mimeType: string;
+    fileBytes: Uint8Array;
   },
-  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "now">,
+  deps: Pick<
+    CashDiscoveryDeps,
+    "pdfAccess" | "qrReader" | "ekasaLookup" | "ocr" | "extractor" | "now"
+  >,
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
   const editable = assertMonthEditable(input.companyId, input.monthKey);
@@ -97,84 +116,93 @@ export async function processCashReceiptFile(
     return;
   }
 
-  const extracted = await extractReceiptTextLines(input.pdfBytes, deps.pdfAccess);
-  if (!extracted.ok) {
+  const existingRow = getDocument(input.driveFileId);
+  const existingPayload = parseExtractedPayload(
+    existingRow?.extractedPayloadJson ?? "{}",
+  );
+  const cachedOpdResponse =
+    isEkasaPayload(existingPayload) && existingPayload.opdResponse !== undefined
+      ? existingPayload.opdResponse
+      : undefined;
+
+  const e2eLines =
+    process.env.E2E_TEST_AUTH === "true"
+      ? stubTextLinesForDriveFile(input.driveFileId)
+      : null;
+  const extracted =
+    e2eLines !== null
+      ? { ok: true as const, lines: e2eLines }
+      : input.mimeType === "application/pdf"
+        ? await extractReceiptTextLines(input.fileBytes, deps.pdfAccess)
+        : { ok: true as const, lines: [] as string[] };
+
+  let lines = extracted.ok ? extracted.lines : [];
+  const hadTextLayer = extracted.ok && lines.length > 0;
+
+  let ekasa = await extractEkasaForReceipt({
+    lines,
+    hadTextLayer,
+    mimeType: input.mimeType,
+    fileBytes: input.fileBytes,
+    pdfAccess: deps.pdfAccess,
+    qrReader: deps.qrReader,
+    ekasaLookup: deps.ekasaLookup,
+    cachedOpdResponse,
+  });
+
+  let modelSource: "model" | "ocr" = "model";
+
+  if (
+    !ekasa.ok &&
+    !hadTextLayer &&
+    !findEkasaUidInLines(lines) &&
+    !ekasa.qrDecodedUid
+  ) {
+    const ocrResult = await ocrDocumentToLines({
+      mimeType: input.mimeType,
+      fileBytes: input.fileBytes,
+      pdfAccess: deps.pdfAccess,
+      ocr: deps.ocr,
+    });
+    if (ocrResult.ok === false && ocrResult.unreachable) {
+      return;
+    }
+    if (ocrResult.ok) {
+      lines = ocrResult.lines;
+      modelSource = "ocr";
+      ekasa = await extractEkasaFromTextLines({
+        lines,
+        ekasaLookup: deps.ekasaLookup,
+        cachedOpdResponse,
+      });
+    }
+  }
+
+  if (!ekasa.ok) {
+    if (shouldExtractWithModel({ lines, hadTextLayer, fromOcr: modelSource === "ocr" })) {
+      await processModelExtractionFromLines(
+        {
+          companyId: input.companyId,
+          monthKey: input.monthKey,
+          driveFileId: input.driveFileId,
+          folderSlot: input.folderSlot,
+          lines,
+          source: modelSource,
+        },
+        { extractor: deps.extractor, now: deps.now },
+      );
+      return;
+    }
     markManualEntry({
       driveFileId: input.driveFileId,
-      reason: extracted.reason,
+      reason: ekasa.reason,
     });
     return;
   }
 
-  if (!isEkasaReceipt(extracted.lines)) {
-    const reason =
-      "Document is not an eBloček (missing UID, OKP or NA ÚHRADU markers).";
-    markManualEntry({
-      driveFileId: input.driveFileId,
-      reason,
-    });
-    return;
-  }
+  const payload = ekasa.payload;
 
-  const parsed = parseEkasaText(extracted.lines);
-  if ("ok" in parsed) {
-    markManualEntry({
-      driveFileId: input.driveFileId,
-      reason: parsed.reason,
-    });
-    return;
-  }
-
-  const arithmetic = validateEkasaArithmetic(parsed);
-  if (!arithmetic.ok) {
-    markManualEntry({
-      driveFileId: input.driveFileId,
-      reason: arithmetic.reason,
-    });
-    return;
-  }
-
-  const lineItems = parsed.lineItems.map((item, index) => ({
-    sortOrder: index,
-    name: item.name,
-    vatRateLiteral: item.vatRateLiteral,
-    quantityLiteral: item.quantityLiteral,
-    unitPriceLiteral: item.unitPriceLiteral,
-    lineTotalLiteral: item.lineTotalLiteral,
-    lineTotalCents: item.lineTotalCents,
-  }));
-  const vatRecap = parsed.recapRows.map((row) => ({
-    rateLiteral: row.rateLiteral,
-    baseLiteral: row.baseLiteral,
-    baseCents: row.baseCents,
-    vatLiteral: row.vatLiteral,
-    vatCents: row.vatCents,
-  }));
-
-  const payload = {
-    kind: "ekasa" as const,
-    amountCents: parsed.totalCents,
-    amountLiteral: parsed.totalLiteral,
-    currency: parsed.currency,
-    receiptAt: parsed.receiptAtUtc,
-    receiptTimestampRaw: parsed.timestampRaw,
-    ekasaUid: parsed.uid,
-    ekasaOkp: parsed.okp,
-    supplierName: parsed.supplierName,
-    dic: parsed.dic,
-    ico: parsed.ico,
-    icDph: parsed.icDph,
-    kp: parsed.kp,
-    receiptNumber: parsed.receiptNumber,
-    recapBaseCents: parsed.recapSpoluBaseCents,
-    recapBaseLiteral: parsed.recapSpoluBaseLiteral,
-    recapVatCents: parsed.recapSpoluVatCents,
-    recapVatLiteral: parsed.recapSpoluVatLiteral,
-    lineItems,
-    vatRecap,
-  };
-
-  if (parsed.currency !== "EUR") {
+  if (payload.currency !== "EUR") {
     upsertEkasaExtractedPayload({
       driveFileId: input.driveFileId,
       companyId: input.companyId,
@@ -182,8 +210,14 @@ export async function processCashReceiptFile(
       folderSlot: input.folderSlot,
       payload,
       extractionStatus: "failed",
-      extractionFailureReason: `Receipt is in ${parsed.currency} — enter the EUR amount manually.`,
+      extractionFailureReason: `Receipt is in ${payload.currency} — enter the EUR amount manually.`,
       createdAt: now,
+    });
+    appendCompanySystemEvent(now, input.companyId, "Extracted", {
+      monthKey: input.monthKey,
+      driveFileId: input.driveFileId,
+      source: ekasa.source,
+      status: "failed",
     });
     return;
   }
@@ -197,6 +231,13 @@ export async function processCashReceiptFile(
     extractionStatus: "complete",
     extractionFailureReason: null,
     createdAt: now,
+  });
+
+  appendCompanySystemEvent(now, input.companyId, "Extracted", {
+    monthKey: input.monthKey,
+    driveFileId: input.driveFileId,
+    source: ekasa.source,
+    status: "complete",
   });
 }
 
@@ -216,7 +257,8 @@ export function listCashReceiptCandidates(
         (RECEIPT_FOLDER_SLOTS as readonly string[]).includes(
           file.folderSlot ?? "",
         ) &&
-        file.mimeType === "application/pdf",
+        file.mimeType === "application/pdf" ||
+        isReceiptImageMimeType(file.mimeType),
     )
     .map((file) => ({
       driveFileId: file.driveFileId,
@@ -248,14 +290,15 @@ export async function discoverCashPaymentsForMonth(
 
     setExtractionStatus(file.driveFileId, "pending", null);
 
-    const pdfBytes = await deps.driveClient.download(file.driveFileId);
+    const fileBytes = await deps.driveClient.download(file.driveFileId);
     await processCashReceiptFile(
       {
         companyId,
         monthKey,
         driveFileId: file.driveFileId,
         folderSlot: file.folderSlot,
-        pdfBytes,
+        mimeType: file.mimeType,
+        fileBytes,
       },
       deps,
     );

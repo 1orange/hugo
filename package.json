@@ -10,7 +10,11 @@
     "test": "node --import tsx --test 'tests/unit/**/*.test.ts'",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --import tsx scripts/migrate.ts"
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "benchmark": "node --import tsx scripts/benchmark-harness.ts",
+    "benchmark:compare-models": "bash scripts/benchmark-compare-models.sh",
+    "benchmark:import": "node --import tsx scripts/import-benchmark-labels.ts",
+    "smoke:sidecars": "bash scripts/smoke-sidecars.sh"
   },
   "dependencies": {
     "@types/heic-convert": "^2.1.1",
@@ -19,13 +23,15 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.2",
     "heic-convert": "^2.1.0",
+    "iconv-lite": "^0.7.3",
     "lucide-react": "^0.511.0",
     "next": "^15.3.3",
     "next-auth": "^5.0.0-beta.28",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "tailwind-merge": "^3.3.0"
+    "tailwind-merge": "^3.3.0",
+    "zxing-wasm": "^2.2.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

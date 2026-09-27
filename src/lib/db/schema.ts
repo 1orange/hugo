@@ -7,12 +7,49 @@ export const companies = sqliteTable("companies", {
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 });
 
+export const companyProfiles = sqliteTable("company_profiles", {
+  companyId: integer("company_id")
+    .primaryKey()
+    .references(() => companies.id),
+  country: text("country").notNull(),
+  legalName: text("legal_name").notNull(),
+  address: text("address").notNull(),
+  ico: text("ico").notNull(),
+  dic: text("dic").notNull(),
+  icDph: text("ic_dph").notNull(),
+  registerSource: text("register_source").notNull(),
+  savedAt: text("saved_at").notNull(),
+});
+
 export const settings = sqliteTable("settings", {
   id: integer("id").primaryKey(),
   driveParentFolderId: text("drive_parent_folder_id"),
   canonicalFolderNamesJson: text("canonical_folder_names_json").notNull(),
   movableFolderNamesJson: text("movable_folder_names_json"),
   lastSweepAt: text("last_sweep_at"),
+  // Off by default: jumping to the next document after a decision is a real
+  // speed win and a real surprise, so she opts in rather than discovers it.
+  autoAdvanceAfterDecision: integer("auto_advance_after_decision", {
+    mode: "boolean",
+  })
+    .notNull()
+    .default(false),
+  omegaT01EvidenceCode: text("omega_t01_evidence_code").notNull().default("OF"),
+  omegaT01SeriesCode: text("omega_t01_series_code").notNull().default("OF"),
+  omegaT01ReceivedEvidenceCode: text("omega_t01_received_evidence_code")
+    .notNull()
+    .default("DF"),
+  omegaT01ReceivedSeriesCode: text("omega_t01_received_series_code")
+    .notNull()
+    .default("DF"),
+  omegaT00EvidenceCode: text("omega_t00_evidence_code").notNull().default("IDk"),
+  omegaT00SeriesCode: text("omega_t00_series_code").notNull().default("IDk"),
+  omegaT00DocumentTypeCode: text("omega_t00_document_type_code")
+    .notNull()
+    .default("180"),
+  omegaT00ForeignDocumentTypeCode: text("omega_t00_foreign_document_type_code")
+    .notNull()
+    .default("380"),
 });
 
 export const months = sqliteTable("months", {
@@ -81,7 +118,24 @@ export const documents = sqliteTable("documents", {
   note: text("note"),
   exportedAt: text("exported_at"),
   exportBatch: text("export_batch"),
+  exportNumber: text("export_number"),
   createdAt: text("created_at").notNull(),
+});
+
+export const partners = sqliteTable("partners", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  country: text("country").notNull(),
+  ico: text("ico").notNull(),
+  legalName: text("legal_name").notNull(),
+  street: text("street").notNull().default(""),
+  psc: text("psc").notNull().default(""),
+  city: text("city").notNull().default(""),
+  dic: text("dic").notNull().default(""),
+  icDph: text("ic_dph").notNull().default(""),
+  updatedAt: text("updated_at").notNull(),
 });
 
 export const driveMutations = sqliteTable("drive_mutations", {
