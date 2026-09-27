@@ -52,6 +52,8 @@ scripts/benchmark-models.env
 /data/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # typescript
 *.tsbuildinfo
