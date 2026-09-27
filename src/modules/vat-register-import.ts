@@ -41,7 +41,27 @@ function isIcDphCell(cell: string): boolean {
   return /^(SK|CZ|NL)[0-9A-Z]+$/.test(compact);
 }
 
-function readRecapTail(parts: string[]): {
+/**
+ * The register prints a reduced-rate and a standard-rate column, but text
+ * extraction drops empty cells, so a lone base/VAT pair does not say which
+ * column it came from. The section heading above the rows does.
+ */
+export function sectionRateFromHeading(line: string): string | null {
+  if (/znížená sadzba DPH 2/.test(line)) {
+    return "5";
+  }
+  if (/znížená sadzba DPH/.test(line)) {
+    return "19";
+  }
+  if (/základná sadzba DPH/.test(line)) {
+    return "23";
+  }
+  return null;
+}
+
+const STANDARD_RATE = "23";
+
+function readRecapTail(parts: string[], sectionRate: string): {
   kvDphSection: string;
   vatRecap: ParsedVatRegisterRow["vatRecap"];
 } | null {
@@ -59,7 +79,7 @@ function readRecapTail(parts: string[]): {
   }
   const vatRecap: ParsedVatRegisterRow["vatRecap"] = [
     {
-      rateLiteral: "23",
+      rateLiteral: sectionRate,
       baseLiteral: standardBase.literal,
       baseCents: standardBase.cents,
       vatLiteral: standardVat.literal,
@@ -69,6 +89,8 @@ function readRecapTail(parts: string[]): {
   const reducedVat = parseRegisterAmount(parts[parts.length - 4] ?? "");
   const reducedBase = parseRegisterAmount(parts[parts.length - 5] ?? "");
   if (reducedVat && reducedBase) {
+    // Both columns filled: the last pair is the standard rate after all.
+    vatRecap[0]!.rateLiteral = STANDARD_RATE;
     vatRecap.unshift({
       rateLiteral: "5",
       baseLiteral: reducedBase.literal,
@@ -80,14 +102,17 @@ function readRecapTail(parts: string[]): {
   return { kvDphSection, vatRecap };
 }
 
-export function parseVatRegisterDeductionRow(line: string): ParsedVatRegisterRow | null {
+export function parseVatRegisterDeductionRow(
+  line: string,
+  sectionRate: string = STANDARD_RATE,
+): ParsedVatRegisterRow | null {
   const trimmed = line.trim();
   if (!ROW_PREFIX.test(trimmed)) {
     return null;
   }
 
   const parts = trimmed.split(" | ").map((part) => part.trim());
-  const tail = readRecapTail(parts);
+  const tail = readRecapTail(parts, sectionRate);
   if (!tail) {
     return null;
   }
@@ -148,15 +173,21 @@ export function parseVatRegisterDeductionRow(line: string): ParsedVatRegisterRow
 export function parseVatRegisterDeductionLines(lines: string[]): ParsedVatRegisterRow[] {
   const rows: ParsedVatRegisterRow[] = [];
   let pendingHead: string | null = null;
+  let sectionRate = STANDARD_RATE;
   for (const line of lines) {
     const trimmed = line.trim();
+    const headingRate = sectionRateFromHeading(trimmed);
+    if (headingRate) {
+      sectionRate = headingRate;
+      continue;
+    }
     if (/^FDD\s+\S+$/.test(trimmed) && !trimmed.includes("|")) {
       pendingHead = trimmed;
       continue;
     }
     const candidate = pendingHead ? `${pendingHead} | ${trimmed}` : trimmed;
     pendingHead = null;
-    const parsed = parseVatRegisterDeductionRow(candidate);
+    const parsed = parseVatRegisterDeductionRow(candidate, sectionRate);
     if (parsed) {
       rows.push(parsed);
     }

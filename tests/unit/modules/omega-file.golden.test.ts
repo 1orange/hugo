@@ -15,6 +15,10 @@ const FIXTURE_PATH = path.join(
   "tests/private-fixtures/spring-2026-05-issued-invoices.json",
 );
 
+// Her export holds eleven invoices and Drive only six of their PDFs, so rows are
+// matched by VS rather than by position.
+const VS_COLUMN = 70;
+
 test("golden file: spring May issued invoices match Omega T01 data columns", { skip: !fs.existsSync(FIXTURE_PATH) }, () => {
   const fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")) as {
     referencePath: string;
@@ -25,24 +29,32 @@ test("golden file: spring May issued invoices match Omega T01 data columns", { s
     fs.readFileSync(fixture.referencePath),
     "win1250",
   );
-  const referenceHeaders = reference
-    .split("\r\n")
-    .filter((line) => line.startsWith("R01\t") && !line.includes("\tT04"));
+  const referenceByVs = new Map(
+    reference
+      .split("\r\n")
+      .filter((line) => line.startsWith("R01\t"))
+      .map((line) => [line.split("\t")[VS_COLUMN]!, line]),
+  );
 
   const bytes = buildOmegaFileBytes(fixture.export);
   const actualText = iconv.decode(bytes, "win1250");
   const actualHeaders = actualText
     .split("R00\tT01\r\n")[1]!
+    .split("R00\t")[0]!
     .split("\r\n")
     .filter((line) => line.startsWith("R01\t"));
 
-  assert.equal(actualHeaders.length, referenceHeaders.length);
-  for (let index = 0; index < referenceHeaders.length; index += 1) {
+  assert.equal(actualHeaders.length, fixture.export.invoices.length);
+  for (const actual of actualHeaders) {
+    const vs = actual.split("\t")[VS_COLUMN]!;
+    const expected = referenceByVs.get(vs);
+    assert.ok(expected, `VS ${vs} is not in her export`);
     assert.ok(
-      compareT01DataColumns(referenceHeaders[index]!, actualHeaders[index]!, {
+      compareT01DataColumns(expected, actual, {
         ignoreExportNumber: true,
+        writtenColumnsOnly: true,
       }),
-      `header ${index} mismatch`,
+      `VS ${vs}: written columns differ from her export`,
     );
   }
 });

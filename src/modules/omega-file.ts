@@ -427,10 +427,24 @@ export function buildOmegaFileBytes(input: OmegaExportInput): Buffer {
   return iconv.encode(text, "win1250");
 }
 
+const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+
+/** Header columns before the spec's `>>` marker; mandatory on import. */
+export const T01_MANDATORY_HEADER_COLUMNS = 17;
+
 export function compareT01DataColumns(
   expectedLine: string,
   actualLine: string,
-  opts: { ignoreExportNumber?: boolean } = {},
+  opts: {
+    ignoreExportNumber?: boolean;
+    /**
+     * Compare only what the writer filled in. Her own export also carries her
+     * internal codes, texts and bank details, which a data-only file never
+     * writes (ADR 0019); plain numbers are compared by value, because Omega
+     * exports `0.0000` where the writer writes `0`.
+     */
+    writtenColumnsOnly?: boolean;
+  } = {},
 ): boolean {
   const expected = expectedLine.split("\t");
   const actual = actualLine.split("\t");
@@ -441,7 +455,23 @@ export function compareT01DataColumns(
     if (opts.ignoreExportNumber && index === 1) {
       continue;
     }
-    if (expected[index] !== actual[index]) {
+    const expectedCell = expected[index]!;
+    const actualCell = actual[index]!;
+    if (opts.writtenColumnsOnly) {
+      if (actualCell === "") {
+        if (index < T01_MANDATORY_HEADER_COLUMNS) {
+          return false;
+        }
+        continue;
+      }
+      if (PLAIN_DECIMAL.test(expectedCell) && PLAIN_DECIMAL.test(actualCell)) {
+        if (Number(expectedCell) !== Number(actualCell)) {
+          return false;
+        }
+        continue;
+      }
+    }
+    if (expectedCell !== actualCell) {
       return false;
     }
   }

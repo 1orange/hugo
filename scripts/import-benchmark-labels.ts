@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import iconv from "iconv-lite";
 import { createPdfAccess } from "../src/adapters/pdf/pdf-access.ts";
 import { type BenchmarkImportManifest } from "../src/modules/benchmark-label.ts";
 import {
@@ -37,7 +38,9 @@ async function main(): Promise<void> {
     fs.readFileSync(path.resolve(manifestPath), "utf8"),
   ) as BenchmarkImportManifest;
 
-  const t01ExportText = fs.readFileSync(path.resolve(t01Path), "utf8");
+  // Omega writes its text files in Windows-1250 (ADR 0014); reading them as
+  // UTF-8 garbles every partner name with a diacritic.
+  const t01ExportText = iconv.decode(fs.readFileSync(path.resolve(t01Path)), "win1250");
   const pdfBytes = new Uint8Array(fs.readFileSync(path.resolve(vatRegisterPath)));
   const pdfAccess = createPdfAccess();
   const vatRegisterLines = await pdfAccess.extractTextLines(pdfBytes);
