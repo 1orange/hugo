@@ -1,0 +1,51 @@
+# Local model sidecar for ADR 0017. Runs CPU-only in Docker (no Apple GPU on macOS).
+#
+# Configure via .env.docker (copy from .env.docker.example) or environment:
+#   EXTRACTOR_PORT=8080
+#   EXTRACTOR_MODEL_FILE=model.gguf   — file under ./models
+#   EXTRACTOR_MODEL=local             — name passed to the app (EXTRACTOR_MODEL)
+#   EXTRACTOR_THINKING=false          — app env; thinking off by default
+#
+# App: EXTRACTOR_URL=http://127.0.0.1:${EXTRACTOR_PORT}/v1  (or http://extractor:8080/v1 from another container)
+#      OCR_URL=http://127.0.0.1:${OCR_PORT:-8090}
+#
+# Alternative: `docker compose --profile ollama up` uses Ollama instead of llama.cpp server.
+
+services:
+  extractor:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    ports:
+      - "${EXTRACTOR_PORT:-8080}:8080"
+    volumes:
+      - "${EXTRACTOR_MODEL_DIR:-./models}:/models:ro"
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - -m
+      - "/models/${EXTRACTOR_MODEL_FILE:-model.gguf}"
+      - -c
+      - "8192"
+      - -np
+      - "4"
+    environment:
+      - LLAMA_ARG_THREADS=${EXTRACTOR_THREADS:-4}
+
+  ocr:
+    build: ./services/ocr
+    ports:
+      - "${OCR_PORT:-8090}:8090"
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    ports:
+      - "${EXTRACTOR_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+
+volumes:
+  ollama_data:
