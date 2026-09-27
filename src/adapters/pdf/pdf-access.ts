@@ -1,6 +1,9 @@
-import type { PdfAccess, PdfTextLine } from "./port";
+import type { PdfAccess, PdfPageImage, PdfTextLine } from "./port";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+type PdfPageProxy = Awaited<
+  ReturnType<Awaited<ReturnType<PdfJsModule["getDocument"]>["promise"]>["getPage"]>
+>;
 
 let pdfjsPromise: Promise<PdfJsModule> | null = null;
 
@@ -51,6 +54,96 @@ function groupTextItemsIntoLines(
   });
 }
 
+type RawPdfImage = {
+  data?: Uint8ClampedArray | Uint8Array;
+  width?: number;
+  height?: number;
+  kind?: number;
+  src?: Uint8Array | null;
+  bitmap?: { data: Uint8ClampedArray; width: number; height: number };
+};
+
+function pdfImageToPageImage(
+  raw: RawPdfImage,
+  rgbKind: number,
+): PdfPageImage | null {
+  if (raw.bitmap?.data && raw.bitmap.width && raw.bitmap.height) {
+    return {
+      kind: "rgba",
+      data: raw.bitmap.data,
+      width: raw.bitmap.width,
+      height: raw.bitmap.height,
+    };
+  }
+
+  if (raw.src && raw.src.length > 0) {
+    return { kind: "encoded", bytes: new Uint8Array(raw.src) };
+  }
+
+  if (!raw.data || !raw.width || !raw.height) {
+    return null;
+  }
+
+  if (raw.kind === rgbKind) {
+    const rgb = raw.data;
+    const rgba = new Uint8ClampedArray(raw.width * raw.height * 4);
+    for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+      rgba[j] = rgb[i]!;
+      rgba[j + 1] = rgb[i + 1]!;
+      rgba[j + 2] = rgb[i + 2]!;
+      rgba[j + 3] = 255;
+    }
+    return { kind: "rgba", data: rgba, width: raw.width, height: raw.height };
+  }
+
+  const rgba =
+    raw.data instanceof Uint8ClampedArray
+      ? raw.data
+      : new Uint8ClampedArray(raw.data);
+  return { kind: "rgba", data: rgba, width: raw.width, height: raw.height };
+}
+
+async function extractImagesFromPage(
+  page: PdfPageProxy,
+  pdfjs: PdfJsModule,
+): Promise<PdfPageImage[]> {
+  const { OPS, ImageKind } = pdfjs;
+  const operatorList = await page.getOperatorList();
+  const images: PdfPageImage[] = [];
+  const paintOps = new Set<number>([
+    OPS.paintImageXObject,
+    OPS.paintInlineImageXObject,
+    OPS.paintImageXObjectRepeat,
+  ]);
+
+  for (let index = 0; index < operatorList.fnArray.length; index++) {
+    const fn = operatorList.fnArray[index]!;
+    if (!paintOps.has(fn)) {
+      continue;
+    }
+
+    const args = operatorList.argsArray[index]!;
+    let raw: RawPdfImage | null = null;
+    if (fn === OPS.paintInlineImageXObject) {
+      raw = args[0] as RawPdfImage;
+    } else {
+      const objectId = args[0] as string;
+      try {
+        raw = page.objs.get(objectId) as RawPdfImage;
+      } catch {
+        raw = null;
+      }
+    }
+
+    const converted = raw ? pdfImageToPageImage(raw, ImageKind.RGB_24BPP) : null;
+    if (converted) {
+      images.push(converted);
+    }
+  }
+
+  return images;
+}
+
 export function createPdfAccess(): PdfAccess {
   return {
     async extractTextLines(pdfBytes, options) {
@@ -65,6 +158,16 @@ export function createPdfAccess(): PdfAccess {
         }
       }
       return groupTextItemsIntoLines(textItems);
+    },
+    async extractPageImages(pdfBytes) {
+      const pdfjs = await loadPdfJs();
+      const doc = await openDocument(pdfBytes);
+      const images: PdfPageImage[] = [];
+      for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+        const page = await doc.getPage(pageNumber);
+        images.push(...(await extractImagesFromPage(page, pdfjs)));
+      }
+      return images;
     },
   };
 }
