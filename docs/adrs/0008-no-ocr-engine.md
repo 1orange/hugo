@@ -1,7 +1,16 @@
 # ADR 0008 — No OCR engine: text layer plus eKasa QR
 
 Date: 2026-08-28
-Status: Accepted
+Status: Largely superseded, 2026-09-27 — the receipt path by ADR 0016, the OCR and model decisions by
+ADR 0017
+
+> Two premises here did not survive contact with the real corpus. The eKasa UID is not worthless:
+> Finančná správa's *Over doklad* endpoint answers for it without authentication, and returned the
+> full receipt for all 16 real UIDs tried (ADR 0016). And OCR is no longer deferred: Czech companies'
+> receipts carry no fiscal code at all, and the structuring model moved from a hosted service to a
+> local one for privacy (ADR 0017). The text-layer findings below — line grouping, the item and
+> recapitulation formats, trailing zeros, NFC normalisation, the Bratislava timestamp — remain valid
+> for the text-layer parser, which ADR 0016 keeps as its fallback.
 
 ## Context
 

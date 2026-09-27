@@ -1,7 +1,11 @@
 # ADR 0013 — Document-centric domain model
 
 Date: 2026-08-30
-Status: Accepted
+Status: Accepted; amended by ADR 0019, 2026-09-27
+
+> ADR 0019 removes the cash-versus-card distinction. It survived here "only because it decides the
+> target ledger on import"; she now decides that in Omega, and the export's section is chosen by the
+> document's type rather than its folder. Everything else below stands.
 Supersedes: ADR 0002 (payment-centric domain model)
 
 ## Context

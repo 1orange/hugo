@@ -14,6 +14,10 @@ Primary user: single accountant (sole user of the system)
 
 ---
 
+> **Continued in PRD 0002, 2026-09-27.** Reading documents and the Omega export moved to
+> `.agents/prds/0002-document-extraction-and-omega-export.md` (ADRs 0016–0019). Slices 10, 11 and 15
+> are replaced there, slice 14's profile half moves there, and slice 06's parser becomes a fallback.
+
 ## Current state, 2026-08-30
 
 **Built:** walking skeleton with auth (01), Drive sweep and company/month tree (03), folder-name

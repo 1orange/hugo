@@ -8,7 +8,11 @@
 !.yarn/releases
 !.yarn/versions
 
+# reference exports with real client data (use private-fixtures for benchmarks)
+/docs/reference/omega/
+
 # testing
+/tests/private-fixtures/
 /coverage
 /test-results/
 /playwright-report/
@@ -35,6 +39,14 @@ yarn-error.log*
 # env files
 .env
 .env*.local
+
+# local model weights (docker-compose ./models mount)
+/models/
+
+# model benchmark runs (issue 11)
+/benchmark-results/
+scripts/benchmark-models.env
+.env.docker
 
 # database
 /data/

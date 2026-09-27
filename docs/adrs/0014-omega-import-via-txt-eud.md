@@ -1,7 +1,13 @@
 # ADR 0014 — Omega import via the TXT `T00` (EUD) format, not ISDOC
 
 Date: 2026-08-30
-Status: Accepted
+Status: Partly superseded by ADR 0019, 2026-09-27
+
+> Her own Omega export turned out to be `T01` (Fakturácia), and reading it against the spec showed
+> `T01` needs no accounts while `T00` does. ADR 0019 replaces the route (one file with `T04` partners,
+> `T01` invoices and `T00` receipts), the accounts position (the app writes none) and the partner
+> handling. The findings below on encoding, the dead spec URL, `T08`, the Konektor API, ISDOC and
+> the non-transactional import still hold.
 
 ## Context
 
