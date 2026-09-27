@@ -1,0 +1,9 @@
+{
+  "monthKey": "2026_05",
+  "issued": [
+    { "driveFileId": "REPLACE-WITH-DRIVE-FILE-ID", "documentNumber": "2026081", "folderSlot": "01 Vystavené faktúry" }
+  ],
+  "received": [
+    { "driveFileId": "REPLACE-WITH-DRIVE-FILE-ID", "matchKey": "3026027", "folderSlot": "02 Prijaté faktúry", "docTypeHint": "invoice" }
+  ]
+}
