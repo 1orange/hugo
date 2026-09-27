@@ -142,3 +142,37 @@ it is machine-read, and she still reviews it (ADR 0010).
   convenience rather than an accounting record, and its amount can be `0`. Dropped by her decision.
 - **Ask her to type the fields for damaged receipts.** Seven or eight fields instead of one UID,
   with no self-check. The UID box is strictly less typing.
+
+## Amendment, 2026-09-27: cash rounding, and VAT per rate rather than per item
+
+Building private fixtures from her real receipts overturned two details of the lookup mapping.
+
+**Cash totals are rounded by law, so "the items sum to `totalPrice`" is wrong for cash.** Two of
+the nineteen recorded receipts were rejected: OMV (19.83 of fuel, `totalPrice` 19.85) and Slovnaft
+(40.01, `totalPrice` 40.00), both in `04 Bločky_hotovosť`. Since 1 July 2022 a Slovak cash payment's
+final amount is rounded to the nearest 5 cents, and the rounding is not part of any VAT base. Every
+rounded cash receipt was therefore falling through to an empty form.
+
+The rule now lives in one pure module, `cash-rounding`, and every place that compares base and VAT
+with a total uses it:
+
+- **EUR**: to the nearest 5 cents. **CZK**: to the nearest whole koruna, half up — the Czech rule
+  since the haléř coins were withdrawn.
+- **The rule follows the currency the receipt was paid in**, not the buyer's country: rounding
+  happens at the till under the shop's law, so a Czech company's cash receipt from Bratislava is in
+  EUR and rounded the Slovak way. For her clients the two coincide almost always; keying by currency
+  keeps the cross-border case right as well.
+- A total is accepted when it equals base + VAT exactly (card) **or is exactly its legal cash
+  rounding**. Any other difference is still a mismatch, so a misread digit is not waved through.
+- **The rounding is derived, never stored**: total minus base and VAT per rate. It follows her edits
+  in the fields panel, which shows it as its own line, and the export writes it as *halierové
+  vyrovnanie* (ADR 0019).
+
+**Base and VAT are computed once per rate, not per item.** The first version rounded each item's VAT
+and added them up, which drifted by a cent on multi-item receipts — IKEA, four items, base 8.94
+against the printed 8.95. Summing the gross per rate and splitting it once, as the cash register
+does, matches the printed recapitulation on all ten text-layer receipts in the corpus.
+
+The text-layer parser's checks accept the same rounding, though no rounded text-layer receipt exists
+in the corpus yet — every text-layer eBloček sits in the card folder — so that path is covered by a
+synthetic test only.

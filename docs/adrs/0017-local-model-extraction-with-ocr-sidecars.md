@@ -264,3 +264,10 @@ candidate for benchmark only, or keep `EXTRACTOR=stub` in production until one p
 
 _Agent note: paste `summary.tsv` values into the table, set the Decision section to the adopted row,
 and remove “provisional” once measurement is done._
+
+### Note, 2026-09-27: arithmetic accepts the legal cash rounding
+
+The arithmetic check accepts a total that is exactly the legal cash rounding of base + VAT for the
+document's currency — 5 cents in EUR, a whole koruna in CZK — and nothing else. A Czech cash receipt
+of 99.60 paid as 100 Kč is therefore correct, not flagged. The rule and its reasoning are in ADR
+0016's amendment of the same date.

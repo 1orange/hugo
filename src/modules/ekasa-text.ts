@@ -6,6 +6,7 @@ import {
   bratislavaLocalToUtcIso,
   parseReceiptDatetimeRaw,
 } from "./ekasa-timestamp";
+import { cashRoundingCents } from "./cash-rounding";
 import { parseDecimalAmount } from "./money";
 
 export type EkasaTextLine = string;
@@ -409,8 +410,16 @@ export function parseEkasaText(lines: EkasaTextLine[]): EkasaTextParseResult {
 export function validateEkasaArithmetic(
   receipt: EkasaTextReceipt,
 ): { ok: true } | { ok: false; reason: string } {
+  // NA ÚHRADU of a cash payment is rounded to 5 cents; items and SPOLU are not.
+  const isPayable = (cents: number) =>
+    cashRoundingCents({
+      itemsTotalCents: cents,
+      payableCents: receipt.totalCents,
+      currency: receipt.currency,
+    }) !== null;
+
   const itemSum = receipt.lineItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
-  if (itemSum !== receipt.totalCents) {
+  if (!isPayable(itemSum)) {
     const itemTotal = (itemSum / 100).toFixed(2);
     return {
       ok: false,
@@ -428,7 +437,7 @@ export function validateEkasaArithmetic(
   }
 
   const spoluTotal = receipt.recapSpoluBaseCents + receipt.recapSpoluVatCents;
-  if (spoluTotal !== receipt.totalCents) {
+  if (!isPayable(spoluTotal)) {
     const spoluLiteral = (spoluTotal / 100).toFixed(2);
     return {
       ok: false,

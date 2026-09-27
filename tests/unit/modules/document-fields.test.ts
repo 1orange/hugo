@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  cashRoundingOfFields,
   checkArithmeticWarning,
   mergeDocumentFields,
   parseConfirmedFieldsFromInput,
@@ -294,4 +295,61 @@ test("checkArithmeticWarning is silent when base plus vat equals total", () => {
     recapVatCents: 315,
   });
   assert.equal(warning, null);
+});
+
+test("a cash total rounded to 5 cents raises no arithmetic warning and shows the rounding", () => {
+  const fields = {
+    ...emptyEditableFields,
+    currency: "EUR",
+    amountLiteral: "19.85",
+    amountCents: 1985,
+    recapBaseLiteral: "16.12",
+    recapBaseCents: 1612,
+    recapVatLiteral: "3.71",
+    recapVatCents: 371,
+  };
+  assert.equal(checkArithmeticWarning(fields), null);
+  assert.equal(cashRoundingOfFields(fields), 2);
+});
+
+test("a Czech cash total rounded to the koruna raises no warning across VAT rows", () => {
+  const fields = {
+    ...emptyEditableFields,
+    currency: "CZK",
+    amountLiteral: "100.00",
+    amountCents: 10000,
+    vatRecap: [
+      { rateLiteral: "21", baseLiteral: "82.31", baseCents: 8231, vatLiteral: "17.29", vatCents: 1729 },
+    ],
+  };
+  assert.equal(checkArithmeticWarning(fields), null);
+  assert.equal(cashRoundingOfFields(fields), 40);
+});
+
+test("a difference that is not the cash rounding still warns, and shows no rounding", () => {
+  const fields = {
+    ...emptyEditableFields,
+    currency: "EUR",
+    amountLiteral: "19.90",
+    amountCents: 1990,
+    recapBaseLiteral: "16.12",
+    recapBaseCents: 1612,
+    recapVatLiteral: "3.71",
+    recapVatCents: 371,
+  };
+  assert.notEqual(checkArithmeticWarning(fields), null);
+  assert.equal(cashRoundingOfFields(fields), null);
+});
+
+test("an exact total shows no rounding line", () => {
+  const fields = {
+    ...emptyEditableFields,
+    amountLiteral: "16.85",
+    amountCents: 1685,
+    recapBaseLiteral: "13.70",
+    recapBaseCents: 1370,
+    recapVatLiteral: "3.15",
+    recapVatCents: 315,
+  };
+  assert.equal(cashRoundingOfFields(fields), null);
 });

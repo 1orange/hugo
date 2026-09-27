@@ -115,3 +115,30 @@ test("parseEkasaText rejects non-eBloček documents", () => {
   const parsed = parseEkasaText(["FlixBus ticket", "Celkem | 1009.00 Kč"]);
   assert.equal("ok" in parsed && parsed.ok === false, true);
 });
+
+// A cash eBloček prints the unrounded items and SPOLU, and NA ÚHRADU rounded to
+// 5 cents. No text-layer cash receipt exists in the corpus yet, so this one is
+// synthetic: shift the items to end in 3 cents and round the payable total.
+function roundedCashReceipt() {
+  const parsed = parseEkasaText(syntheticEkasaLines());
+  if (!("supplierName" in parsed)) {
+    throw new Error("synthetic receipt did not parse");
+  }
+  const itemSum = parsed.lineItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const shift = (3 - (itemSum % 5) + 5) % 5;
+  parsed.lineItems[0]!.lineTotalCents += shift;
+  parsed.recapRows[0]!.baseCents += shift;
+  parsed.recapSpoluBaseCents += shift;
+  parsed.totalCents = itemSum + shift + 2;
+  return parsed;
+}
+
+test("validateEkasaArithmetic accepts NA ÚHRADU rounded to 5 cents for cash", () => {
+  assert.deepEqual(validateEkasaArithmetic(roundedCashReceipt()), { ok: true });
+});
+
+test("validateEkasaArithmetic rejects a difference that is not the cash rounding", () => {
+  const parsed = roundedCashReceipt();
+  parsed.totalCents += 1;
+  assert.equal(validateEkasaArithmetic(parsed).ok, false);
+});

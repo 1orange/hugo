@@ -2,6 +2,7 @@ import {
   bratislavaLocalToUtcIso,
   parseReceiptDatetimeRaw,
 } from "./ekasa-timestamp";
+import { cashRoundingCents } from "./cash-rounding";
 import { parseDecimalAmount } from "./money";
 import type { CompanyProfileFields } from "./company-profile";
 import { homeCurrencyForCountry, type HomeCurrency } from "./company-profile";
@@ -684,6 +685,54 @@ export function fieldCheckState(
   return "correct";
 }
 
+/** The total base + VAT is exactly the total, or its legal cash rounding. */
+function isLegalPayable(recapTotalCents: number, fields: EditableDocumentFields): boolean {
+  if (fields.amountCents === null) {
+    return true;
+  }
+  return (
+    cashRoundingCents({
+      itemsTotalCents: recapTotalCents,
+      payableCents: fields.amountCents,
+      currency: fields.currency,
+    }) !== null
+  );
+}
+
+function recapTotalOfFields(fields: EditableDocumentFields): number | null {
+  const rows = fields.vatRecap.filter(
+    (row) => row.baseLiteral.trim().length > 0 || row.vatLiteral.trim().length > 0,
+  );
+  if (rows.length > 0) {
+    return rows.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
+  }
+  if (fields.recapBaseCents === null || fields.recapVatCents === null) {
+    return null;
+  }
+  return fields.recapBaseCents + fields.recapVatCents;
+}
+
+/**
+ * The cash rounding between base + VAT and the total, when it is non-zero and
+ * exactly what the law prescribes for the document's currency (see
+ * cash-rounding.ts). Derived rather than stored, so it follows her edits.
+ */
+export function cashRoundingOfFields(fields: EditableDocumentFields): number | null {
+  if (fields.amountCents === null) {
+    return null;
+  }
+  const recapTotal = recapTotalOfFields(fields);
+  if (recapTotal === null) {
+    return null;
+  }
+  const rounding = cashRoundingCents({
+    itemsTotalCents: recapTotal,
+    payableCents: fields.amountCents,
+    currency: fields.currency,
+  });
+  return rounding === null || rounding === 0 ? null : rounding;
+}
+
 export function checkArithmeticWarning(
   fields: EditableDocumentFields,
 ): string | null {
@@ -716,7 +765,7 @@ export function checkArithmeticWarnings(
       return [];
     }
     const sum = baseSum + vatSum;
-    if (sum !== fields.amountCents) {
+    if (!isLegalPayable(sum, fields)) {
       const sumLiteral = (sum / 100).toFixed(2);
       warnings.push(
         `Súčet základov DPH (${(baseSum / 100).toFixed(2)}) a DPH (${(vatSum / 100).toFixed(2)}) je ${sumLiteral}, ale celková suma je ${fields.amountLiteral}.`,
@@ -739,7 +788,7 @@ export function checkArithmeticWarnings(
     return [];
   }
   const sum = fields.recapBaseCents + fields.recapVatCents;
-  if (sum === fields.amountCents) {
+  if (isLegalPayable(sum, fields)) {
     return [];
   }
   const sumLiteral = (sum / 100).toFixed(2);

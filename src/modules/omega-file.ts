@@ -1,4 +1,5 @@
 import iconv from "iconv-lite";
+import { cashRoundingCents } from "./cash-rounding";
 import type { DocumentVatRecapRow } from "./document-payload";
 import { formatEuroFromCents } from "./money";
 
@@ -183,6 +184,32 @@ function dotAmountFromLiteral(literal: string, cents: number): string {
   return dotAmountFromCents(cents);
 }
 
+/**
+ * Halierové vyrovnanie: what a cash payment's legal rounding adds to base +
+ * VAT (see cash-rounding.ts). 0 for an exact total; null when the difference is
+ * anything else, and then the document cannot be written consistently.
+ */
+function roundingOf(
+  recap: readonly DocumentVatRecapRow[],
+  totalCents: number,
+  currency: string,
+): number | null {
+  const recapTotal = recap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
+  return cashRoundingCents({
+    itemsTotalCents: recapTotal,
+    payableCents: totalCents,
+    currency: currency.trim() || "EUR",
+  });
+}
+
+function roundingMismatchReason(
+  recap: readonly DocumentVatRecapRow[],
+  totalCents: number,
+): string {
+  const recapTotal = recap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
+  return `Základ a DPH spolu (${formatEuroFromCents(recapTotal)}) nesedia s celkovou sumou (${formatEuroFromCents(totalCents)}) a rozdiel nie je zaokrúhlenie platby v hotovosti.`;
+}
+
 function validateReceipt(receipt: OmegaReceiptDraft): string | null {
   if (!fitsIdentifier(receipt.exportNumber, LIMIT.exportNumber)) {
     return "Exportné číslo je príliš dlhé.";
@@ -198,6 +225,9 @@ function validateReceipt(receipt: OmegaReceiptDraft): string | null {
   }
   if (receipt.vatRecap.length === 0) {
     return "Chýba rekapitulácia DPH.";
+  }
+  if (roundingOf(receipt.vatRecap, receipt.totalCents, receipt.currency) === null) {
+    return roundingMismatchReason(receipt.vatRecap, receipt.totalCents);
   }
   return null;
 }
@@ -217,6 +247,9 @@ function validateInvoice(invoice: OmegaInvoiceDraft): string | null {
   }
   if (invoice.vatRecap.length === 0) {
     return "Chýba rekapitulácia DPH.";
+  }
+  if (roundingOf(invoice.vatRecap, invoice.totalCents, invoice.currency) === null) {
+    return roundingMismatchReason(invoice.vatRecap, invoice.totalCents);
   }
   return null;
 }
@@ -288,7 +321,9 @@ function renderT01Header(
   cols[12] = String(slots.higherRate);
   cols[13] = dotAmountFromCents(slots.lowerVatCents);
   cols[14] = dotAmountFromCents(slots.higherVatCents);
-  cols[15] = "0";
+  cols[15] = dotAmountFromCents(
+    roundingOf(invoice.vatRecap, invoice.totalCents, invoice.currency) ?? 0,
+  );
   cols[16] = dotAmountFromCents(invoice.totalCents);
   cols[17] = String(invoice.docType);
   const evidence =
@@ -358,6 +393,9 @@ function renderT00Header(
   cols[25] = dotAmountFromCents(slots.exemptBaseCents);
   cols[26] = dotAmountFromCents(slots.lowerVatCents);
   cols[27] = dotAmountFromCents(slots.higherVatCents);
+  cols[28] = dotAmountFromCents(
+    roundingOf(receipt.vatRecap, receipt.totalCents, receipt.currency) ?? 0,
+  );
   cols[53] = receipt.externalNumber.trim();
   return cols.join("\t");
 }

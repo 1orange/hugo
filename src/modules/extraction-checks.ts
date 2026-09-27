@@ -2,6 +2,7 @@ import type { CompanyCountry } from "./company-profile";
 import { validateSkIcDph } from "./company-profile";
 import type { FieldCheckState } from "./document-fields";
 import { checkArithmeticWarnings, mergeDocumentFields } from "./document-fields";
+import { cashRoundingCents } from "./cash-rounding";
 import type {
   DocumentParty,
   DocumentVatRecapRow,
@@ -173,7 +174,12 @@ function recapArithmeticOk(payload: ModelExtractedPayload): boolean {
     baseSum += row.baseCents;
     vatSum += row.vatCents;
   }
-  if (baseSum + vatSum !== payload.amountCents) {
+  const rounding = cashRoundingCents({
+    itemsTotalCents: baseSum + vatSum,
+    payableCents: payload.amountCents,
+    currency: payload.currency,
+  });
+  if (rounding === null) {
     return false;
   }
   for (const row of payload.vatRecap) {

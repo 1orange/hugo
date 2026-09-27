@@ -161,3 +161,11 @@ spec's rate slots are Slovak.
 - **Leaving the number for Omega to assign.** The spec marks it mandatory and nothing says Omega
   fills it.
 - **Importing as payments (`T08` Úhrady).** Export-only (ADR 0014).
+
+### Note, 2026-09-27: halierové vyrovnanie
+
+Both headers carry a mandatory rounding field — *halierové vyrovnanie*, `T01` field #16 and `T00`
+field #29 — and `T00` was leaving it empty. The writer now fills both with the cash rounding derived
+from the document (ADR 0016's amendment): `0` for an exact total, the legal rounding otherwise. A
+confirmed document whose total differs from base + VAT by anything that is not a legal rounding is
+**held back** with the reason, rather than written with figures Omega would have to reconcile.

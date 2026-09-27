@@ -224,3 +224,102 @@ test("buildOmegaFileBytes appends T00 after T01 for receipts", () => {
   assert.equal(itemCols[2], "");
   assert.equal(itemCols[4], "");
 });
+
+// Halierové vyrovnanie: spec field #16 of the T01 header and #29 of the T00
+// header (file columns 15 and 28), both mandatory.
+const T01_ROUNDING_COLUMN = 15;
+const T00_ROUNDING_COLUMN = 28;
+
+function cashReceipt(totalCents: number, currency = "EUR") {
+  return {
+    driveFileId: "rcpt-cash",
+    exportNumber: "H2605-0003",
+    docTypeCode: 180,
+    evidenceCode: "IDk",
+    seriesCode: "IDk",
+    externalNumber: "1454",
+    issueDate: "17.05.2026",
+    receiptDate: "17.05.2026",
+    dueDate: "17.05.2026",
+    taxableSupplyDate: "17.05.2026",
+    transactionDate: "17.05.2026",
+    currency,
+    foreignCurrency: false,
+    counterparty: sampleInvoice().counterparty,
+    // Fuel for 19.83: base 16.12, VAT 3.71.
+    vatRecap: [
+      { rateLiteral: "23", baseLiteral: "16.12", baseCents: 1612, vatLiteral: "3.71", vatCents: 371 },
+    ],
+    totalCents,
+  };
+}
+
+function headerColumns(text: string, section: "T01" | "T00"): string[] {
+  const body = text.split(`R00\t${section}\r\n`)[1]!.split("R00\t")[0]!;
+  return body.split("\r\n").find((line) => line.startsWith("R01\t"))!.split("\t");
+}
+
+test("a cash receipt's rounding is written as halierové vyrovnanie in T00", () => {
+  const text = decode1250(
+    buildOmegaFileBytes({
+      monthKey: "2026_05",
+      settings: defaults,
+      invoices: [],
+      receipts: [cashReceipt(1985)],
+      partners: [],
+    }),
+  );
+  const cols = headerColumns(text, "T00");
+  assert.equal(cols[T00_ROUNDING_COLUMN], "0.02");
+  assert.equal(cols[19], "19.85");
+});
+
+test("an exact total writes a zero rounding in both sections", () => {
+  const text = decode1250(
+    buildOmegaFileBytes({
+      monthKey: "2026_05",
+      settings: defaults,
+      invoices: [sampleInvoice()],
+      receipts: [cashReceipt(1983)],
+      partners: [],
+    }),
+  );
+  assert.equal(headerColumns(text, "T01")[T01_ROUNDING_COLUMN], "0");
+  assert.equal(headerColumns(text, "T00")[T00_ROUNDING_COLUMN], "0");
+});
+
+test("a Czech cash total rounded to the koruna is written as rounding", () => {
+  const invoice = sampleInvoice({
+    currency: "CZK",
+    vatRecap: [
+      { rateLiteral: "21", baseLiteral: "82.31", baseCents: 8231, vatLiteral: "17.29", vatCents: 1729 },
+    ],
+    totalCents: 10000,
+  });
+  const text = decode1250(
+    buildOmegaFileBytes({
+      monthKey: "2026_05",
+      settings: defaults,
+      invoices: [invoice],
+      receipts: [],
+      partners: [],
+    }),
+  );
+  assert.equal(headerColumns(text, "T01")[T01_ROUNDING_COLUMN], "0.40");
+});
+
+test("a total that differs from base plus VAT by more than the rounding is held back", () => {
+  const plan = planOmegaExport({
+    monthKey: "2026_05",
+    settings: defaults,
+    invoices: [sampleInvoice({ totalCents: 14200 })],
+    receipts: [cashReceipt(1990)],
+    partners: [],
+  });
+  assert.equal(plan.includedInvoices.length, 0);
+  assert.equal(plan.includedReceipts.length, 0);
+  assert.equal(plan.heldBack.length, 2);
+  for (const entry of plan.heldBack) {
+    assert.match(entry.reason, /zaokrúhlenie/);
+  }
+});

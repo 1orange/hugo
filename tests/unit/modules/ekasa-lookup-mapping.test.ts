@@ -106,3 +106,39 @@ test("rejects mismatched receiptId and item sum", () => {
   });
   assert.equal(badSum.ok, false);
 });
+
+function cashReceipt(itemPrice: number, totalPrice: number): unknown {
+  return {
+    returnValue: 0,
+    receipt: {
+      receiptId: "O-11111111111111111111111111111111",
+      issueDate: "17.05.2026 13:35:41",
+      totalPrice,
+      items: [{ name: "Super 95", itemType: "K", quantity: 10.96, vatRate: 23, price: itemPrice }],
+      organization: { name: "Pumpa" },
+    },
+  };
+}
+
+// The OMV receipt behind IMG_3475: fuel for 19.83, paid 19.85 in cash.
+test("a cash total rounded to 5 cents is accepted, with VAT from the items", () => {
+  const mapped = mapOpdResponseToEkasaPayload({
+    requestedUid: "O-11111111111111111111111111111111",
+    raw: cashReceipt(19.83, 19.85),
+  });
+  assert.equal(mapped.ok, true);
+  if (!mapped.ok) return;
+  assert.equal(mapped.payload.amountCents, 1985);
+  assert.equal(
+    mapped.payload.vatRecap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0),
+    1983,
+  );
+});
+
+test("a total that is not the legal cash rounding is still rejected", () => {
+  const mapped = mapOpdResponseToEkasaPayload({
+    requestedUid: "O-11111111111111111111111111111111",
+    raw: cashReceipt(19.83, 19.9),
+  });
+  assert.equal(mapped.ok, false);
+});

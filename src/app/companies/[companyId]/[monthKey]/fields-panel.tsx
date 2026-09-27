@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DocumentListItem } from "@/lib/documents/view";
 import {
+  cashRoundingOfFields,
   checkArithmeticWarnings,
   fieldCheckState,
   type FieldCheckState,
@@ -85,6 +86,12 @@ function draftFrom(document: DocumentListItem): DocumentFieldsInput {
           }))
         : [{ rateLiteral: "", baseLiteral: "", vatLiteral: "" }],
   };
+}
+
+/** Signed, in the same dot-decimal form as the amount fields beside it. */
+function formatCashRounding(cents: number, currency: string): string {
+  const sign = cents < 0 ? "−" : "+";
+  return `${sign}${(Math.abs(cents) / 100).toFixed(2)} ${currency}`;
 }
 
 function parseDraftCents(literal: string): number | null {
@@ -214,6 +221,7 @@ export function FieldsPanel({
   };
 
   const arithmeticWarnings = checkArithmeticWarnings(draftFieldsForChecks);
+  const cashRounding = cashRoundingOfFields(draftFieldsForChecks);
   const amountCheckOk = fieldChecks?.amountLiteral === "correct";
   const vatCheckOk = fieldChecks?.vatRecap === "correct";
   const arithmeticFlagged =
@@ -613,6 +621,16 @@ export function FieldsPanel({
               money
             />
           </div>
+
+          {cashRounding !== null && (
+            <p
+              className="mt-2.5 text-[11.5px] text-ink-3"
+              data-testid="cash-rounding"
+            >
+              Zaokrúhlenie platby v hotovosti:{" "}
+              {formatCashRounding(cashRounding, draftFieldsForChecks.currency)}
+            </p>
+          )}
 
           {arithmeticWarnings.map((warning, index) => (
             <p

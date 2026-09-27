@@ -179,3 +179,49 @@ test("format flags issue date far from document month", () => {
   const result = run(payload, source(["15.01.2024"]), { monthKey: "2026_05" });
   assert.equal(result.flags.issueDate, "flagged");
 });
+
+function recapRow(rateLiteral: string, baseCents: number, vatCents: number) {
+  return {
+    rateLiteral,
+    baseLiteral: (baseCents / 100).toFixed(2),
+    baseCents,
+    vatLiteral: (vatCents / 100).toFixed(2),
+    vatCents,
+  };
+}
+
+test("a Czech cash receipt rounded to the whole koruna passes the arithmetic check", () => {
+  // 82.31 + 17.29 = 99.60 Kč, paid 100 Kč in cash.
+  const payload = basePayload({
+    currency: "CZK",
+    amountCents: 10000,
+    amountLiteral: "100.00",
+    vatRecap: [recapRow("21", 8231, 1729)],
+    docTypeHint: "receipt",
+  });
+  const result = run(payload, source(["Celkem 100 Kč"]), { issuerCountry: "CZ" });
+  assert.equal(result.flags.amountCents, "correct");
+  assert.equal(result.flags.vatRecap, "correct");
+});
+
+test("a Slovak cash receipt rounded to 5 cents passes the arithmetic check", () => {
+  const payload = basePayload({
+    amountCents: 1985,
+    amountLiteral: "19.85",
+    vatRecap: [recapRow("23", 1612, 371)],
+    docTypeHint: "receipt",
+  });
+  const result = run(payload, source(["Spolu 19,85 EUR"]));
+  assert.equal(result.flags.amountCents, "correct");
+});
+
+test("a difference beyond the cash rounding is still flagged", () => {
+  const payload = basePayload({
+    currency: "CZK",
+    amountCents: 10100,
+    amountLiteral: "101.00",
+    vatRecap: [recapRow("21", 8231, 1729)],
+  });
+  const result = run(payload, source(["101"]), { issuerCountry: "CZ" });
+  assert.equal(result.flags.amountCents, "flagged");
+});

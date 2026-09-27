@@ -1,3 +1,4 @@
+import { cashRoundingCents } from "./cash-rounding";
 import {
   bratislavaLocalToUtcIso,
   parseReceiptDatetimeRaw,
@@ -144,9 +145,11 @@ export function mapOpdResponseToEkasaPayload(input: {
 
   let itemSumCents = 0;
   const lineItems: EkasaExtractedPayload["lineItems"] = [];
-  const recapByRate = new Map<
+  // Gross per rate, split into base and VAT once per rate as the cash register
+  // does: rounding each item first drifts by a cent (IKEA, 4 items: 8.94 vs 8.95).
+  const grossByRate = new Map<
     string,
-    { rateLiteral: string; baseCents: number; vatCents: number }
+    { rateLiteral: string; rate: number; grossCents: number }
   >();
 
   for (let index = 0; index < items.length; index += 1) {
@@ -165,16 +168,14 @@ export function mapOpdResponseToEkasaPayload(input: {
     itemSumCents += lineTotalCents;
 
     const rateKey = normalizeRateKey(item.vatRate);
-    const { baseCents, vatCents } = vatFromGrossCents(lineTotalCents, item.vatRate);
-    const existing = recapByRate.get(rateKey);
+    const existing = grossByRate.get(rateKey);
     if (existing) {
-      existing.baseCents += baseCents;
-      existing.vatCents += vatCents;
+      existing.grossCents += lineTotalCents;
     } else {
-      recapByRate.set(rateKey, {
+      grossByRate.set(rateKey, {
         rateLiteral: rateKey.includes(".") ? rateKey : `${rateKey}.0`,
-        baseCents,
-        vatCents,
+        rate: item.vatRate,
+        grossCents: lineTotalCents,
       });
     }
 
@@ -195,9 +196,16 @@ export function mapOpdResponseToEkasaPayload(input: {
     });
   }
 
-  if (itemSumCents !== totalCents) {
+  // A cash payment's total is the items rounded to 5 cents; anything else is a mismatch.
+  if (
+    cashRoundingCents({
+      itemsTotalCents: itemSumCents,
+      payableCents: totalCents,
+      currency: "EUR",
+    }) === null
+  ) {
     return mappingFailure(
-      `OPD item prices sum to ${formatEuroFromCents(itemSumCents)} but totalPrice is ${formatEuroFromCents(totalCents)}.`,
+      `OPD item prices sum to ${formatEuroFromCents(itemSumCents)} but totalPrice is ${formatEuroFromCents(totalCents)}, which is not their cash rounding.`,
     );
   }
 
@@ -207,15 +215,18 @@ export function mapOpdResponseToEkasaPayload(input: {
     return mappingFailure(timestamp.reason);
   }
 
-  const vatRecap = [...recapByRate.values()]
-    .sort((a, b) => Number(a.rateLiteral) - Number(b.rateLiteral))
-    .map((row) => ({
-      rateLiteral: row.rateLiteral,
-      baseLiteral: formatEuroFromCents(row.baseCents),
-      baseCents: row.baseCents,
-      vatLiteral: formatEuroFromCents(row.vatCents),
-      vatCents: row.vatCents,
-    }));
+  const vatRecap = [...grossByRate.values()]
+    .sort((a, b) => a.rate - b.rate)
+    .map((row) => {
+      const { baseCents, vatCents } = vatFromGrossCents(row.grossCents, row.rate);
+      return {
+        rateLiteral: row.rateLiteral,
+        baseLiteral: formatEuroFromCents(baseCents),
+        baseCents,
+        vatLiteral: formatEuroFromCents(vatCents),
+        vatCents,
+      };
+    });
 
   const recapBaseCents = vatRecap.reduce((sum, row) => sum + row.baseCents, 0);
   const recapVatCents = vatRecap.reduce((sum, row) => sum + row.vatCents, 0);
