@@ -2,10 +2,13 @@ import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
 
 const PARENT_ID = "e2e-parent";
 const COMPANY_ID = "e2e-company-beta";
+const COMPANY_CZ_ID = "e2e-company-gamma";
 const MONTH_ID = "e2e-month-2026-01";
+const MONTH_CZ_ID = "e2e-month-cz-2026-01";
 const SLOT_02_ID = "e2e-slot-02";
 const SLOT_04_ID = "e2e-slot-04";
 const SLOT_06_ID = "e2e-slot-06";
+const SLOT_CZ_04_ID = "e2e-slot-cz-04";
 
 export function e2eDriveFixture(): DriveFileRecord[] {
   return [
@@ -24,9 +27,23 @@ export function e2eDriveFixture(): DriveFileRecord[] {
       mimeType: FOLDER_MIME,
     },
     {
+      id: COMPANY_CZ_ID,
+      name: "Gamma s.r.o.",
+      parents: [PARENT_ID],
+      createdTime: "2026-01-01T00:00:00.000Z",
+      mimeType: FOLDER_MIME,
+    },
+    {
       id: MONTH_ID,
       name: "2026_01",
       parents: [COMPANY_ID],
+      createdTime: "2026-01-01T00:00:00.000Z",
+      mimeType: FOLDER_MIME,
+    },
+    {
+      id: MONTH_CZ_ID,
+      name: "2026_01",
+      parents: [COMPANY_CZ_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
     },
@@ -41,6 +58,13 @@ export function e2eDriveFixture(): DriveFileRecord[] {
       id: SLOT_04_ID,
       name: "04 Bločky_hotovosť",
       parents: [MONTH_ID],
+      createdTime: "2026-01-01T00:00:00.000Z",
+      mimeType: FOLDER_MIME,
+    },
+    {
+      id: SLOT_CZ_04_ID,
+      name: "04 Bločky_hotovosť",
+      parents: [MONTH_CZ_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
     },
@@ -62,6 +86,20 @@ export function e2eDriveFixture(): DriveFileRecord[] {
       id: "e2e-doc-receipt",
       name: "cash-receipt.pdf",
       parents: [SLOT_04_ID],
+      createdTime: "2026-01-11T00:00:00.000Z",
+      mimeType: "application/pdf",
+    },
+    {
+      id: "e2e-doc-blank-receipt",
+      name: "blank-receipt.pdf",
+      parents: [SLOT_04_ID],
+      createdTime: "2026-01-11T14:00:00.000Z",
+      mimeType: "application/pdf",
+    },
+    {
+      id: "e2e-doc-cz-receipt",
+      name: "cz-cash-receipt.pdf",
+      parents: [SLOT_CZ_04_ID],
       createdTime: "2026-01-11T00:00:00.000Z",
       mimeType: "application/pdf",
     },
