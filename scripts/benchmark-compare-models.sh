@@ -3,6 +3,12 @@
 # Requires: Docker, private benchmark fixtures, GGUF files under ./models.
 set -euo pipefail
 
+# The matrix runs for an hour or more; an idle Mac sleeps mid-request and the
+# pause is counted as model time (one 10 s document measured 155 s).
+if [[ "$(uname)" == "Darwin" && -z "${BENCHMARK_CAFFEINATED:-}" ]] && command -v caffeinate >/dev/null; then
+  BENCHMARK_CAFFEINATED=1 exec caffeinate -i "$0" "$@"
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -68,8 +74,6 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   EXTRACTOR_MODEL_FILE="$model_file" docker compose --env-file "$COMPOSE_ENV" up -d extractor
   wait_for_extractor
 
-  mem="$(docker stats extractor --no-stream --format '{{.MemUsage}}' 2>/dev/null || echo 'n/a')"
-
   set +e
   EXTRACTOR_URL="$BASE_URL" \
     EXTRACTOR_MODEL="${EXTRACTOR_MODEL:-local}" \
@@ -77,6 +81,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     npm run benchmark -- --real 2>&1 | tee "$log"
   bench_status=${PIPESTATUS[0]}
   set -e
+
+  # Sampled after the run, once the model is paged in and the KV cache is used.
+  # The compose container is named <project>-extractor-1, not "extractor".
+  container="$(docker compose --env-file "$COMPOSE_ENV" ps -q extractor 2>/dev/null || true)"
+  mem="$(docker stats "$container" --no-stream --format '{{.MemUsage}}' 2>/dev/null || echo 'n/a')"
 
   exact="$(grep -E 'exact or empty-flagged:' "$log" | tail -1 | sed -E 's/.*: ([0-9.]+%).*/\1/' || true)"
   wrong="$(grep -E 'wrong-but-plausible:' "$log" | tail -1 | sed -E 's/.*: ([0-9.]+%).*/\1/' || true)"

@@ -33,6 +33,12 @@ services:
       - "${EXTRACTOR_CONTEXT:-8192}"
       - -np
       - "${EXTRACTOR_PARALLEL:-1}"
+      # The host prompt cache defaults to 8 GiB and grew to 4 GiB over 17
+      # invoices. Each document is read once, so in production it only costs
+      # RAM; in the benchmark it serves repeated runs from cache and hides the
+      # prompt time.
+      - --cache-ram
+      - "${EXTRACTOR_CACHE_RAM:-0}"
     environment:
       - LLAMA_ARG_THREADS=${EXTRACTOR_THREADS:-4}
 
