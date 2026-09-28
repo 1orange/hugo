@@ -74,6 +74,11 @@ test("HTTP extractor requests JSON schema constrained chat completion", async ()
   assert.equal(responseFormat.type, "json_schema");
   assert.equal(responseFormat.json_schema.name, "extracted_document");
   assert.equal(seenUserAgent, EXTRACTOR_USER_AGENT);
+  // Answers must not depend on which document was read before.
+  assert.equal(seenBody.cache_prompt, false);
+  // The folder month is not the model's to see: it copied it as a number.
+  const prompt = (seenBody.messages as Array<{ content: string }>)[0]!.content;
+  assert.equal(prompt.includes("2026_05"), false);
 
   assert.equal(result.payload.kind, "extracted");
   assert.equal(result.payload.documentNumber, "20260042");

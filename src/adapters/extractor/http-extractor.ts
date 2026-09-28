@@ -43,8 +43,8 @@ function buildPrompt(input: ExtractorInput): string {
     "Return only structured JSON matching the schema.",
     "Parties have no roles — list every party you see, without labelling supplier or customer.",
     "Use ISO dates YYYY-MM-DD. Amounts as printed (decimal string).",
-    "",
-    `Document month folder: ${input.monthKey}`,
+    // No folder month here: Qwen3 0.6B copied `2026_05` into the document
+    // number. The checks, not the model, compare dates with the month.
     "",
     text,
   ].join("\n");
@@ -147,6 +147,11 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       // llama.cpp (with --jinja) passes these to the model's chat template.
       // Hybrid models such as Qwen3 think by default, so "off" is sent too.
       body.chat_template_kwargs = { enable_thinking: options.thinkingEnabled === true };
+      // llama.cpp reuses the previous request's matching prompt prefix, and its
+      // logits are not bit-identical across batch sizes: her issued invoices
+      // share a long opening, so an answer depended on which document came
+      // before. Each document is read once, so recomputing costs nothing.
+      body.cache_prompt = false;
 
       const response = await fetchImpl(url, {
         method: "POST",
