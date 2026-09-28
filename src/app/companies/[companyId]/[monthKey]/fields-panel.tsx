@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DocumentListItem } from "@/lib/documents/view";
 import {
   cashRoundingOfFields,
@@ -9,6 +9,7 @@ import {
   type FieldCheckState,
 } from "@/modules/document-fields";
 import { validateEkasaUidInput } from "@/modules/ekasa-identifiers";
+import { rebaseDraft } from "@/modules/draft-rebase";
 
 export type VatRecapRowInput = {
   rateLiteral: string;
@@ -145,12 +146,31 @@ export function FieldsPanel({
   );
 
   const documentId = document?.id ?? null;
+  const loadedDocumentId = useRef<string | null>(documentId);
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
+
   useEffect(() => {
     const next = document ? draftFrom(document) : null;
-    setDraft(next);
+    if (loadedDocumentId.current !== documentId) {
+      // Another document: start from what it holds.
+      loadedDocumentId.current = documentId;
+      setDraft(next);
+      setSaved(next);
+      setUidDraft(document?.typedEkasaUid ?? "");
+      setUidValidationMessage(null);
+      return;
+    }
+    // The same document refreshed — a background extraction finished, or a
+    // save came back. Keep whatever she is typing and has not saved yet.
+    const previous = savedRef.current;
+    setDraft((current) =>
+      current && previous && next
+        ? rebaseDraft({ saved: previous, draft: current, incoming: next })
+        : next,
+    );
     setSaved(next);
-    setUidDraft(document?.typedEkasaUid ?? "");
-    setUidValidationMessage(null);
+    setUidDraft((current) => current || (document?.typedEkasaUid ?? ""));
   }, [documentId, document]);
 
   const dirty = useMemo(
