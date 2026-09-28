@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { PdfPageImage } from "../adapters/pdf/port";
 import {
   parseBenchmarkLabel,
   serializeBenchmarkLabel,
@@ -78,21 +77,26 @@ export function loadBenchmarkSourceText(
   return fs.readFileSync(textPath, "utf8").split(/\r?\n/);
 }
 
-const BENCHMARK_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".heic", ".pdf"] as const;
+const BENCHMARK_SOURCE_TYPES = [
+  [".pdf", "application/pdf"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".heic", "image/heic"],
+] as const;
 
-export function loadBenchmarkPageImages(
+/**
+ * The document itself (`<driveFileId>.pdf`, `.jpg`, …), read by the harness
+ * as the app reads it. A `.txt` with the source text is the fallback for a
+ * label whose file is not in the fixtures.
+ */
+export function loadBenchmarkSourceFile(
   driveFileId: string,
   dir: string = BENCHMARK_FIXTURES_DIR,
-): PdfPageImage[] | null {
-  for (const extension of BENCHMARK_IMAGE_EXTENSIONS) {
-    const imagePath = path.join(dir, `${driveFileId}${extension}`);
-    if (fs.existsSync(imagePath)) {
-      return [
-        {
-          kind: "encoded",
-          bytes: new Uint8Array(fs.readFileSync(imagePath)),
-        },
-      ];
+): { mimeType: string; bytes: Uint8Array } | null {
+  for (const [extension, mimeType] of BENCHMARK_SOURCE_TYPES) {
+    const filePath = path.join(dir, `${driveFileId}${extension}`);
+    if (fs.existsSync(filePath)) {
+      return { mimeType, bytes: new Uint8Array(fs.readFileSync(filePath)) };
     }
   }
   return null;

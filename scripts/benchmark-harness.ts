@@ -3,8 +3,8 @@ import { createStubExtractor } from "../src/adapters/extractor/stub-extractor.ts
 import type { Extractor } from "../src/adapters/extractor/port.ts";
 import { createOcr } from "../src/adapters/ocr/create-ocr.ts";
 import type { Ocr } from "../src/adapters/ocr/port.ts";
-import { groupOcrBoxesIntoLines } from "../src/modules/ocr-lines.ts";
-import { isOcrUnreachableError } from "../src/lib/ocr/document-ocr.ts";
+import { createPdfAccess } from "../src/adapters/pdf/pdf-access.ts";
+import { modelTextForDocument } from "../src/lib/model-extraction/model-text.ts";
 import {
   aggregateBenchmarkScores,
   scoreBenchmarkDocument,
@@ -15,7 +15,7 @@ import {
   benchmarkFixturesReady,
   loadBenchmarkLabels,
   loadBenchmarkManifest,
-  loadBenchmarkPageImages,
+  loadBenchmarkSourceFile,
   loadBenchmarkSourceText,
 } from "../src/modules/benchmark-fixtures.ts";
 import { benchmarkFieldCheckStates } from "../src/modules/extraction-checks-benchmark.ts";
@@ -91,26 +91,39 @@ async function main(): Promise<void> {
   const completionTokens: number[] = [];
   const ocrDurationsMs: number[] = [];
   const skippedWithoutOcr: string[] = [];
+  const withoutText: string[] = [];
   const documentScores = [];
+  const pdfAccess = createPdfAccess();
 
   for (const label of labels) {
-    let textLines = loadBenchmarkSourceText(label.driveFileId, fixturesDir);
-    if (textLines.length === 0) {
-      const images = loadBenchmarkPageImages(label.driveFileId, fixturesDir);
-      if (images) {
-        try {
-          const ocrResult = await ocr.recognize({ images });
-          ocrDurationsMs.push(ocrResult.durationMs);
-          textLines = groupOcrBoxesIntoLines(ocrResult.boxes);
-        } catch (error) {
-          if (!isOcrUnreachableError(error)) {
-            throw error;
-          }
-          // Text invoices can be benchmarked without the OCR service.
-          skippedWithoutOcr.push(label.driveFileId);
-          continue;
-        }
+    // The document's own file, read as the app reads it for the model.
+    const source = loadBenchmarkSourceFile(label.driveFileId, fixturesDir);
+    let textLines: string[];
+    if (source) {
+      const text = await modelTextForDocument({
+        mimeType: source.mimeType,
+        fileBytes: source.bytes,
+        pdfAccess,
+        ocr,
+      });
+      if (!text.ok) {
+        // Text invoices can be benchmarked without the OCR service.
+        skippedWithoutOcr.push(label.driveFileId);
+        continue;
       }
+      if (text.ocrDurationMs !== null) {
+        ocrDurationsMs.push(text.ocrDurationMs);
+      }
+      textLines = text.lines;
+    } else {
+      textLines = loadBenchmarkSourceText(label.driveFileId, fixturesDir);
+    }
+    if (textLines.length === 0) {
+      // The app marks it failed and she types it: every field empty.
+      withoutText.push(label.driveFileId);
+      payloadsByDriveFileId[label.driveFileId] = {};
+      documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
+      continue;
     }
     const result = await extractor.extract({
       driveFileId: label.driveFileId,
@@ -151,8 +164,11 @@ async function main(): Promise<void> {
   console.log(`Benchmark harness — ${labels.length} documents (${modeLabel})`);
   if (skippedWithoutOcr.length > 0) {
     console.log(
-      `  skipped ${skippedWithoutOcr.length} image documents: OCR_URL not set or unreachable`,
+      `  skipped ${skippedWithoutOcr.length} documents that need OCR: OCR_URL not set or unreachable`,
     );
+  }
+  if (withoutText.length > 0) {
+    console.log(`  ${withoutText.length} documents gave no text: scored as all fields empty`);
   }
   console.log("");
 
