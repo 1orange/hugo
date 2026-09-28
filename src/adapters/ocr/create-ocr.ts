@@ -10,10 +10,7 @@ export function createOcr(env: NodeJS.ProcessEnv = process.env): Ocr {
 
   const baseUrl = env.OCR_URL?.trim();
   if (!baseUrl) {
-    if (env.NODE_ENV === "production") {
-      throw new Error("OCR_URL is required in production");
-    }
-    // As for the extractor: unconfigured means "not reachable", so image
+    // As for the extractor, in production too: unconfigured means "not reachable", so image
     // documents wait for OCR instead of failing on a fake that reads nothing.
     return {
       async recognize() {

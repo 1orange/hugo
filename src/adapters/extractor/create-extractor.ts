@@ -24,9 +24,9 @@ export function createExtractor(env: NodeJS.ProcessEnv = process.env): Extractor
   const baseUrl = env.EXTRACTOR_URL?.trim();
   const model = env.EXTRACTOR_MODEL?.trim();
   if (!baseUrl || !model) {
-    if (env.NODE_ENV === "production") {
-      throw new Error("EXTRACTOR_URL and EXTRACTOR_MODEL are required in production");
-    }
+    // In production too: ADR 0017 leaves the model unset until it is measured
+    // on the node that will run it, and this runs inside a page render — a
+    // throw here took the dashboard down with it.
     // Not configured is not the same as "read nothing": the stub marked real
     // invoices complete with empty fields, and complete documents are never
     // read again. Behave like a model that is down, so documents wait for one.
