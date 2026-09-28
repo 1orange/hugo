@@ -199,8 +199,9 @@ measured with native Ollama on Metal.
 
 #### How to run the comparison
 
-1. **Fixtures** — private Omega labels under `tests/private-fixtures/benchmark` (slice 09). Never
-   commit them.
+1. **Fixtures** — private Omega labels under `tests/private-fixtures/benchmark` (slice 09), each
+   beside its document as `<driveFileId>.pdf` (or `.jpg`); the harness reads the file as the app
+   does. Never commit them.
 2. **Weights** — download the GGUF files into `./models/`, gitignored. The candidates are **Qwen3**,
    because it can switch thinking on and off per request; Qwen2.5, listed here first, has no
    thinking mode, so its "thinking on" rows would have measured nothing. From the official `Qwen/`
@@ -222,8 +223,9 @@ measured with native Ollama on Metal.
    npm run benchmark:compare-models
    ```
 
-   This restarts the `extractor` service per row, waits for `/health`, runs `npm run benchmark --
-   --real`, and writes `benchmark-results/<timestamp>/summary.tsv` plus one log per candidate.
+   This starts the `ocr` service for the scans, restarts the `extractor` service per row, waits for
+   `/health`, runs `npm run benchmark -- --real` under `caffeinate` (an idle Mac slept mid-request
+   once), and writes `benchmark-results/<timestamp>/summary.tsv` plus one log per candidate.
 
    Single candidate manually:
 
@@ -233,9 +235,9 @@ measured with native Ollama on Metal.
      npm run benchmark -- --real
    ```
 
-6. **Memory** — after each run the script records `docker stats` for the `extractor` container. Note
-   peak RSS during the slowest document if planning a 16 GB node (slice 14); the table column is
-   a snapshot, not a peak sampler.
+6. **Memory** — after each run the script records `docker stats` for the compose `extractor`
+   container. Note peak RSS during the slowest document if planning a 16 GB node (slice 14); the
+   table column is a snapshot, not a peak sampler.
 
 #### Results (Filip — replace placeholders after `benchmark:compare-models`)
 
@@ -286,3 +288,25 @@ The model received only a PDF's first page, because it shared the eKasa parser's
 now gets pages 1–5 — the O2 invoice grows from 45 to 75 lines — including an invoice filed with the
 receipts that falls through to the model. The cap bounds CPU time on long itemisations, which the
 export never needs; every invoice in the corpus fits.
+
+### Note, 2026-09-28: the model reads a page a column at a time
+
+Text was grouped by height alone, so an invoice's supplier and customer columns reached the model
+interleaved: on her ABC invoice SPRING's IČO sat under "Odberateľ:". The model now reads a page
+block by block — the page cut along its whitespace, left column before right, an empty line where
+a column ends. Two sides whose lines share baselines, a label and its value or a table's cells,
+stay rows. On the May set, Qwen3 0.6B with the same prompt got 104 of 160 fields exact instead of
+84, and 14 wrong-but-plausible instead of 20. The eKasa parser and the VAT register import keep
+rows. OCR'd pages are read the same way; before this they were also read bottom-up, the sidecar's
+image pixels sorted as PDF points.
+
+The same measurement found two things that made an answer depend on more than the document. The
+prompt carried the folder month, which the model returned as the document number; it is gone, and
+the checks alone compare dates with the month. `llama.cpp` reused the previous request's matching
+prompt prefix, whose logits are not bit-identical to a fresh evaluation, so her issued invoices —
+which share a long opening — got answers that depended on which one was read before; requests send
+`cache_prompt: false`, and the host prompt cache is off (`--cache-ram 0`), which also kept 4 GB
+of RAM from accumulating over a run.
+
+The benchmark reads each labelled document's own file — `<driveFileId>.pdf` or an image beside its
+label — through the function the pipeline uses, so it scores the text the app sends.
