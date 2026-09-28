@@ -24,7 +24,9 @@ export function isExtractorUnreachableError(error: unknown): boolean {
   const message = error.message;
   return (
     message.includes("fetch failed") ||
-    message.includes("Extractor HTTP") ||
+    // A server in trouble (5xx) is waited for; a request it refuses (4xx)
+    // would be refused again, so that document fails with the reason.
+    /Extractor HTTP 5\d\d/.test(message) ||
     message.includes("Extractor is unreachable") ||
     message.includes("ECONNREFUSED") ||
     message.includes("ENOTFOUND") ||

@@ -254,7 +254,9 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
         });
 
         if (!response.ok) {
-          throw new Error(`Extractor HTTP ${response.status}`);
+          // The server's reason, so a request it refuses says why.
+          const reason = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 300);
+          throw new Error(`Extractor HTTP ${response.status}${reason ? `: ${reason}` : ""}`);
         }
 
         // A server that ignores `stream` answers with one JSON body.

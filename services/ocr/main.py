@@ -71,7 +71,12 @@ def ocr(body: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     for page, image in enumerate(body.get("images") or []):
         if not isinstance(image, dict) or "data" not in image:
             continue
-        rgb = decode_image(image)
+        try:
+            rgb = decode_image(image)
+        except Exception:
+            # An image that cannot be decoded is skipped, not a 500: a 500
+            # tells the app to wait, and the same image would fail for ever.
+            continue
         result = engine(rgb)
         if result.boxes is None or result.txts is None:
             continue

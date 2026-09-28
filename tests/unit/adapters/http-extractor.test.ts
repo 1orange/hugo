@@ -226,3 +226,23 @@ test("without thinking a runaway answer is capped; with thinking, only if asked"
     [2048, undefined, 6000],
   );
 });
+
+// Nanbeige 4.2 answered every request with 400. Taken for an unreachable
+// model, the documents would have waited for ever.
+test("a refused request fails with the server's reason; a server in trouble is waited for", async () => {
+  const refuse = (status: number, body: string) =>
+    createHttpExtractor({
+      baseUrl: "http://h",
+      model: "m",
+      fetchImpl: async () => new Response(body, { status }),
+    }).extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] });
+  await assert.rejects(refuse(400, '{"error":{"message":"template error"}}'), (error: Error) => {
+    assert.match(error.message, /Extractor HTTP 400: .*template error/);
+    assert.equal(isExtractorUnreachableError(error), false);
+    return true;
+  });
+  await assert.rejects(refuse(503, "loading model"), (error: Error) => {
+    assert.equal(isExtractorUnreachableError(error), true);
+    return true;
+  });
+});

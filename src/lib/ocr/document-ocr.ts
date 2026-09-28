@@ -13,7 +13,8 @@ export function isOcrUnreachableError(error: unknown): boolean {
   const message = error.message;
   return (
     message.includes("fetch failed") ||
-    message.includes("OCR HTTP") ||
+    // As for the model: a server in trouble is waited for, a refusal is not.
+    /OCR HTTP 5\d\d/.test(message) ||
     message.includes("OCR is unreachable") ||
     message.includes("ECONNREFUSED") ||
     message.includes("ENOTFOUND") ||
