@@ -157,8 +157,12 @@ function receivedLabelFromRegister(
     kvDphSection: row.kvDphSection,
     docTypeHint,
     documentNumber: row.supplierDocumentNumber,
-    variableSymbol: row.supplierDocumentNumber,
-    issueDate: skCalendarRawToIso(row.taxableSupplyDateRaw),
+    // Her VAT register records neither: its dates are when the tax arose and
+    // when she deducted it. Copying the document number and the taxable date
+    // in marked the model wrong for reading them off the invoice — UPC prints
+    // VS 9643266 for document 218904645, issued 13.5 for a supply on 11.5.
+    variableSymbol: null,
+    issueDate: null,
     taxableSupplyDate: skCalendarRawToIso(row.taxableSupplyDateRaw),
     dueDate: null,
     currency: "EUR",
