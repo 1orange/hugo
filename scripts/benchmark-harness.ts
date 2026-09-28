@@ -70,6 +70,8 @@ function createBenchmarkExtractor(useReal: boolean): {
       thinkingEnabled: process.env.EXTRACTOR_THINKING === "true",
       ...(timeoutMs > 0 ? { timeoutMs } : {}),
       ...(maxTokens > 0 ? { maxTokens } : {}),
+      // Prompt experiment: "false" turns the trimming off to compare against it.
+      trimInput: process.env.BENCHMARK_TRIM_INPUT !== "false",
     }),
     modeLabel: `HTTP Extractor (${baseUrl}, model=${model}, Docker CPU-only timing)`,
   };
@@ -149,7 +151,18 @@ async function main(): Promise<void> {
         documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
         continue;
       }
-      const { fieldChecks, ...payload } = entry.payload as ModelExtractedPayload;
+      const { fieldChecks: recordedChecks, ...recorded } = entry.payload as ModelExtractedPayload;
+      // `--recheck`: the checks as they are now, over the text the model read.
+      const rechecked = process.argv.includes("--recheck")
+        ? runExtractionChecks({
+            payload: recorded,
+            sourceTextLines: entry.lines,
+            monthKey: label.monthKey,
+            issuerCountry: issuerCountryFromLabel(label),
+          })
+        : null;
+      const payload = rechecked?.payload ?? recorded;
+      const fieldChecks = rechecked?.flags ?? recordedChecks;
       payloadsByDriveFileId[label.driveFileId] = payload;
       documentScores.push(
         scoreBenchmarkDocument({

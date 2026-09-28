@@ -85,7 +85,12 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
   echo "=== $label ==="
   EXTRACTOR_MODEL_FILE="$model_file" docker compose --env-file "$COMPOSE_ENV" up -d extractor
-  wait_for_extractor
+  # A model this llama.cpp cannot load fails its row, not the whole comparison.
+  if ! wait_for_extractor; then
+    echo -e "${label}\t${thinking}\t?\t?\t?\t?\t?\t?\tn/a\tERROR (did not load)\t${log}" >>"$SUMMARY"
+    docker compose --env-file "$COMPOSE_ENV" logs --tail 20 extractor >"$log" 2>&1 || true
+    continue
+  fi
 
   set +e
   EXTRACTOR_URL="$BASE_URL" \
