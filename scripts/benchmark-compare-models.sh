@@ -35,6 +35,18 @@ source "$COMPOSE_ENV"
 PORT="${EXTRACTOR_PORT:-8080}"
 BASE_URL="http://127.0.0.1:${PORT}/v1"
 
+# The scans among the fixtures are read by OCR, as the app reads them.
+docker compose --env-file "$COMPOSE_ENV" up -d ocr >/dev/null
+export OCR_URL="${OCR_URL:-http://127.0.0.1:${OCR_PORT:-8090}}"
+for attempt in $(seq 1 60); do
+  curl -sf "${OCR_URL}/health" >/dev/null 2>&1 && break
+  if [[ "$attempt" -eq 60 ]]; then
+    echo "OCR did not become healthy at ${OCR_URL}" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
 mkdir -p "$RESULTS_DIR"
 SUMMARY="$RESULTS_DIR/summary.tsv"
 echo -e "label\tthinking\texact_or_empty_flagged\twrong_plausible\tamount_wrong_arith_pass\tmedian_ms\tworst_ms\tmedian_tokens\tdocker_mem\toverall\tlog" >"$SUMMARY"
@@ -53,7 +65,8 @@ wait_for_extractor() {
 
 while IFS= read -r line || [[ -n "$line" ]]; do
   line="${line%%#*}"
-  line="$(echo "$line" | tr -d '[:space:]')"
+  # Trim only: labels have spaces ("Qwen3-1.7B Q8_0 thinking on").
+  line="$(echo "$line" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
   [[ -z "$line" ]] && continue
 
   IFS='|' read -r model_file thinking label <<<"$line"
