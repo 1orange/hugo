@@ -207,6 +207,10 @@ function scoreScalar(
   return { field, outcome: "wrong_plausible", expected, actual };
 }
 
+function rateOf(rateLiteral: string): number {
+  return Number(rateLiteral.replace("%", "").replace(",", ".").trim());
+}
+
 function amountCentsLiteral(cents: number | null): string | null {
   if (cents === null) {
     return null;
@@ -295,12 +299,25 @@ export function scoreBenchmarkDocument(input: {
     scoreScalar("currency", label.currency, model?.currency ?? null, fieldCheckStates?.currency),
   );
 
+  // Her VAT register holds only rows that carry VAT: the Grand hotel prints
+  // "Neobsahuje DPH | 10,00" and a total of 1 301,40, the register 1 291,40.
+  // A model's VAT-free row at a rate the register lacks is set aside, and its
+  // total compared without it.
+  const labelRates = new Set(label.vatRecap.map((row) => rateOf(row.rateLiteral)));
+  const modelRecap = model?.vatRecap ?? (isEkasaPayload(payload) ? payload.vatRecap : []);
+  const outsideRegister =
+    label.side === "received"
+      ? modelRecap.filter((row) => row.vatCents === 0 && !labelRates.has(rateOf(row.rateLiteral)))
+      : [];
+  const outsideRegisterCents = outsideRegister.reduce((sum, row) => sum + row.baseCents, 0);
+  const modelAmount = model?.amountCents ?? (isEkasaPayload(payload) ? payload.amountCents : null);
+
   fields.push(
     scoreScalar(
       "amountCents",
       // A B1 total includes VAT she self-assessed; the invoice never prints it.
       shouldScoreVatAmounts(label) ? amountCentsLiteral(label.amountCents) : null,
-      amountCentsLiteral(model?.amountCents ?? (isEkasaPayload(payload) ? payload.amountCents : null)),
+      amountCentsLiteral(modelAmount === null ? null : modelAmount - outsideRegisterCents),
       fieldCheckStates?.amountCents,
     ),
   );
@@ -335,7 +352,7 @@ export function scoreBenchmarkDocument(input: {
   const labelBase = label.vatRecap.reduce((sum, row) => sum + row.baseCents, 0);
   const labelVat = label.vatRecap.reduce((sum, row) => sum + row.vatCents, 0);
   const labelTotal = labelBase + labelVat;
-  const actualRecap = model?.vatRecap ?? (isEkasaPayload(payload) ? payload.vatRecap : []);
+  const actualRecap = modelRecap.filter((row) => !outsideRegister.includes(row));
   // No rows is an empty recap, not a recap that sums to zero.
   const hasRecap = actualRecap.length > 0;
   const actualBase = hasRecap ? actualRecap.reduce((sum, row) => sum + row.baseCents, 0) : null;

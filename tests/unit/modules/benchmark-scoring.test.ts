@@ -188,6 +188,37 @@ test("a VAT split the invoice rounds differently from her books is not a misread
   assert.equal(outcomes(1494, 340).vatRecapBase, "wrong_plausible");
 });
 
+test("a VAT-free row her register leaves out does not make the total wrong", () => {
+  const row = (rateLiteral: string, baseCents: number, vatCents: number) => ({
+    rateLiteral,
+    baseLiteral: (baseCents / 100).toFixed(2),
+    baseCents,
+    vatLiteral: (vatCents / 100).toFixed(2),
+    vatCents,
+  });
+  // The Grand hotel: 5 % and 23 % rows in her register; the invoice also
+  // prints "Neobsahuje DPH | 10,00" and a total of 1 301,40.
+  const label = syntheticLabel({
+    amountCents: 129140,
+    amountLiteral: "1291.40",
+    vatRecap: [row("5", 112514, 5626), row("23", 8943, 2057)],
+  });
+  const outcomes = (rows: ReturnType<typeof row>[], amountCents: number) =>
+    Object.fromEntries(
+      scoreBenchmarkDocument({ label, payload: extracted({ amountCents, vatRecap: rows }) }).fields
+        .filter((field) => field.field === "amountCents" || field.field.startsWith("vatRecap"))
+        .map((field) => [field.field, field.outcome]),
+    );
+  assert.deepEqual(outcomes([row("5", 112514, 5626), row("23", 8943, 2057), row("0", 1000, 0)], 130140), {
+    amountCents: "exact",
+    vatRecapBase: "exact",
+    vatRecapVat: "exact",
+    vatRecapTotal: "exact",
+  });
+  // A total 10.00 over with no such row printed is still wrong.
+  assert.equal(outcomes([row("5", 112514, 5626), row("23", 8943, 2057)], 130140).amountCents, "wrong_plausible");
+});
+
 // The bar is "correct, flagged or empty — never silently wrong": a wrong value
 // the checks flagged is visible to her, so it is not wrong-but-plausible.
 test("a wrong value the checks flagged is not counted as wrong-but-plausible", () => {
