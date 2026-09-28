@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   formatEuroFromCents,
   parseEuroAmount,
+  parseSignedDecimalAmount,
 } from "../../../src/modules/money.ts";
 
 test("parseEuroAmount preserves tricky literals without float drift", () => {
@@ -66,4 +67,11 @@ test("formatEuroFromCents round-trips parsed amounts", () => {
   if ("cents" in parsed) {
     assert.equal(formatEuroFromCents(parsed.cents), "123.45");
   }
+});
+
+test("an amount read off a credit note keeps its sign", () => {
+  assert.deepEqual(parseSignedDecimalAmount("-26.83"), { cents: -2683, literal: "-26.83" });
+  assert.deepEqual(parseSignedDecimalAmount("26,83"), { cents: 2683, literal: "26,83" });
+  assert.equal("ok" in parseSignedDecimalAmount("--5.00"), true);
+  assert.equal("ok" in parseSignedDecimalAmount("-"), true);
 });

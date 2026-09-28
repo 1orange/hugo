@@ -3,6 +3,7 @@ import { validateSkIcDph } from "./company-profile";
 import type { FieldCheckState } from "./document-fields";
 import { checkArithmeticWarnings, mergeDocumentFields } from "./document-fields";
 import { cashRoundingCents } from "./cash-rounding";
+import { parseSignedDecimalAmount } from "./money";
 import type {
   DocumentParty,
   DocumentVatRecapRow,
@@ -164,8 +165,25 @@ function perRowVatMatchesRate(row: DocumentVatRecapRow): boolean {
   return Math.abs(expectedVat - row.vatCents) <= 1;
 }
 
+// A literal the parser could not read was mapped to 0 cents; that row must not
+// pass as correct.
+function recapLiteralsMatchCents(payload: ModelExtractedPayload): boolean {
+  return payload.vatRecap.every((row) => {
+    const base = parseSignedDecimalAmount(row.baseLiteral);
+    const vat = parseSignedDecimalAmount(row.vatLiteral);
+    return !("ok" in base) && base.cents === row.baseCents && !("ok" in vat) && vat.cents === row.vatCents;
+  });
+}
+
 function recapArithmeticOk(payload: ModelExtractedPayload): boolean {
-  if (payload.amountCents === null || payload.vatRecap.length === 0) {
+  if (payload.vatRecap.length === 0) {
+    return true;
+  }
+  // Each row's VAT must fit its rate, whether or not the total was read.
+  if (!payload.vatRecap.every(perRowVatMatchesRate)) {
+    return false;
+  }
+  if (payload.amountCents === null) {
     return true;
   }
   let baseSum = 0;
@@ -179,15 +197,7 @@ function recapArithmeticOk(payload: ModelExtractedPayload): boolean {
     payableCents: payload.amountCents,
     currency: payload.currency,
   });
-  if (rounding === null) {
-    return false;
-  }
-  for (const row of payload.vatRecap) {
-    if (!perRowVatMatchesRate(row)) {
-      return false;
-    }
-  }
-  return true;
+  return rounding !== null;
 }
 
 function vatRatesOk(
@@ -302,6 +312,7 @@ export function runExtractionChecks(input: ExtractionChecksInput): ExtractionChe
 
   const arithmeticOk = recapArithmeticOk(payload) && mergeArithmeticFlags(payload);
   const ratesOk = payload.vatRecap.length === 0 || vatRatesOk(payload, issuerCountry);
+  const recapLiteralsOk = recapLiteralsMatchCents(payload);
 
   const issueDateFlagged = !datePlausible(input.monthKey, payload.issueDate);
   const taxableFlagged = !datePlausible(input.monthKey, payload.taxableSupplyDate);
@@ -326,7 +337,7 @@ export function runExtractionChecks(input: ExtractionChecksInput): ExtractionChe
     ),
     vatRecap: checkStateForValue(
       payload.vatRecap.length > 0 ? "recap" : null,
-      (!arithmeticOk || !ratesOk) && payload.vatRecap.length > 0,
+      (!arithmeticOk || !ratesOk || !recapLiteralsOk) && payload.vatRecap.length > 0,
     ),
     parties: partyFlags,
   };

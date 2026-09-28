@@ -225,3 +225,19 @@ test("a difference beyond the cash rounding is still flagged", () => {
   const result = run(payload, source(["101"]), { issuerCountry: "CZ" });
   assert.equal(result.flags.amountCents, "flagged");
 });
+
+// Seen from Qwen3 0.6B: `563,96 EUR` did not parse, the row became 0 cents and
+// passed as correct because the total was empty too.
+test("a recap literal that does not match its cents is flagged", () => {
+  const payload = basePayload({
+    vatRecap: [
+      { rateLiteral: "23", baseLiteral: "563,96 EUR", baseCents: 0, vatLiteral: "122,69 EUR", vatCents: 0 },
+    ],
+  });
+  assert.equal(run(payload, source(["563,96 EUR"])).flags.vatRecap, "flagged");
+});
+
+test("a row's VAT is checked against its rate even when the total was not read", () => {
+  const payload = basePayload({ vatRecap: [recapRow("23", 56396, 12269)] });
+  assert.equal(run(payload, source(["563,96"])).flags.vatRecap, "flagged");
+});

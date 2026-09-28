@@ -1,4 +1,15 @@
-import { parseDecimalAmount } from "../../modules/money";
+import { parseSignedDecimalAmount } from "../../modules/money";
+import {
+  normalizeModelAmountLiteral,
+  normalizeModelCurrency,
+  normalizeModelDate,
+  normalizeModelDic,
+  normalizeModelDocumentNumber,
+  normalizeModelIcDph,
+  normalizeModelIco,
+  normalizeModelPartyName,
+  normalizeModelVariableSymbol,
+} from "../../modules/model-output-normalize";
 import type { DocTypeHint, ModelExtractedPayload } from "../../modules/document-payload";
 import type { Extractor, ExtractorInput, ExtractorOutput } from "./port";
 import {
@@ -42,8 +53,9 @@ function buildPrompt(input: ExtractorInput): string {
 function mapResponseBody(body: ModelExtractionResponseBody): ModelExtractedPayload {
   let amountCents: number | null = null;
   let amountLiteral: string | null = null;
-  if (body.totalLiteral) {
-    const parsed = parseDecimalAmount(body.totalLiteral);
+  const totalLiteral = normalizeModelAmountLiteral(body.totalLiteral);
+  if (totalLiteral) {
+    const parsed = parseSignedDecimalAmount(totalLiteral);
     if (!("ok" in parsed)) {
       amountLiteral = parsed.literal;
       amountCents = parsed.cents;
@@ -51,13 +63,17 @@ function mapResponseBody(body: ModelExtractionResponseBody): ModelExtractedPaylo
   }
 
   const vatRecap = body.vatRecap.map((row) => {
-    const base = parseDecimalAmount(row.baseLiteral);
-    const vat = parseDecimalAmount(row.vatLiteral);
+    const baseLiteral = normalizeModelAmountLiteral(row.baseLiteral) ?? row.baseLiteral;
+    const vatLiteral = normalizeModelAmountLiteral(row.vatLiteral) ?? row.vatLiteral;
+    const base = parseSignedDecimalAmount(baseLiteral);
+    const vat = parseSignedDecimalAmount(vatLiteral);
+    // An unreadable literal keeps its text with 0 cents; the checks flag the
+    // recap when a literal does not match its cents.
     return {
       rateLiteral: row.rateLiteral,
-      baseLiteral: "ok" in base ? row.baseLiteral : base.literal,
+      baseLiteral: "ok" in base ? baseLiteral : base.literal,
       baseCents: "ok" in base ? 0 : base.cents,
-      vatLiteral: "ok" in vat ? row.vatLiteral : vat.literal,
+      vatLiteral: "ok" in vat ? vatLiteral : vat.literal,
       vatCents: "ok" in vat ? 0 : vat.cents,
     };
   });
@@ -66,17 +82,17 @@ function mapResponseBody(body: ModelExtractionResponseBody): ModelExtractedPaylo
     kind: "extracted",
     source: "model",
     parties: body.parties.map((party) => ({
-      name: party.name,
-      ico: party.ico,
-      dic: party.dic,
-      icDph: party.icDph,
+      name: normalizeModelPartyName(party.name),
+      ico: normalizeModelIco(party.ico),
+      dic: normalizeModelDic(party.dic),
+      icDph: normalizeModelIcDph(party.icDph),
     })),
-    documentNumber: body.documentNumber,
-    variableSymbol: body.variableSymbol,
-    issueDate: body.issueDate,
-    taxableSupplyDate: body.taxableSupplyDate,
-    dueDate: body.dueDate,
-    currency: body.currency?.trim().toUpperCase() || "EUR",
+    documentNumber: normalizeModelDocumentNumber(body.documentNumber),
+    variableSymbol: normalizeModelVariableSymbol(body.variableSymbol),
+    issueDate: normalizeModelDate(body.issueDate),
+    taxableSupplyDate: normalizeModelDate(body.taxableSupplyDate),
+    dueDate: normalizeModelDate(body.dueDate),
+    currency: normalizeModelCurrency(body.currency),
     amountCents,
     amountLiteral,
     vatRecap,

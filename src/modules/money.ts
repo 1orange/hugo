@@ -44,6 +44,19 @@ export function parseDecimalAmount(input: string): MoneyParseResult {
   return { cents, literal };
 }
 
+/**
+ * An amount read off a document, where a credit note prints `-26.83`. The
+ * amounts she types stay unsigned (parseDecimalAmount).
+ */
+export function parseSignedDecimalAmount(input: string): MoneyParseResult {
+  const literal = input.trim();
+  if (!literal.startsWith("-")) {
+    return parseDecimalAmount(literal);
+  }
+  const unsigned = parseDecimalAmount(literal.slice(1));
+  return "ok" in unsigned ? unsigned : { cents: -unsigned.cents, literal };
+}
+
 /** @deprecated Use parseDecimalAmount — euro amounts use the same decimal rules. */
 export function parseEuroAmount(input: string): MoneyParseResult {
   return parseDecimalAmount(input);
