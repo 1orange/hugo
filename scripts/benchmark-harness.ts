@@ -62,12 +62,14 @@ function createBenchmarkExtractor(useReal: boolean): {
   const baseUrl = process.env.EXTRACTOR_URL?.trim() ?? "http://127.0.0.1:8080";
   const model = process.env.EXTRACTOR_MODEL?.trim() ?? "local";
   const timeoutMs = Number(process.env.EXTRACTOR_TIMEOUT_MS);
+  const maxTokens = Number(process.env.EXTRACTOR_MAX_TOKENS);
   return {
     extractor: createHttpExtractor({
       baseUrl,
       model,
       thinkingEnabled: process.env.EXTRACTOR_THINKING === "true",
       ...(timeoutMs > 0 ? { timeoutMs } : {}),
+      ...(maxTokens > 0 ? { maxTokens } : {}),
     }),
     modeLabel: `HTTP Extractor (${baseUrl}, model=${model}, Docker CPU-only timing)`,
   };

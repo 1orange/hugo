@@ -27,11 +27,21 @@ export type HttpExtractorOptions = {
   thinkingEnabled?: boolean;
   /** One document's deadline; past it the document fails instead of waiting. */
   timeoutMs?: number;
+  /** Tokens the model may generate; see DEFAULT_MAX_TOKENS_WITHOUT_THINKING. */
+  maxTokens?: number;
   fetchImpl?: FetchLike;
 };
 
 /** Ten minutes: the adoption bar's median is one; a thinking 4B on CPU runs several. */
 export const DEFAULT_EXTRACTOR_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * An answer is ~330 tokens without thinking; a model that loops runs until
+ * the context is full — Qwen3 1.7B generated for ten minutes on one scan. Six
+ * times a normal answer stops that in ~2.5 min on the 4B. With thinking, the
+ * thinking counts too, so no cap unless one is set.
+ */
+export const DEFAULT_MAX_TOKENS_WITHOUT_THINKING = 2048;
 
 function chatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, "");
@@ -218,6 +228,12 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       body.cache_prompt = false;
       body.stream = true;
       body.stream_options = { include_usage: true };
+      const maxTokens =
+        options.maxTokens ??
+        (options.thinkingEnabled === true ? undefined : DEFAULT_MAX_TOKENS_WITHOUT_THINKING);
+      if (maxTokens !== undefined) {
+        body.max_tokens = maxTokens;
+      }
 
       const timeoutMs = options.timeoutMs ?? DEFAULT_EXTRACTOR_TIMEOUT_MS;
       let raw: unknown;

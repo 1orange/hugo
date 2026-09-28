@@ -34,6 +34,9 @@ EXTRACTOR_THINKING=false
 # Optional: one document's deadline (default 600000, ten minutes). Past it the
 # document fails with the reason, instead of waiting as if the model were down.
 # EXTRACTOR_TIMEOUT_MS=600000
+# Optional: tokens the model may generate (default 2048 without thinking, none
+# with it). An answer is ~330 tokens; the cap stops a model that loops.
+# EXTRACTOR_MAX_TOKENS=2048
 ```
 
 Do **not** set `EXTRACTOR=stub` in production.

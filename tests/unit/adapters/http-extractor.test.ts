@@ -209,3 +209,20 @@ test("a document past its deadline fails; it does not wait as if the model were 
     },
   );
 });
+
+// Qwen3 1.7B generated for ten minutes on one scan without thinking.
+test("without thinking a runaway answer is capped; with thinking, only if asked", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const respond = async (_url: unknown, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(minimalModelJson()) } }] }));
+  };
+  const input = { driveFileId: "d", monthKey: "2026_05", textLines: ["x"] };
+  await createHttpExtractor({ baseUrl: "http://h", model: "m", fetchImpl: respond }).extract(input);
+  await createHttpExtractor({ baseUrl: "http://h", model: "m", thinkingEnabled: true, fetchImpl: respond }).extract(input);
+  await createHttpExtractor({ baseUrl: "http://h", model: "m", thinkingEnabled: true, maxTokens: 6000, fetchImpl: respond }).extract(input);
+  assert.deepEqual(
+    bodies.map((body) => body.max_tokens),
+    [2048, undefined, 6000],
+  );
+});
