@@ -102,6 +102,11 @@ function parseChatCompletionContent(raw: unknown): ModelExtractionResponseBody |
   }
 }
 
+function completionTokensOf(raw: unknown): number | undefined {
+  const usage = (raw as { usage?: { completion_tokens?: unknown } } | null)?.usage;
+  return typeof usage?.completion_tokens === "number" ? usage.completion_tokens : undefined;
+}
+
 export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = chatCompletionsUrl(options.baseUrl);
@@ -123,9 +128,9 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
           json_schema: MODEL_EXTRACTED_JSON_SCHEMA,
         },
       };
-      if (options.thinkingEnabled) {
-        body.enable_thinking = true;
-      }
+      // llama.cpp (with --jinja) passes these to the model's chat template.
+      // Hybrid models such as Qwen3 think by default, so "off" is sent too.
+      body.chat_template_kwargs = { enable_thinking: options.thinkingEnabled === true };
 
       const response = await fetchImpl(url, {
         method: "POST",
@@ -149,6 +154,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       return {
         durationMs: Date.now() - started,
         payload: mapResponseBody(parsed),
+        completionTokens: completionTokensOf(raw),
       };
     },
   };

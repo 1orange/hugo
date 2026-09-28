@@ -31,7 +31,7 @@ BASE_URL="http://127.0.0.1:${PORT}/v1"
 
 mkdir -p "$RESULTS_DIR"
 SUMMARY="$RESULTS_DIR/summary.tsv"
-echo -e "label\tthinking\texact_or_empty_flagged\twrong_plausible\tamount_wrong_arith_pass\tmedian_ms\tworst_ms\tdocker_mem\toverall\tlog" >"$SUMMARY"
+echo -e "label\tthinking\texact_or_empty_flagged\twrong_plausible\tamount_wrong_arith_pass\tmedian_ms\tworst_ms\tmedian_tokens\tdocker_mem\toverall\tlog" >"$SUMMARY"
 
 wait_for_extractor() {
   local attempt
@@ -81,14 +81,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   exact="$(grep -E 'exact or empty-flagged:' "$log" | tail -1 | sed -E 's/.*: ([0-9.]+%).*/\1/' || true)"
   wrong="$(grep -E 'wrong-but-plausible:' "$log" | tail -1 | sed -E 's/.*: ([0-9.]+%).*/\1/' || true)"
   amount="$(grep -E 'amount wrong while arithmetic passed:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+).*/\1/' || true)"
-  median="$(grep -E 'median time per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+) ms.*/\1/' || true)"
-  worst="$(grep -E 'worst time per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+) ms.*/\1/' || true)"
+  median="$(grep -E 'median model time per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+) ms.*/\1/' || true)"
+  worst="$(grep -E 'worst model time per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+) ms.*/\1/' || true)"
+  tokens="$(grep -E 'median completion tokens per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+|—).*/\1/' || true)"
   overall="$(grep -E 'overall:' "$log" | tail -1 | sed -E 's/.*overall: (PASS|FAIL).*/\1/' || echo "ERROR")"
   if [[ "$bench_status" -ne 0 ]]; then
     overall="ERROR"
   fi
 
-  echo -e "${label}\t${thinking}\t${exact:-?}\t${wrong:-?}\t${amount:-?}\t${median:-?}\t${worst:-?}\t${mem}\t${overall}\t${log}" >>"$SUMMARY"
+  echo -e "${label}\t${thinking}\t${exact:-?}\t${wrong:-?}\t${amount:-?}\t${median:-?}\t${worst:-?}\t${tokens:-?}\t${mem}\t${overall}\t${log}" >>"$SUMMARY"
 
   docker compose --env-file "$COMPOSE_ENV" stop extractor >/dev/null 2>&1 || true
 done <"$MODELS_ENV"

@@ -14,7 +14,8 @@
     "benchmark": "node --import tsx scripts/benchmark-harness.ts",
     "benchmark:compare-models": "bash scripts/benchmark-compare-models.sh",
     "benchmark:import": "node --import tsx scripts/import-benchmark-labels.ts",
-    "smoke:sidecars": "bash scripts/smoke-sidecars.sh"
+    "smoke:sidecars": "bash scripts/smoke-sidecars.sh",
+    "benchmark:download-models": "bash scripts/benchmark-download-models.sh"
   },
   "dependencies": {
     "@types/heic-convert": "^2.1.1",

@@ -84,29 +84,32 @@ test("HTTP extractor requests JSON schema constrained chat completion", async ()
   assert.equal(result.payload.vatRecap[0]?.baseCents, 2683);
 });
 
-test("thinking mode is off unless enabled in options", async () => {
-  let seenBody: Record<string, unknown> = {};
-  const extractor = createHttpExtractor({
-    baseUrl: "http://127.0.0.1:8080",
-    model: "test-model",
-    thinkingEnabled: true,
-    fetchImpl: async (_url, init) => {
-      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response(
-        JSON.stringify({
-          choices: [{ message: { content: JSON.stringify(minimalModelJson()) } }],
-        }),
-        { status: 200 },
-      );
-    },
-  });
-
-  await extractor.extract({
-    driveFileId: "d",
-    monthKey: "2026_05",
-    textLines: ["x"],
-  });
-  assert.equal(seenBody.enable_thinking, true);
+// llama.cpp reads the switch from the chat template's kwargs (with --jinja),
+// and hybrid models such as Qwen3 think unless told not to, so "off" must be
+// sent explicitly too.
+test("thinking mode is sent explicitly, on or off, and completion tokens are reported", async () => {
+  for (const thinkingEnabled of [true, false, undefined]) {
+    let seenBody: Record<string, unknown> = {};
+    const extractor = createHttpExtractor({
+      baseUrl: "http://127.0.0.1:8080",
+      model: "test-model",
+      thinkingEnabled,
+      fetchImpl: async (_url, init) => {
+        seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(minimalModelJson()) } }],
+            usage: { completion_tokens: 321 },
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    const result = await extractor.extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] });
+    assert.deepEqual(seenBody.chat_template_kwargs, { enable_thinking: thinkingEnabled === true });
+    assert.equal("enable_thinking" in seenBody, false);
+    assert.equal(result.completionTokens, 321);
+  }
 });
 
 function minimalModelJson() {

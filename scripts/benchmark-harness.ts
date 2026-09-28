@@ -4,6 +4,7 @@ import type { Extractor } from "../src/adapters/extractor/port.ts";
 import { createOcr } from "../src/adapters/ocr/create-ocr.ts";
 import type { Ocr } from "../src/adapters/ocr/port.ts";
 import { groupOcrBoxesIntoLines } from "../src/modules/ocr-lines.ts";
+import { isOcrUnreachableError } from "../src/lib/ocr/document-ocr.ts";
 import {
   aggregateBenchmarkScores,
   scoreBenchmarkDocument,
@@ -85,7 +86,9 @@ async function main(): Promise<void> {
   const ocr: Ocr = createOcr(process.env);
   const payloadsByDriveFileId: Record<string, ExtractedPayload> = {};
   const modelDurationsMs: number[] = [];
+  const completionTokens: number[] = [];
   const ocrDurationsMs: number[] = [];
+  const skippedWithoutOcr: string[] = [];
   const documentScores = [];
 
   for (const label of labels) {
@@ -93,9 +96,18 @@ async function main(): Promise<void> {
     if (textLines.length === 0) {
       const images = loadBenchmarkPageImages(label.driveFileId, fixturesDir);
       if (images) {
-        const ocrResult = await ocr.recognize({ images });
-        ocrDurationsMs.push(ocrResult.durationMs);
-        textLines = groupOcrBoxesIntoLines(ocrResult.boxes);
+        try {
+          const ocrResult = await ocr.recognize({ images });
+          ocrDurationsMs.push(ocrResult.durationMs);
+          textLines = groupOcrBoxesIntoLines(ocrResult.boxes);
+        } catch (error) {
+          if (!isOcrUnreachableError(error)) {
+            throw error;
+          }
+          // Text invoices can be benchmarked without the OCR service.
+          skippedWithoutOcr.push(label.driveFileId);
+          continue;
+        }
       }
     }
     const result = await extractor.extract({
@@ -110,6 +122,9 @@ async function main(): Promise<void> {
       issuerCountry: issuerCountryFromLabel(label),
     });
     modelDurationsMs.push(result.durationMs);
+    if (result.completionTokens !== undefined) {
+      completionTokens.push(result.completionTokens);
+    }
     payloadsByDriveFileId[label.driveFileId] = checked.payload;
     documentScores.push(
       scoreBenchmarkDocument({
@@ -130,6 +145,11 @@ async function main(): Promise<void> {
   });
 
   console.log(`Benchmark harness — ${labels.length} documents (${modeLabel})`);
+  if (skippedWithoutOcr.length > 0) {
+    console.log(
+      `  skipped ${skippedWithoutOcr.length} image documents: OCR_URL not set or unreachable`,
+    );
+  }
   console.log("");
 
   for (const document of aggregate.documents) {
@@ -184,6 +204,9 @@ async function main(): Promise<void> {
       `  median model time per document: ${medianModelMs.toFixed(0)} ms (Docker CPU-only — not native Metal)`,
     );
     console.log(`  worst model time per document: ${worstModelMs.toFixed(0)} ms`);
+    console.log(
+      `  median completion tokens per document: ${completionTokens.length === 0 ? "—" : median(completionTokens).toFixed(0)} (thinking shows here)`,
+    );
     const passesTime = medianModelMs <= 60_000;
     console.log(`  time budget ≤ 60 s (model only): ${passesTime ? "pass" : "fail"}`);
   } else {

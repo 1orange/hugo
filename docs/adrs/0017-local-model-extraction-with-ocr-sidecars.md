@@ -201,14 +201,21 @@ measured with native Ollama on Metal.
 
 1. **Fixtures** — private Omega labels under `tests/private-fixtures/benchmark` (slice 09). Never
    commit them.
-2. **Weights** — download GGUF quantisations (start with `Q4_K_M`) into `./models/`, gitignored.
-   Hugging Face IDs used for the candidate set below are the usual `Qwen2.5-*-Instruct` releases;
-   filenames must match `scripts/benchmark-models.env`.
+2. **Weights** — download the GGUF files into `./models/`, gitignored. The candidates are **Qwen3**,
+   because it can switch thinking on and off per request; Qwen2.5, listed here first, has no
+   thinking mode, so its "thinking on" rows would have measured nothing. From the official `Qwen/`
+   repositories on Hugging Face: `Qwen3-0.6B-Q8_0.gguf` (0.64 GB), `Qwen3-1.7B-Q8_0.gguf` (1.83 GB)
+   and `Qwen3-4B-Q4_K_M.gguf` (2.50 GB) — 8-bit for the two small models, which lose most from
+   heavier quantisation. `npm run benchmark:download-models` fetches all three. Filenames must
+   match `scripts/benchmark-models.env`.
 3. **Compose env** — `cp .env.docker.example .env.docker`, adjust `EXTRACTOR_THREADS` if needed (4
    matches the deployment assumption).
 4. **Candidate list** — `cp scripts/benchmark-models.env.example scripts/benchmark-models.env`.
    Edit rows to match files you actually downloaded; keep **at least three model sizes**, each with
-   **thinking off and on** (six runs minimum for the full matrix; the example lists 0.5B, 1.5B, 3B).
+   **thinking off and on** (six runs minimum for the full matrix; the example lists 0.6B, 1.7B, 4B).
+   The switch is sent as `chat_template_kwargs.enable_thinking`, which `llama.cpp` honours with
+   `--jinja`; the harness reports median completion tokens, so a thinking row that generates no
+   more tokens than its "off" twin did not actually think (JSON-schema grammar can suppress it).
 5. **Run** — from the repo root, with Docker running:
 
    ```bash
@@ -237,12 +244,12 @@ Corpus: spring May labelled set (17 documents in slice 09). Per-field breakdown 
 
 | Label | Thinking | Exact or empty-flagged | Wrong-but-plausible | Amount wrong ∧ arith OK | Median (s) | Worst (s) | Docker mem (snapshot) | Bar |
 |---|---:|---:|---:|---:|---:|---:|---|---|
-| Qwen2.5-0.5B Q4_K_M | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen2.5-0.5B Q4_K_M | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen2.5-1.5B Q4_K_M | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen2.5-1.5B Q4_K_M | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen2.5-3B Q4_K_M | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen2.5-3B Q4_K_M | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-0.6B Q8_0 | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-0.6B Q8_0 | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-1.7B Q8_0 | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-1.7B Q8_0 | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-4B Q4_K_M | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Qwen3-4B Q4_K_M | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
 
 **Bar column:** PASS only if all four adoption rules pass including median ≤ 60 s in Docker.
 
@@ -251,15 +258,16 @@ Corpus: spring May labelled set (17 documents in slice 09). Per-field breakdown 
 No benchmark was executed in CI or by the agent (no Docker / no GGUF on disk). **Provisional
 defaults** — swap after the table shows a winner:
 
-- **Model file:** `Qwen2.5-0.5B-Instruct-Q4_K_M.gguf` (smallest candidate; fits 16 GB with headroom
-  for the app and OCR sidecar).
+- **Model file:** `Qwen3-0.6B-Q8_0.gguf` (smallest candidate; fits 16 GB with headroom for the app
+  and OCR sidecar).
 - **Thinking:** off (`EXTRACTOR_THINKING=false`), unless a row with thinking on clears the bar with
   median still ≤ 60 s and strictly better accuracy than the same size with thinking off.
 - **Compose / app:** see `.env.docker.example` (`EXTRACTOR_MODEL_FILE`, `EXTRACTOR_MODEL=local`,
   `EXTRACTOR_URL=http://127.0.0.1:8080/v1`).
 
 If **no row passes**, record here which alternative was chosen (larger quant or model, vision
-candidate for benchmark only, or keep `EXTRACTOR=stub` in production until one passes) and update
+candidate for benchmark only, or leave `EXTRACTOR_URL` unset in production so documents wait —
+the stub is refused there, and an unconfigured model never marks a document done) and update
 `.env.docker.example` accordingly.
 
 _Agent note: paste `summary.tsv` values into the table, set the Decision section to the adopted row,
