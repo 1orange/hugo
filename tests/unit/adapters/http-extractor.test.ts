@@ -4,6 +4,7 @@ import {
   createHttpExtractor,
   EXTRACTOR_USER_AGENT,
 } from "../../../src/adapters/extractor/http-extractor.ts";
+import { isExtractorUnreachableError } from "../../../src/lib/model-extraction/process-model-extraction.ts";
 import { MODEL_EXTRACTED_JSON_SCHEMA } from "../../../src/adapters/extractor/model-extracted-schema.ts";
 
 test("HTTP extractor requests JSON schema constrained chat completion", async () => {
@@ -131,3 +132,80 @@ function minimalModelJson() {
     docTypeHint: null,
   };
 }
+
+function eventStream(events: unknown[]): Response {
+  const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n";
+  // Split mid-line, as a socket delivers it.
+  const bytes = new TextEncoder().encode(body);
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let offset = 0; offset < bytes.length; offset += 7) {
+        controller.enqueue(bytes.slice(offset, offset + 7));
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
+function delta(content: string | null, reasoning: string | null = null) {
+  return { choices: [{ delta: { content, reasoning_content: reasoning } }] };
+}
+
+// Unstreamed, no headers came until the model finished, and Node's fetch gives
+// up after 300 s without headers: a thinking model's document then looked
+// like an unreachable extractor and waited for ever.
+test("the answer is streamed, so a long generation keeps its connection", async () => {
+  let seenBody: Record<string, unknown> = {};
+  const answer = JSON.stringify({ ...minimalModelJson(), documentNumber: "2026081" });
+  const extractor = createHttpExtractor({
+    baseUrl: "http://127.0.0.1:8080",
+    model: "m",
+    thinkingEnabled: true,
+    fetchImpl: async (_url, init) => {
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return eventStream([
+        delta(null, "Číslo faktúry je "),
+        delta(null, "2026081."),
+        delta(answer.slice(0, 20)),
+        delta(answer.slice(20)),
+        { choices: [], usage: { completion_tokens: 412 } },
+      ]);
+    },
+  });
+  const result = await extractor.extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] });
+  assert.equal(seenBody.stream, true);
+  assert.equal(result.payload.documentNumber, "2026081");
+  assert.equal(result.completionTokens, 412);
+});
+
+test("without usage from the server, each streamed delta counts as a token", async () => {
+  const answer = JSON.stringify(minimalModelJson());
+  const extractor = createHttpExtractor({
+    baseUrl: "http://127.0.0.1:8080",
+    model: "m",
+    fetchImpl: async () => eventStream([delta(null, "…"), delta(answer.slice(0, 5)), delta(answer.slice(5))]),
+  });
+  const result = await extractor.extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] });
+  assert.equal(result.completionTokens, 3);
+});
+
+test("a document past its deadline fails; it does not wait as if the model were down", async () => {
+  const extractor = createHttpExtractor({
+    baseUrl: "http://127.0.0.1:8080",
+    model: "m",
+    timeoutMs: 20,
+    fetchImpl: (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      }),
+  });
+  await assert.rejects(
+    extractor.extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] }),
+    (error: Error) => {
+      assert.match(error.message, /took longer than/);
+      assert.equal(isExtractorUnreachableError(error), false);
+      return true;
+    },
+  );
+});

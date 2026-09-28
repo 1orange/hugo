@@ -25,8 +25,13 @@ export type HttpExtractorOptions = {
   baseUrl: string;
   model: string;
   thinkingEnabled?: boolean;
+  /** One document's deadline; past it the document fails instead of waiting. */
+  timeoutMs?: number;
   fetchImpl?: FetchLike;
 };
+
+/** Ten minutes: the adoption bar's median is one; a thinking 4B on CPU runs several. */
+export const DEFAULT_EXTRACTOR_TIMEOUT_MS = 10 * 60_000;
 
 function chatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, "");
@@ -123,6 +128,65 @@ function completionTokensOf(raw: unknown): number | undefined {
   return typeof usage?.completion_tokens === "number" ? usage.completion_tokens : undefined;
 }
 
+type StreamChunk = {
+  choices?: Array<{ delta?: { content?: string | null; reasoning_content?: string | null } }>;
+  usage?: { completion_tokens?: unknown };
+  error?: { message?: string };
+};
+
+/**
+ * A streamed completion (server-sent events) folded back into the shape of a
+ * plain one. Streaming keeps the connection alive token by token: unstreamed,
+ * no headers came until the model finished, and Node's fetch gives up after
+ * 300 s without headers — a thinking model took longer and the document was
+ * taken for an unreachable extractor, retried for ever.
+ */
+async function readStreamedCompletion(response: Response): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return null;
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let generated = 0;
+  let usage: StreamChunk["usage"];
+  const readLine = (line: string) => {
+    const data = line.trim().replace(/^data:\s*/, "");
+    if (!line.trim().startsWith("data:") || data === "[DONE]") {
+      return;
+    }
+    const chunk = JSON.parse(data) as StreamChunk;
+    if (chunk.error) {
+      throw new Error(`Extractor error: ${chunk.error.message ?? "unknown"}`);
+    }
+    const delta = chunk.choices?.[0]?.delta;
+    if (delta?.content || delta?.reasoning_content) {
+      content += delta.content ?? "";
+      generated += 1;
+    }
+    usage = chunk.usage ?? usage;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = done ? "" : lines.pop()!;
+    lines.forEach(readLine);
+    if (done) {
+      break;
+    }
+  }
+  // Each streamed delta is one token when the server sends no usage.
+  const completionTokens =
+    typeof usage?.completion_tokens === "number" ? usage.completion_tokens : generated;
+  return { choices: [{ message: { content } }], usage: { completion_tokens: completionTokens } };
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
 export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = chatCompletionsUrl(options.baseUrl);
@@ -152,21 +216,39 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       // share a long opening, so an answer depended on which document came
       // before. Each document is read once, so recomputing costs nothing.
       body.cache_prompt = false;
+      body.stream = true;
+      body.stream_options = { include_usage: true };
 
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": EXTRACTOR_USER_AGENT,
-        },
-        body: JSON.stringify(body),
-      });
+      const timeoutMs = options.timeoutMs ?? DEFAULT_EXTRACTOR_TIMEOUT_MS;
+      let raw: unknown;
+      try {
+        const response = await fetchImpl(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": EXTRACTOR_USER_AGENT,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
 
-      if (!response.ok) {
-        throw new Error(`Extractor HTTP ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`Extractor HTTP ${response.status}`);
+        }
+
+        // A server that ignores `stream` answers with one JSON body.
+        raw = (response.headers.get("content-type") ?? "").includes("text/event-stream")
+          ? await readStreamedCompletion(response)
+          : await response.json();
+      } catch (error) {
+        if (isTimeout(error)) {
+          // Not "unreachable": the model is up, this document is too long for it.
+          throw new Error(
+            `The model took longer than ${Math.round(timeoutMs / 1000)} s on this document.`,
+          );
+        }
+        throw error;
       }
-
-      const raw: unknown = await response.json();
       const parsed = parseChatCompletionContent(raw);
       if (!parsed) {
         throw new Error("Extractor returned no parseable JSON content");

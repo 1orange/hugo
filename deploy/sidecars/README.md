@@ -31,6 +31,9 @@ EXTRACTOR_URL=http://100.x.x.x:8080/v1   # Tailscale IP of sidecar host
 OCR_URL=http://100.x.x.x:8090
 EXTRACTOR_MODEL=local
 EXTRACTOR_THINKING=false
+# Optional: one document's deadline (default 600000, ten minutes). Past it the
+# document fails with the reason, instead of waiting as if the model were down.
+# EXTRACTOR_TIMEOUT_MS=600000
 ```
 
 Do **not** set `EXTRACTOR=stub` in production.

@@ -33,9 +33,11 @@ export function createExtractor(env: NodeJS.ProcessEnv = process.env): Extractor
     return unconfiguredExtractor();
   }
 
+  const timeoutMs = Number(env.EXTRACTOR_TIMEOUT_MS);
   return createHttpExtractor({
     baseUrl,
     model,
     thinkingEnabled: env.EXTRACTOR_THINKING === "true",
+    ...(timeoutMs > 0 ? { timeoutMs } : {}),
   });
 }
