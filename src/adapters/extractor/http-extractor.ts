@@ -1,4 +1,5 @@
 import { parseSignedDecimalAmount } from "../../modules/money";
+import { trimLinesForModel } from "../../modules/model-input";
 import {
   normalizeModelAmountLiteral,
   normalizeModelCurrency,
@@ -29,6 +30,8 @@ export type HttpExtractorOptions = {
   timeoutMs?: number;
   /** Tokens the model may generate; see DEFAULT_MAX_TOKENS_WITHOUT_THINKING. */
   maxTokens?: number;
+  /** Drop lines that carry nothing (model-input module). On unless false; the benchmark can compare. */
+  trimInput?: boolean;
   fetchImpl?: FetchLike;
 };
 
@@ -51,8 +54,8 @@ function chatCompletionsUrl(baseUrl: string): string {
   return `${trimmed}/v1/chat/completions`;
 }
 
-function buildPrompt(input: ExtractorInput): string {
-  const text = input.textLines.join("\n");
+function buildPrompt(input: ExtractorInput, options: { trimInput: boolean }): string {
+  const lines = options.trimInput ? trimLinesForModel(input.textLines) : input.textLines;
   return [
     "Extract invoice or receipt header fields from the document text below.",
     "Return only structured JSON matching the schema.",
@@ -60,8 +63,10 @@ function buildPrompt(input: ExtractorInput): string {
     "Use ISO dates YYYY-MM-DD. Amounts as printed (decimal string).",
     // No folder month here: Qwen3 0.6B copied `2026_05` into the document
     // number. The checks, not the model, compare dates with the month.
+    // No glossary of Slovak labels either: it fixed Qwen3 4B's one silent
+    // date error but cost it three other fields (ADR 0017, 2026-09-29).
     "",
-    text,
+    lines.join("\n"),
   ].join("\n");
 }
 
@@ -210,7 +215,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
         messages: [
           {
             role: "user",
-            content: buildPrompt(input),
+            content: buildPrompt(input, { trimInput: options.trimInput !== false }),
           },
         ],
         response_format: {
