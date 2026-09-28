@@ -8,6 +8,8 @@ const PUBLIC_PATHS = new Set([
   "/auth/refused",
   "/auth/error",
   "/api/auth",
+  // Google calls it with the channel's token, not a session; the route checks it.
+  "/api/drive/notifications",
 ]);
 
 function isPublicPath(pathname: string): boolean {

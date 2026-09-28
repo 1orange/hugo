@@ -51,7 +51,11 @@ npm run db:migrate
 
 ## Reboot survival
 
-Both `hugo.service` and `caddy` are enabled via systemd and start on boot. No cron jobs or systemd timers are used (ADR 0003).
+Both `hugo.service` and `caddy` are enabled via systemd and start on boot. No cron jobs or systemd timers are used: the app itself sweeps Drive every 15 minutes and on Drive notifications (ADR 0020).
+
+## Drive notifications
+
+With `DRIVE_WEBHOOK_URL=https://hugo.example.eu/api/drive/notifications`, the app asks Drive to notify it of changes and renews that channel every week. Caddy's certificate must be valid — Google will not call a self-signed or mismatched one. Without the variable the app only polls, and new files are read within the poll interval.
 
 ## Verify
 

@@ -218,3 +218,39 @@ export function updateMovableFolderNames(
 export function normalizeSettingsFolderNames(names: readonly string[]): string[] {
   return names.map((name) => normalizeFolderName(name));
 }
+
+/** The Drive changes channel Google notifies the webhook for (ADR 0020). */
+export type DriveWatchChannel = {
+  id: string;
+  resourceId: string;
+  token: string;
+  expiresAt: string;
+};
+
+export function getDriveWatchChannel(): DriveWatchChannel | null {
+  getSettings();
+  const row = getDb().select().from(settings).where(eq(settings.id, SETTINGS_ID)).get();
+  if (!row?.driveWatchChannelId || !row.driveWatchResourceId || !row.driveWatchToken || !row.driveWatchExpiresAt) {
+    return null;
+  }
+  return {
+    id: row.driveWatchChannelId,
+    resourceId: row.driveWatchResourceId,
+    token: row.driveWatchToken,
+    expiresAt: row.driveWatchExpiresAt,
+  };
+}
+
+export function saveDriveWatchChannel(channel: DriveWatchChannel | null): void {
+  getSettings();
+  getDb()
+    .update(settings)
+    .set({
+      driveWatchChannelId: channel?.id ?? null,
+      driveWatchResourceId: channel?.resourceId ?? null,
+      driveWatchToken: channel?.token ?? null,
+      driveWatchExpiresAt: channel?.expiresAt ?? null,
+    })
+    .where(eq(settings.id, SETTINGS_ID))
+    .run();
+}

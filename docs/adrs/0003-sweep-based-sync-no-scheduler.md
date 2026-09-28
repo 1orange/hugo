@@ -1,7 +1,7 @@
 # ADR 0003 — Sweep-based Drive sync, webhook as trigger, no scheduler
 
 Date: 2026-08-28
-Status: Accepted
+Status: Accepted. "No scheduler" and the dashboard-load channel renewal are superseded by ADR 0020; the sweep remains the one ingestion path.
 
 ## Context
 

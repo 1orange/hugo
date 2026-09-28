@@ -1,6 +1,6 @@
 import { createSign } from "node:crypto";
 import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
-import type { DriveClient } from "./port";
+import type { DriveChangesWatch, DriveClient } from "./port";
 
 type GoogleCredentials = {
   client_email: string;
@@ -27,7 +27,7 @@ const LIST_FIELDS =
 const PAGE_SIZE = 1000;
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
-export class GoogleDriveClient implements DriveClient {
+export class GoogleDriveClient implements DriveClient, DriveChangesWatch {
   private readonly getAccessToken: () => Promise<string>;
 
   constructor(
@@ -130,6 +130,73 @@ export class GoogleDriveClient implements DriveClient {
       throw new Error("Drive files.create returned no id");
     }
     return json.id;
+  }
+
+  async watchChanges(input: {
+    channelId: string;
+    token: string;
+    address: string;
+    expiresAt: Date;
+  }): Promise<{ resourceId: string; expiresAt: string }> {
+    const accessToken = await this.getAccessToken();
+    const allDrives = "supportsAllDrives=true&includeItemsFromAllDrives=true";
+    const tokenResponse = await fetch(
+      "https://www.googleapis.com/drive/v3/changes/startPageToken?supportsAllDrives=true",
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!tokenResponse.ok) {
+      throw new Error(`Drive changes.getStartPageToken failed with status ${tokenResponse.status}`);
+    }
+    const { startPageToken } = (await tokenResponse.json()) as { startPageToken?: string };
+    if (!startPageToken) {
+      throw new Error("Drive changes.getStartPageToken returned no token");
+    }
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/changes/watch?pageToken=${encodeURIComponent(startPageToken)}&${allDrives}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: input.channelId,
+          type: "web_hook",
+          address: input.address,
+          token: input.token,
+          expiration: String(input.expiresAt.getTime()),
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Drive changes.watch failed with status ${response.status}`);
+    }
+    const channel = (await response.json()) as { resourceId?: string; expiration?: string };
+    if (!channel.resourceId) {
+      throw new Error("Drive changes.watch returned no resource id");
+    }
+    // Google may shorten the lifetime it was asked for; its own is the one kept.
+    const expiration = Number(channel.expiration);
+    return {
+      resourceId: channel.resourceId,
+      expiresAt: new Date(Number.isFinite(expiration) && expiration > 0 ? expiration : input.expiresAt.getTime()).toISOString(),
+    };
+  }
+
+  async stopChannel(input: { channelId: string; resourceId: string }): Promise<void> {
+    const accessToken = await this.getAccessToken();
+    const response = await fetch("https://www.googleapis.com/drive/v3/channels/stop", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: input.channelId, resourceId: input.resourceId }),
+    });
+    // A channel that already expired is gone: nothing left to stop.
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Drive channels.stop failed with status ${response.status}`);
+    }
   }
 }
 

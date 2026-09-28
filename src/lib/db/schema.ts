@@ -50,6 +50,11 @@ export const settings = sqliteTable("settings", {
   omegaT00ForeignDocumentTypeCode: text("omega_t00_foreign_document_type_code")
     .notNull()
     .default("380"),
+  // The Drive changes channel being watched (ADR 0020).
+  driveWatchChannelId: text("drive_watch_channel_id"),
+  driveWatchResourceId: text("drive_watch_resource_id"),
+  driveWatchToken: text("drive_watch_token"),
+  driveWatchExpiresAt: text("drive_watch_expires_at"),
 });
 
 export const months = sqliteTable("months", {
