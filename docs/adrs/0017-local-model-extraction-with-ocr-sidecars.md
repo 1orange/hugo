@@ -191,7 +191,7 @@ in the normal test suite.
   out to be ground truth, and the second would send invoices off the box.
 - **Fine-tuning.** Still needs hundreds of labelled documents, and the bar may be met without it.
 
-### Amendment, 2026-09-27: model choice (measurement — fill the table on the Mac)
+### Amendment, 2026-09-27: model choice (measured 2026-09-28)
 
 Slice 11 runs the slice 10 harness against several local text models on the **M4 MacBook in Docker,
 CPU-only** (same constraint as deployment). Accuracy does not depend on Metal; timing must not be
@@ -239,41 +239,49 @@ measured with native Ollama on Metal.
    container. Note peak RSS during the slowest document if planning a 16 GB node (slice 14); the
    table column is a snapshot, not a peak sampler.
 
-#### Results (Filip — replace placeholders after `benchmark:compare-models`)
+#### Results, 2026-09-28
 
-Corpus: spring May labelled set (17 documents in slice 09). Per-field breakdown is in each
-`.log` under `benchmark-results/`. Aggregate columns below come from harness summary lines.
+Corpus: SPRING's May 2026, 17 documents — 6 issued invoices, 9 received invoices and receipts with
+a text layer, 2 scans read by OCR. Measured on an M4 MacBook in Docker (4 vCPUs, CPU-only), one
+request at a time, `llama.cpp` with `cache_prompt: false` and `--cache-ram 0`. Each row's answers are
+saved beside its log (`benchmark-results/20260928T150701/`, `…T164336/`) and every row below is
+re-scored with the same labels and scoring (`--rescore`).
 
-| Label | Thinking | Exact or empty-flagged | Wrong-but-plausible | Amount wrong ∧ arith OK | Median (s) | Worst (s) | Docker mem (snapshot) | Bar |
-|---|---:|---:|---:|---:|---:|---:|---|---|
-| Qwen3-0.6B Q8_0 | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen3-0.6B Q8_0 | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen3-1.7B Q8_0 | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen3-1.7B Q8_0 | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen3-4B Q4_K_M | off | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Qwen3-4B Q4_K_M | on | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Label | Thinking | OCR | Exact or empty-flagged | Wrong-but-plausible | Amount wrong ∧ arith OK | Median (s) | Worst (s) | Median tokens | Docker mem | Bar |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---|---|
+| Qwen3-0.6B Q8_0 | off | v4 | 65.2% | 8.2% | 0 | 10 | 21 | 383 | 2.2 GiB | FAIL |
+| Qwen3-0.6B Q8_0 | on | v4 | 59.5% | 5.1% | 0 | 29 | 524 | 876 | 2.2 GiB | FAIL |
+| Qwen3-1.7B Q8_0 | off | v4 | 86.1% | 1.3% | 0 | 28 | 600 | 332 | 2.8 GiB | FAIL |
+| Qwen3-1.7B Q8_0 | on | v4 | 86.1% | 5.7% | 0 | 98 | 156 | 1587 | 4.5 GiB | FAIL |
+| Qwen3-4B Q4_K_M | off | v4 | 92.4% | 1.3% | 0 | 50 | 68 | 324 | 3.7 GiB | PASS |
+| Qwen3-4B Q4_K_M | on | — | stopped | | | ≈ 170–380 | | | | FAIL (time) |
+| **Qwen3-4B Q4_K_M** | **off** | **v6** | **93.0%** | **1.3%** | **0** | **50** | **69** | **323** | **3.6 GiB** | **PASS** |
+| Qwen3-1.7B Q8_0 | off | v6 | 88.0% | 1.3% | 0 | 23 | 36 | 330 | 2.8 GiB | FAIL |
 
-**Bar column:** PASS only if all four adoption rules pass including median ≤ 60 s in Docker.
+OCR v4 is the Chinese/English model the sidecar first shipped; v6 is PP-OCRv6 (note below) — it
+changes the two scans only. The 4B with thinking on was stopped after its first document: 3,402
+tokens in 406 s, at 9 tokens a second. With the 1.7B's thinking median of ~1,600 tokens it costs
+170–380 s a document, past the 60 s median whatever it scores. Thinking did not help the model
+sizes it could be measured on: the 1.7B kept its accuracy, tripled its tokens and made more
+plausible mistakes. The 600 s and 524 s worst times are models that never finished — the 1.7B
+looping on the Zamkni scan's v4 text, the 0.6B thinking until its context was full on In-Green —
+and fail the document, not the run.
 
-#### Decision (provisional until the table is filled)
+What the 4B still gets wrong, by kind: Bonami's taxable supply date taken from its due date, and
+wrong-but-flagged values the checks caught (a Czech IČ DPH, recaps that do not add up). Two
+"wrong" names are her own short names, not the invoice's: `UPC BROADBAND` for UPC BROADBAND
+SLOVAKIA, `Kaspersky` for the reseller 2Checkout.
 
-No benchmark was executed in CI or by the agent (no Docker / no GGUF on disk). **Provisional
-defaults** — swap after the table shows a winner:
+#### Decision
 
-- **Model file:** `Qwen3-0.6B-Q8_0.gguf` (smallest candidate; fits 16 GB with headroom for the app
-  and OCR sidecar).
-- **Thinking:** off (`EXTRACTOR_THINKING=false`), unless a row with thinking on clears the bar with
-  median still ≤ 60 s and strictly better accuracy than the same size with thinking off.
-- **Compose / app:** see `.env.docker.example` (`EXTRACTOR_MODEL_FILE`, `EXTRACTOR_MODEL=local`,
-  `EXTRACTOR_URL=http://127.0.0.1:8080/v1`).
-
-If **no row passes**, record here which alternative was chosen (larger quant or model, vision
-candidate for benchmark only, or leave `EXTRACTOR_URL` unset in production so documents wait —
-the stub is refused there, and an unconfigured model never marks a document done) and update
-`.env.docker.example` accordingly.
-
-_Agent note: paste `summary.tsv` values into the table, set the Decision section to the adopted row,
-and remove “provisional” once measurement is done._
+- **Model file:** `Qwen3-4B-Q4_K_M.gguf`, the only row that clears the bar.
+- **Thinking:** off (`EXTRACTOR_THINKING=false`). No row gained accuracy from it, and on the 4B it
+  costs several times the time budget.
+- **Deployment (slice 14):** the 50 s median is on an M4's cores. The N100 and the Ampere node are
+  slower per core; the bar must be measured again on the node that will run it before
+  `EXTRACTOR_URL` is set there. Until it passes there, leave `EXTRACTOR_URL` unset in production so
+  documents wait — the stub is refused there, and an unconfigured model never marks a document done.
+- **Memory:** 3.6 GiB for the model with an 8192-token context, the host prompt cache off.
 
 ### Note, 2026-09-27: arithmetic accepts the legal cash rounding
 
@@ -310,3 +318,36 @@ of RAM from accumulating over a run.
 
 The benchmark reads each labelled document's own file — `<driveFileId>.pdf` or an image beside its
 label — through the function the pipeline uses, so it scores the text the app sends.
+
+### Note, 2026-09-28: OCR reads Slovak and Czech; labels hold only what her records hold
+
+**OCR.** The sidecar shipped `rapidocr-onnxruntime` 1.4.4, whose default recogniser is Chinese and
+English, not the Latin recognition this ADR calls for. Her 15 text-layer invoices, rendered and
+OCR'd against their own text layer, measure it: it read 0.1% of the words with diacritics and 65.8%
+of the numbers. `rapidocr` 3.9.2 with **PP-OCRv6 small**, whose multilingual models list Slovak and
+Czech, reads 93.2% of words, 87.7% of words with diacritics and 96.0% of numbers, at 2.1 s a page.
+PaddleOCR's PP-OCRv5 Latin recogniser scored alike on the rendered pages but dropped the Č of
+"IČO" and "IČ DPH" on her real scan, the labels that tell an IČO from a DIČ. The models are fetched
+when the image is built.
+
+**Labels and scoring.** Measuring the models found the benchmark marking correct readings wrong.
+Each correction has its evidence in the commit that made it:
+
+- her VAT register has no variabilný symbol and no issue date — its dates are when the tax arose
+  and when she deducted it — so received labels no longer copy the document number and the
+  taxable date into them (UPC prints VS 9643266 for document 218904645, issued 13.5 for a supply on
+  11.5); a receipt's row carries only her own number (IDk26007), not the printed one;
+- the register prints a partner's name in 15 characters (`Grand hotel Per`); a name that starts
+  with it matches;
+- a VAT split within a cent of her books, with exactly her total, is the invoice rounding
+  differently (UPC prints 14.92 + 3.42 = 18.34; she booked 14.91 + 3.43), not a misread;
+- a wrong value the checks flagged is not wrong-but-plausible; no recap rows is an empty recap;
+  identifiers compare without spacing and names without their legal form.
+
+Of the fields the first correction removed from the 4B's score, nine were correct readings counted
+wrong and eight were counted exact.
+
+**Requests.** The answer is streamed — unstreamed, Node's fetch gave up after 300 s without headers
+and a slow document read as an unreachable model, waiting for ever. A document has a deadline
+(`EXTRACTOR_TIMEOUT_MS`, ten minutes) and, without thinking, a token cap (`EXTRACTOR_MAX_TOKENS`,
+2048); past either it fails with the reason.
