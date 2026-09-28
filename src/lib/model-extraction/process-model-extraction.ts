@@ -9,16 +9,12 @@ import {
 } from "@/adapters/store/documents";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
-import {
-  extractReceiptTextLines,
-  MODEL_MAX_PDF_PAGES,
-} from "@/lib/cash-discovery/discover-cash-payments";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { runExtractionChecks } from "@/modules/extraction-checks";
-import { ocrDocumentToLines } from "@/lib/ocr/document-ocr";
+import { modelTextForDocument, type ModelTextSource } from "./model-text";
 import { shouldExtractWithModel } from "./should-extract-with-model";
 
-export type ModelExtractionSource = "model" | "ocr";
+export type ModelExtractionSource = ModelTextSource;
 
 export function isExtractorUnreachableError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -75,40 +71,24 @@ export async function processModelExtractionFile(
     process.env.E2E_TEST_AUTH === "true"
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
-  const extracted =
-    e2eLines !== null
-      ? { ok: true as const, lines: e2eLines }
-      : await extractReceiptTextLines(input.fileBytes, deps.pdfAccess, {
-          maxPages: MODEL_MAX_PDF_PAGES,
-        });
-  let lines = extracted.ok ? extracted.lines : [];
-  let hadTextLayer = extracted.ok && lines.length > 0;
-  let extractionSource: ModelExtractionSource = "model";
-
-  if (!hadTextLayer) {
-    const ocrResult = await ocrDocumentToLines({
-      mimeType: input.mimeType,
-      fileBytes: input.fileBytes,
-      pdfAccess: deps.pdfAccess,
-      ocr: deps.ocr,
-    });
-    if (ocrResult.ok === false && ocrResult.unreachable) {
-      return;
-    }
-    if (ocrResult.ok) {
-      lines = ocrResult.lines;
-      extractionSource = "ocr";
-    }
+  const text = await modelTextForDocument({
+    mimeType: input.mimeType,
+    fileBytes: input.fileBytes,
+    pdfAccess: deps.pdfAccess,
+    ocr: deps.ocr,
+    textLayerLines: e2eLines,
+  });
+  if (!text.ok) {
+    return;
   }
+  const { lines, hadTextLayer, source: extractionSource } = text;
 
   if (!shouldExtractWithModel({ lines, hadTextLayer, fromOcr: extractionSource === "ocr" })) {
     writeExtractedPayload(
       input.driveFileId,
       {},
       "failed",
-      extracted.ok
-        ? "The PDF has no extractable text layer."
-        : extracted.reason,
+      text.textLayerFailure ?? "The PDF has no extractable text layer.",
     );
     return;
   }

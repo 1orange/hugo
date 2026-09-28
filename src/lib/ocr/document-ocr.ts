@@ -1,7 +1,7 @@
 import type { Ocr } from "@/adapters/ocr/port";
 import type { PdfAccess, PdfPageImage } from "@/adapters/pdf/port";
 import { isReceiptImageMimeType } from "@/lib/cash-discovery/ekasa-qr-extraction";
-import { groupOcrBoxesIntoLines } from "@/modules/ocr-lines";
+import { groupOcrBoxesIntoLines, ocrReadingLines } from "@/modules/ocr-lines";
 
 export function isOcrUnreachableError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -38,7 +38,8 @@ export async function ocrDocumentToLines(input: {
   pdfAccess: PdfAccess;
   ocr: Ocr;
 }): Promise<
-  | { ok: true; lines: string[]; durationMs: number }
+  /** `lines` are rows, for the eKasa parser; `readingLines` are for the model. */
+  | { ok: true; lines: string[]; readingLines: string[]; durationMs: number }
   | { ok: false; unreachable: true }
   | { ok: false; unreachable: false; reason: string }
 > {
@@ -61,7 +62,12 @@ export async function ocrDocumentToLines(input: {
         reason: "OCR returned no text.",
       };
     }
-    return { ok: true, lines, durationMs: result.durationMs };
+    return {
+      ok: true,
+      lines,
+      readingLines: ocrReadingLines(result.boxes),
+      durationMs: result.durationMs,
+    };
   } catch (error) {
     if (isOcrUnreachableError(error)) {
       return { ok: false, unreachable: true };

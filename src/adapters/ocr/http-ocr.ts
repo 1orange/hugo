@@ -1,5 +1,5 @@
 import type { PdfPageImage } from "../pdf/port";
-import type { Ocr, OcrInput, OcrOutput } from "./port";
+import type { Ocr, OcrBox, OcrInput, OcrOutput } from "./port";
 
 export const OCR_USER_AGENT = "hugo-accounting/0.1";
 
@@ -9,6 +9,9 @@ type HttpOcrBox = {
   text?: string;
   x?: number;
   y?: number;
+  width?: number;
+  height?: number;
+  page?: number;
 };
 
 type HttpOcrResponse = {
@@ -65,11 +68,17 @@ export function createHttpOcr(options: HttpOcrOptions): Ocr {
       const raw: unknown = await response.json();
       const body = raw as HttpOcrResponse;
       const boxes = (body.boxes ?? [])
-        .map((box) => ({
-          text: typeof box.text === "string" ? box.text : "",
-          x: typeof box.x === "number" ? box.x : 0,
-          y: typeof box.y === "number" ? box.y : 0,
-        }))
+        .map((box) => {
+          const mapped: OcrBox = {
+            text: typeof box.text === "string" ? box.text : "",
+            x: typeof box.x === "number" ? box.x : 0,
+            y: typeof box.y === "number" ? box.y : 0,
+          };
+          if (typeof box.width === "number") mapped.width = box.width;
+          if (typeof box.height === "number") mapped.height = box.height;
+          if (typeof box.page === "number") mapped.page = box.page;
+          return mapped;
+        })
         .filter((box) => box.text.length > 0);
 
       return {

@@ -36,6 +36,7 @@ import { isProcessedFolderSlot } from "@/modules/document-state";
 import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
 import { processModelExtractionFromLines } from "@/lib/model-extraction/process-model-extraction";
+import { extractModelTextLines } from "@/lib/model-extraction/model-text";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 
 /**
@@ -67,7 +68,6 @@ export type CashDiscoveryDeps = {
  * a telecom itemisation can run to twenty pages the export never needs and CPU
  * time grows with every token. Every invoice in the corpus fits (O2: 3 pages).
  */
-export const MODEL_MAX_PDF_PAGES = 5;
 
 export async function extractReceiptTextLines(
   pdfBytes: Uint8Array,
@@ -113,9 +113,7 @@ async function wholeDocumentLines(
   pdfAccess: PdfAccess,
   firstPageLines: string[],
 ): Promise<string[]> {
-  const extracted = await extractReceiptTextLines(pdfBytes, pdfAccess, {
-    maxPages: MODEL_MAX_PDF_PAGES,
-  });
+  const extracted = await extractModelTextLines(pdfBytes, pdfAccess);
   return extracted.ok ? extracted.lines : firstPageLines;
 }
 
@@ -240,6 +238,8 @@ export async function processCashReceiptFile(
   }
 
   let modelSource: "model" | "ocr" = "model";
+  // The eKasa parser reads OCR rows; the model reads the page in reading order.
+  let ocrReadingLines: string[] | null = null;
 
   if (
     !ekasa.ok &&
@@ -259,6 +259,7 @@ export async function processCashReceiptFile(
     }
     if (ocrResult.ok) {
       lines = ocrResult.lines;
+      ocrReadingLines = ocrResult.readingLines;
       modelSource = "ocr";
       ekasa = await extractEkasaFromTextLines({
         lines,
@@ -275,7 +276,7 @@ export async function processCashReceiptFile(
       const modelLines =
         hadTextLayer && e2eLines === null
           ? await wholeDocumentLines(input.fileBytes, deps.pdfAccess, lines)
-          : lines;
+          : (ocrReadingLines ?? lines);
       await processModelExtractionFromLines(
         {
           companyId: input.companyId,

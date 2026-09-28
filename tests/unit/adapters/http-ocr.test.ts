@@ -10,7 +10,7 @@ test("createHttpOcr posts images and maps boxes", async () => {
       calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
       return new Response(
         JSON.stringify({
-          boxes: [{ text: "UID: O-ABC", x: 10, y: 20 }],
+          boxes: [{ text: "UID: O-ABC", x: 10, y: 20, width: 120, height: 18, page: 0 }],
         }),
         { status: 200 },
       );
@@ -23,5 +23,5 @@ test("createHttpOcr posts images and maps boxes", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, "http://127.0.0.1:8090/ocr");
-  assert.deepEqual(result.boxes, [{ text: "UID: O-ABC", x: 10, y: 20 }]);
+  assert.deepEqual(result.boxes, [{ text: "UID: O-ABC", x: 10, y: 20, width: 120, height: 18, page: 0 }]);
 });

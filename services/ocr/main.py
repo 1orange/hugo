@@ -34,7 +34,7 @@ def health() -> dict[str, str]:
 @app.post("/ocr")
 def ocr(body: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     boxes: list[dict[str, Any]] = []
-    for image in body.get("images") or []:
+    for page, image in enumerate(body.get("images") or []):
         if not isinstance(image, dict) or "data" not in image:
             continue
         rgb = decode_image(image)
@@ -46,11 +46,15 @@ def ocr(body: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
             quad = entry[0]
             xs = [point[0] for point in quad]
             ys = [point[1] for point in quad]
+            # Image pixels, y downwards; the size lets the app find columns.
             boxes.append(
                 {
                     "text": text,
                     "x": float(min(xs)),
                     "y": float(min(ys)),
+                    "width": float(max(xs) - min(xs)),
+                    "height": float(max(ys) - min(ys)),
+                    "page": page,
                 }
             )
     return {"boxes": boxes}

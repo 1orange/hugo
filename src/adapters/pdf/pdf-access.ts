@@ -1,3 +1,4 @@
+import { readingOrderPages, type PositionedText } from "../../modules/reading-order";
 import type { PdfAccess, PdfPageImage, PdfTextLine } from "./port";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -55,6 +56,23 @@ function groupTextItemsIntoLines(
     const row = buckets.get(y)!.sort((left, right) => left.x - right.x);
     return row.map((cell) => cell.text).join(" | ");
   });
+}
+
+type PdfTextItem = { str: string; transform: number[]; width?: number; height?: number };
+
+// pdf.js gives the baseline's start and the run's width and font height, in
+// points with y growing upwards; the reading order wants boxes with y down.
+function textItemToBox(item: PdfTextItem): PositionedText {
+  const [, , c = 0, d = 0, x = 0, baseline = 0] = item.transform;
+  const height = item.height || Math.hypot(c, d) || 8;
+  const width = item.width || item.str.length * height * 0.5;
+  return {
+    text: item.str,
+    left: x,
+    right: x + width,
+    top: -(baseline + height * 0.8),
+    bottom: -(baseline - height * 0.2),
+  };
 }
 
 type RawPdfImage = {
@@ -158,20 +176,28 @@ export function createPdfAccess(): PdfAccess {
               (_, index) => index + 1,
             )
           : [options?.pageNumber ?? 1];
-      const lines: PdfTextLine[] = [];
+      const pages: PdfTextItem[][] = [];
       for (const pageNumber of pageNumbers) {
         const page = await doc.getPage(pageNumber);
         const content = await page.getTextContent();
-        const textItems: Array<{ str: string; transform: number[] }> = [];
+        const textItems: PdfTextItem[] = [];
         for (const item of content.items) {
           if ("str" in item) {
-            textItems.push({ str: item.str, transform: item.transform });
+            textItems.push({
+              str: item.str,
+              transform: item.transform,
+              width: item.width,
+              height: item.height,
+            });
           }
         }
-        // Grouped per page: y-coordinates restart on every page.
-        lines.push(...groupTextItemsIntoLines(textItems));
+        pages.push(textItems);
       }
-      return lines;
+      if (options?.order === "reading") {
+        return readingOrderPages(pages.map((items) => items.map(textItemToBox)));
+      }
+      // Grouped per page: y-coordinates restart on every page.
+      return pages.flatMap((items) => groupTextItemsIntoLines(items));
     },
     async extractPageImages(pdfBytes) {
       const pdfjs = await loadPdfJs();
