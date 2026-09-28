@@ -22,6 +22,8 @@ export type BenchmarkLabel = {
 
 export type BenchmarkImportManifest = {
   monthKey: string;
+  /** The client's own IČO — spring is 45891761 — so scoring picks counterparties as production does. */
+  companyIco?: string;
   issued: Array<{
     driveFileId: string;
     documentNumber: string;

@@ -14,6 +14,7 @@ import {
   BENCHMARK_FIXTURES_MISSING,
   benchmarkFixturesReady,
   loadBenchmarkLabels,
+  loadBenchmarkManifest,
   loadBenchmarkPageImages,
   loadBenchmarkSourceText,
 } from "../src/modules/benchmark-fixtures.ts";
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
   }
 
   const { extractor, modeLabel } = createBenchmarkExtractor(useReal);
+  const companyIco = loadBenchmarkManifest(fixturesDir)?.companyIco ?? null;
   const ocr: Ocr = createOcr(process.env);
   const payloadsByDriveFileId: Record<string, ExtractedPayload> = {};
   const modelDurationsMs: number[] = [];
@@ -134,7 +136,9 @@ async function main(): Promise<void> {
           checked.flags,
           label,
           checked.payload,
+          companyIco,
         ),
+        companyIco,
       }),
     );
   }

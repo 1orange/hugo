@@ -11,6 +11,7 @@ function normalizeIco(value: string | null | undefined): string {
 function counterpartyPartyIndex(
   parties: ModelExtractedPayload["parties"],
   label: BenchmarkLabel,
+  companyIco?: string | null,
 ): number {
   const targetIco =
     label.side === "issued"
@@ -22,16 +23,28 @@ function counterpartyPartyIndex(
       return index;
     }
   }
-  return 0;
+  const ownIco = normalizeIco(companyIco);
+  const notTheCompany = ownIco ? parties.findIndex((party) => normalizeIco(party.ico) !== ownIco) : -1;
+  return notTheCompany >= 0 ? notTheCompany : 0;
 }
 
 export function benchmarkFieldCheckStates(
   flags: ExtractionCheckFlags,
   label: BenchmarkLabel,
   payload: ModelExtractedPayload,
+  companyIco?: string | null,
 ): Partial<Record<BenchmarkFieldKey, FieldCheckState>> {
-  const partyIndex = counterpartyPartyIndex(payload.parties, label);
+  const partyIndex = counterpartyPartyIndex(payload.parties, label, companyIco);
   const partyFlags = flags.parties[partyIndex];
+  // Production derives roles from the company's own IČO and flags them unless
+  // exactly one party carries it (clientPartyIndex); the benchmark must not
+  // pick one silently.
+  const ownIco = normalizeIco(companyIco);
+  const rolesUndetermined =
+    ownIco.length > 0 &&
+    payload.parties.filter((party) => normalizeIco(party.ico) === ownIco).length !== 1;
+  const counterpartyState = (state: FieldCheckState | undefined): FieldCheckState =>
+    rolesUndetermined ? "flagged" : (state ?? "empty");
 
   return {
     documentNumber: flags.documentNumber,
@@ -44,8 +57,8 @@ export function benchmarkFieldCheckStates(
     vatRecapBase: flags.vatRecap,
     vatRecapVat: flags.vatRecap,
     vatRecapTotal: flags.vatRecap,
-    counterpartyName: partyFlags?.name ?? "empty",
-    counterpartyIco: partyFlags?.ico ?? "empty",
-    counterpartyIcDph: partyFlags?.icDph ?? "empty",
+    counterpartyName: counterpartyState(partyFlags?.name),
+    counterpartyIco: counterpartyState(partyFlags?.ico),
+    counterpartyIcDph: counterpartyState(partyFlags?.icDph),
   };
 }

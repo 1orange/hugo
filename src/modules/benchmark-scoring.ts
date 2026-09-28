@@ -28,6 +28,8 @@ export type BenchmarkFieldKey =
 export type BenchmarkFieldOutcome =
   | "exact"
   | "wrong_plausible"
+  /** Wrong, but the checks flagged it: she sees the warning, so not "plausible". */
+  | "wrong_flagged"
   | "empty"
   | "empty_flagged"
   | "skipped";
@@ -70,6 +72,14 @@ function normalizeText(value: string | null | undefined): string {
 
 function normalizeIco(value: string | null | undefined): string {
   return (value ?? "").replace(/\s/g, "");
+}
+
+// Her Omega partner names drop the legal form the invoice prints:
+// `O2 Slovakia` for `O2 Slovakia, s.r.o.`.
+const LEGAL_FORM = /[\s,]*(spol\.\s*s\s*r\.\s*o\.|s\.\s*r\.\s*o\.|a\.\s*s\.|k\.\s*s\.|v\.\s*o\.\s*s\.)$/i;
+
+function normalizeCompanyName(value: string | null | undefined): string {
+  return normalizeText(value).replace(LEGAL_FORM, "").toLowerCase();
 }
 
 function isEmptyActual(value: string | null): boolean {
@@ -117,10 +127,12 @@ function readModelPayload(payload: ExtractedPayload): ModelExtractedPayload | nu
 function pickModelParty(
   model: ModelExtractedPayload | null,
   label: BenchmarkLabel,
+  companyIco?: string | null,
 ): ModelExtractedPayload["parties"][number] | null {
   if (!model || model.parties.length === 0) {
     return null;
   }
+  const ownIco = normalizeIco(companyIco);
   const targetIco =
     label.side === "issued" ? normalizeIco(label.customer.ico) : normalizeIco(label.supplier.ico);
   if (targetIco.length > 0) {
@@ -129,7 +141,11 @@ function pickModelParty(
       return matched;
     }
   }
-  return model.parties[0] ?? null;
+  // As production does (ADR 0018): the counterparty is whoever is not her client.
+  const notTheCompany = ownIco
+    ? model.parties.find((party) => normalizeIco(party.ico) !== ownIco)
+    : undefined;
+  return notTheCompany ?? model.parties[0] ?? null;
 }
 
 function readEkasaDates(payload: ExtractedPayload): { issueDate: string | null } {
@@ -157,12 +173,22 @@ function scoreScalar(
     }
     return { field, outcome: "empty", expected, actual };
   }
-  const normalizedExpected =
-    field === "counterpartyIco" ? normalizeIco(expected) : normalizeText(expected);
-  const normalizedActual =
-    field === "counterpartyIco" ? normalizeIco(actual) : normalizeText(actual);
+  // Identifiers carry no meaning in their spacing; the register prints
+  // `SK 2020449189` where the invoice says `SK2020449189`.
+  const compact = field === "counterpartyIco" || field === "counterpartyIcDph";
+  const normalize = (value: string | null): string =>
+    compact
+      ? normalizeIco(value).toUpperCase()
+      : field === "counterpartyName"
+        ? normalizeCompanyName(value)
+        : normalizeText(value);
+  const normalizedExpected = normalize(expected);
+  const normalizedActual = normalize(actual);
   if (normalizedExpected === normalizedActual) {
     return { field, outcome: "exact", expected, actual };
+  }
+  if (checkState === "flagged") {
+    return { field, outcome: "wrong_flagged", expected, actual };
   }
   return { field, outcome: "wrong_plausible", expected, actual };
 }
@@ -183,12 +209,14 @@ export function scoreBenchmarkDocument(input: {
   label: BenchmarkLabel;
   payload: ExtractedPayload;
   fieldCheckStates?: Partial<Record<BenchmarkFieldKey, FieldCheckState>>;
+  /** The client's own IČO, so the counterparty is picked as production picks it. */
+  companyIco?: string | null;
 }): BenchmarkDocumentScore {
   const { label, payload, fieldCheckStates } = input;
   const model = readModelPayload(payload);
   const ekasaDates = readEkasaDates(payload);
   const party = counterpartyFromLabel(label);
-  const modelParty = pickModelParty(model, label);
+  const modelParty = pickModelParty(model, label, input.companyIco);
   const scoreReceiptDates = shouldScoreReceiptDates(label);
   const scoreVatAmounts = shouldScoreVatAmounts(label);
 
@@ -256,7 +284,8 @@ export function scoreBenchmarkDocument(input: {
   fields.push(
     scoreScalar(
       "amountCents",
-      amountCentsLiteral(label.amountCents),
+      // A B1 total includes VAT she self-assessed; the invoice never prints it.
+      shouldScoreVatAmounts(label) ? amountCentsLiteral(label.amountCents) : null,
       amountCentsLiteral(model?.amountCents ?? (isEkasaPayload(payload) ? payload.amountCents : null)),
       fieldCheckStates?.amountCents,
     ),
@@ -291,9 +320,11 @@ export function scoreBenchmarkDocument(input: {
   const labelVat = label.vatRecap.reduce((sum, row) => sum + row.vatCents, 0);
   const labelTotal = labelBase + labelVat;
   const actualRecap = model?.vatRecap ?? (isEkasaPayload(payload) ? payload.vatRecap : []);
-  const actualBase = actualRecap.reduce((sum, row) => sum + row.baseCents, 0);
-  const actualVat = actualRecap.reduce((sum, row) => sum + row.vatCents, 0);
-  const actualTotal = actualBase + actualVat;
+  // No rows is an empty recap, not a recap that sums to zero.
+  const hasRecap = actualRecap.length > 0;
+  const actualBase = hasRecap ? actualRecap.reduce((sum, row) => sum + row.baseCents, 0) : null;
+  const actualVat = hasRecap ? actualRecap.reduce((sum, row) => sum + row.vatCents, 0) : null;
+  const actualTotal = actualBase !== null && actualVat !== null ? actualBase + actualVat : null;
 
   if (scoreVatAmounts) {
     fields.push(
