@@ -156,7 +156,10 @@ function receivedLabelFromRegister(
     folderSlot: manifestEntry.folderSlot ?? null,
     kvDphSection: row.kvDphSection,
     docTypeHint,
-    documentNumber: row.supplierDocumentNumber,
+    // A receipt's row (IDk) carries only her own number, IDk26007: KV DPH
+    // section B3 reports receipts without the supplier's, and the Zamkni
+    // receipt prints "Doklad číslo 370".
+    documentNumber: row.evidenceCode === "IDk" ? null : row.supplierDocumentNumber,
     // Her VAT register records neither: its dates are when the tax arose and
     // when she deducted it. Copying the document number and the taxable date
     // in marked the model wrong for reading them off the invoice — UPC prints
