@@ -2,6 +2,9 @@ import type { Ocr } from "@/adapters/ocr/port";
 import type { PdfAccess, PdfPageImage } from "@/adapters/pdf/port";
 import { isReceiptImageMimeType } from "@/lib/cash-discovery/ekasa-qr-extraction";
 import { groupOcrBoxesIntoLines, ocrReadingLines } from "@/modules/ocr-lines";
+import { heicToJpeg } from "@/adapters/image/heic-to-jpeg";
+import { prepareImageForOcr } from "@/adapters/image/ocr-image";
+import { isHeicMimeType } from "@/modules/file-preview";
 
 export function isOcrUnreachableError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -27,7 +30,9 @@ export async function pageImagesForDocument(input: {
     return input.pdfAccess.extractPageImages(input.fileBytes);
   }
   if (isReceiptImageMimeType(input.mimeType)) {
-    return [{ kind: "encoded", bytes: input.fileBytes }];
+    // The OCR sidecar has no HEIC decoder; an iPhone photo goes as JPEG.
+    const bytes = isHeicMimeType(input.mimeType) ? await heicToJpeg(input.fileBytes) : input.fileBytes;
+    return [{ kind: "encoded", bytes }];
   }
   return [];
 }
@@ -43,7 +48,7 @@ export async function ocrDocumentToLines(input: {
   | { ok: false; unreachable: true }
   | { ok: false; unreachable: false; reason: string }
 > {
-  const images = await pageImagesForDocument(input);
+  const images = await Promise.all((await pageImagesForDocument(input)).map(prepareImageForOcr));
   if (images.length === 0) {
     return {
       ok: false,
