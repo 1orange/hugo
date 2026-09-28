@@ -10,6 +10,7 @@ import type {
   ModelExtractedPayload,
 } from "./document-payload";
 import { parseMonthKey } from "./format-sk";
+import { isLabelledOnlyAsDue, labelledDates } from "./labelled-dates";
 
 export type ExtractionChecksInput = {
   payload: ModelExtractedPayload;
@@ -314,8 +315,14 @@ export function runExtractionChecks(input: ExtractionChecksInput): ExtractionChe
   const ratesOk = payload.vatRecap.length === 0 || vatRatesOk(payload, issuerCountry);
   const recapLiteralsOk = recapLiteralsMatchCents(payload);
 
-  const issueDateFlagged = !datePlausible(input.monthKey, payload.issueDate);
-  const taxableFlagged = !datePlausible(input.monthKey, payload.taxableSupplyDate);
+  // A date the document prints only as its due date is not its issue or
+  // taxable supply date.
+  const dateLabels = labelledDates(input.sourceTextLines);
+  const issueDateFlagged =
+    !datePlausible(input.monthKey, payload.issueDate) || isLabelledOnlyAsDue(payload.issueDate, dateLabels);
+  const taxableFlagged =
+    !datePlausible(input.monthKey, payload.taxableSupplyDate) ||
+    isLabelledOnlyAsDue(payload.taxableSupplyDate, dateLabels);
   const dueFlagged = !datePlausible(input.monthKey, payload.dueDate);
 
   const flags: ExtractionCheckFlags = {
