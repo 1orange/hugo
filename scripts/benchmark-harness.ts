@@ -71,7 +71,7 @@ function createBenchmarkExtractor(useReal: boolean): {
 
 async function main(): Promise<void> {
   const useReal = process.argv.includes("--real");
-  const fixturesDir = BENCHMARK_FIXTURES_DIR;
+  const fixturesDir = process.env.BENCHMARK_FIXTURES_DIR || BENCHMARK_FIXTURES_DIR;
   if (!benchmarkFixturesReady(fixturesDir)) {
     console.error(BENCHMARK_FIXTURES_MISSING);
     process.exit(1);
