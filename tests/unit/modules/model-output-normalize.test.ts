@@ -4,6 +4,7 @@ import {
   normalizeModelAmountLiteral,
   normalizeModelCurrency,
   normalizeModelDate,
+  normalizeModelDic,
   normalizeModelDocumentNumber,
   normalizeModelIcDph,
   normalizeModelIco,
@@ -52,6 +53,14 @@ test("a variabilný symbol is up to ten digits; a sentence is not one", () => {
 test("IČ DPH loses its spacing and is upper-cased", () => {
   assert.equal(normalizeModelIcDph("sk 2020449189"), "SK2020449189");
   assert.equal(normalizeModelIcDph(""), null);
+});
+
+// From OCR text the model kept the label: `ICDPH|SK2121428375`.
+test("a tax number loses the label printed before it", () => {
+  assert.equal(normalizeModelIcDph("ICDPH|SK2121428375"), "SK2121428375");
+  assert.equal(normalizeModelIcDph("IČ DPH: SK 2020449189"), "SK2020449189");
+  assert.equal(normalizeModelDic("DIC:2022620941"), "2022620941");
+  assert.equal(normalizeModelIcDph("IČ DPH:"), null);
 });
 
 test("a document number loses the label printed before it", () => {

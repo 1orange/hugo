@@ -60,14 +60,21 @@ export function normalizeModelVariableSymbol(value: string | null | undefined): 
   return /^\d{1,10}$/.test(digits) ? digits : null;
 }
 
-export function normalizeModelIcDph(value: string | null | undefined): string | null {
-  const compact = (value ?? "").replace(/\s/g, "").toUpperCase();
+// The label printed before a tax number, which the model sometimes keeps —
+// from OCR text, `ICDPH|SK2121428375`.
+const TAX_NUMBER_LABEL = /^(i[čc]\s*dph|di[čc]|vat(\s*(id|no\.?|number))?)\s*[:|.\-]*\s*/i;
+
+function compactTaxNumber(value: string | null | undefined): string | null {
+  const compact = (value ?? "").trim().replace(TAX_NUMBER_LABEL, "").replace(/\s/g, "").toUpperCase();
   return compact.length > 0 ? compact : null;
 }
 
+export function normalizeModelIcDph(value: string | null | undefined): string | null {
+  return compactTaxNumber(value);
+}
+
 export function normalizeModelDic(value: string | null | undefined): string | null {
-  const compact = (value ?? "").replace(/\s/g, "").toUpperCase();
-  return compact.length > 0 ? compact : null;
+  return compactTaxNumber(value);
 }
 
 // The words printed before the number: `Faktúra - daňový doklad - 5420373176`,
