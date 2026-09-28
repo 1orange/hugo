@@ -274,7 +274,8 @@ SLOVAKIA, `Kaspersky` for the reseller 2Checkout.
 
 #### Decision
 
-- **Model file:** `Qwen3-4B-Q4_K_M.gguf`, the only row that clears the bar.
+- **Model file:** `Qwen3-4B-Q4_K_M.gguf`, the only row that clears the bar. *Superseded by the
+  amendment of 2026-09-29: `Qwen3-4B-Q4_0.gguf`, as accurate and 18% faster.*
 - **Thinking:** off (`EXTRACTOR_THINKING=false`). No row gained accuracy from it, and on the 4B it
   costs several times the time budget.
 - **Deployment (slice 14):** the 50 s median is on an M4's cores. The N100 and the Ampere node are
@@ -351,3 +352,56 @@ wrong and eight were counted exact.
 and a slow document read as an unreachable model, waiting for ever. A document has a deadline
 (`EXTRACTOR_TIMEOUT_MS`, ten minutes) and, without thinking, a token cap (`EXTRACTOR_MAX_TOKENS`,
 2048); past either it fails with the reason.
+
+### Amendment, 2026-09-29: more candidates; Qwen3 4B as Q4_0
+
+A second comparison, on a newer `llama.cpp` (b11223), added the small models current in September
+2026 and measured the input changes of the same day: ISDOC read without a model, OCR pages sent
+grayscale at 2000 px, repeated lines trimmed from the prompt (ADR 0020's queue does not affect a
+benchmark). Every row below — and those of 2026-09-28 — is re-scored with the same labels, scoring
+and checks (`--rescore --recheck`), including two label corrections found here: her VAT register
+leaves out rows that carry no VAT (the Grand hotel's "Neobsahuje DPH | 10,00"), and a date the
+text prints only as the due date is now flagged.
+
+| Model | Exact or empty-flagged | Wrong-but-plausible | Amount wrong ∧ arith OK | Median (s) | Worst (s) | Docker mem | Bar |
+|---|---:|---:|---:|---:|---:|---|---|
+| **Qwen3-4B Q4_0** (Unsloth) | **94.9%** | 1.3% | 0 | **36.6** | 48 | 3.5 GiB | **PASS** |
+| Qwen3-4B Q4_K_M | 94.3% | 0.6% | 0 | 44.5 | 63 | 4.1 GiB | PASS |
+| Qwen3-4B Q4_K_M, input not trimmed | 94.3% | 0.6% | 0 | 48.4 | 68 | 3.7 GiB | PASS |
+| Qwen3-4B Q4_K_M, label glossary in the prompt | 93.7% | 1.3% | 0 | 47.8 | 68 | 3.5 GiB | PASS |
+| Gemma-4-E4B QAT Q4_0 | 91.8% | 1.9% | 0 | 37.9 | 47 | 3.3 GiB | PASS |
+| Llama-3.2-3B Q4_K_M | 87.3% | 1.9% | 0 | 33.6 | 44 | 3.0 GiB | FAIL |
+| Gemma-4-E2B QAT Q4_0 | 77.8% | 3.8% | 0 | 21.4 | 30 | 1.8 GiB | FAIL |
+| Qwen3.5-2B Q4_K_M | 77.2% | 1.3% | 0 | 23.4 | 91 | 2.8 GiB | FAIL |
+| Qwen3.5-4B Q4_K_M | 74.7% | 1.9% | 0 | 45.3 | 69 | 3.3 GiB | FAIL |
+
+- **Q4_0 over Q4_K_M.** The same model, as accurate within a field, and 18% faster: `llama.cpp`
+  repacks Q4_0 for ARM's integer kernels, and reading the prompt is over half the time. The node
+  that will run it is slower per core than the M4, so the headroom is the point.
+- **Gemma 4 E4B** also clears the bar and is the fallback if Qwen3 fails on the node.
+- **Qwen3.5** returned no VAT recap on nine of the seventeen documents, with the same prompt and
+  schema; **Nanbeige 4.2 3B** could not be measured — `llama.cpp` cannot build the JSON-schema
+  grammar for its vocabulary ("Failed to initialize samplers"). Qwen3.8's smallest model is 27B,
+  Kimi K3 is 2.8T and GLM's smallest current ones are 9B and a 30B mixture: none fits the node.
+- **Trimming** repeated lines and spelled-out page numbers from the text cuts 5.9% of the tokens and
+  4 s of median time at equal accuracy; it stays.
+- **A glossary of Slovak and Czech field labels** in the prompt fixed the 4B's one silent date error
+  but cost other fields and 215 tokens a document; it was not kept. The date is flagged by the
+  checks instead.
+
+#### Decision
+
+- **Model file:** `Qwen3-4B-Q4_0.gguf` (`npm run benchmark:download-models -- --adopted`), thinking
+  off. `Qwen3-4B-Q4_K_M.gguf` and `gemma-4-E4B_q4_0-it.gguf` also pass.
+- **Deployment:** unchanged — measure the bar on the node before `EXTRACTOR_URL` is set there.
+
+### Note, 2026-09-29: what never reaches the model
+
+- **ISDOC.** Invoicing software such as KROS Omega embeds the invoice as ISDOC data in the PDF it
+  prints. It is read exactly, before any OCR or model; all six of her issued invoices carry one and
+  match what she booked in Omega on every field.
+- **OCR pages** go upright from their EXIF, at most 2000 px, one gray channel, as PNG: a 600 dpi scan
+  went from 181 MB to 0.6 MB of upload and from 3.6 to 2.1 s of OCR, reading as well or better. Pure
+  black and white read worse and is not used. HEIC photos go as JPEG.
+- **A refused request** (4xx) fails its document with the server's reason; only an unreachable or
+  failing server (5xx) makes documents wait.
