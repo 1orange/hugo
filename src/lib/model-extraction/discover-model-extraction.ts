@@ -129,12 +129,3 @@ export async function discoverModelExtractionForMonth(
   });
 }
 
-export function scheduleModelExtractionForMonth(
-  companyId: number,
-  monthKey: string,
-  deps: ModelExtractionDeps,
-): void {
-  void discoverModelExtractionForMonth(companyId, monthKey, deps).catch(() => {
-    // ponytail: month view stays fast; pending count shows work in flight
-  });
-}

@@ -418,12 +418,3 @@ export async function discoverCashPaymentsForMonth(
   }
 }
 
-export function scheduleCashPaymentDiscovery(
-  companyId: number,
-  monthKey: string,
-  deps: CashDiscoveryDeps,
-): void {
-  void discoverCashPaymentsForMonth(companyId, monthKey, deps).catch(() => {
-    // ponytail: month view stays fast; failures surface via extraction state
-  });
-}
