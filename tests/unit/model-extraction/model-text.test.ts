@@ -20,6 +20,9 @@ function pdfAccess(lines: string[], seen: Array<Parameters<PdfAccess["extractTex
       seen.push(options);
       return lines;
     },
+    async extractAttachments() {
+      return [];
+    },
     async extractPageImages() {
       return [PAGE_IMAGE];
     },

@@ -34,6 +34,9 @@ function imageOnlyPdfAccess(pageImages: PdfPageImage[]): PdfAccess {
     async extractTextLines() {
       return [];
     },
+    async extractAttachments() {
+      return [];
+    },
     async extractPageImages() {
       return pageImages;
     },

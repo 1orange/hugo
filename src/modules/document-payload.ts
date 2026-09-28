@@ -65,7 +65,8 @@ import type { ExtractionCheckFlags } from "./extraction-checks";
 
 export type ModelExtractedPayload = {
   kind: "extracted";
-  source?: "model" | "ocr";
+  /** "isdoc": read from the structured invoice embedded in the PDF, not by a model. */
+  source?: "model" | "ocr" | "isdoc";
   parties: DocumentParty[];
   documentNumber: string | null;
   variableSymbol: string | null;

@@ -27,4 +27,8 @@ export type PdfAccess = {
     },
   ): Promise<PdfTextLine[]>;
   extractPageImages(pdfBytes: Uint8Array): Promise<PdfPageImage[]>;
+  /** Files embedded in the PDF, such as the ISDOC invoice Omega attaches. */
+  extractAttachments(pdfBytes: Uint8Array): Promise<PdfAttachment[]>;
 };
+
+export type PdfAttachment = { filename: string; content: Uint8Array };

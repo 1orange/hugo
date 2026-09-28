@@ -78,6 +78,9 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
     async extractTextLines() {
       return lines;
     },
+    async extractAttachments() {
+      return [];
+    },
     async extractPageImages() {
       return [];
     },
@@ -306,6 +309,9 @@ test("the model reads every page of a multi-page invoice, up to the cap", async 
       requestedPages.push(options?.maxPages);
       return options?.maxPages && options.maxPages >= 2 ? [...pageOne, ...pageTwo] : pageOne;
     },
+    async extractAttachments() {
+      return [];
+    },
     async extractPageImages() {
       return [];
     },
@@ -336,4 +342,83 @@ test("the model reads every page of a multi-page invoice, up to the cap", async 
   assert.ok(requestedPages.every((maxPages) => maxPages === 5), `asked for ${requestedPages}`);
   assert.equal(seenLines.length, 1);
   assert.ok(seenLines[0]!.includes(pageTwo[0]!));
+});
+
+// Her Omega invoices embed the invoice as ISDOC data; it is read exactly and
+// the model is never asked.
+test("an invoice that carries its ISDOC is read from it, without the model", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
+  });
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+  saveCompanyProfile(1, {
+    country: "SK",
+    legalName: "Beta s.r.o.",
+    address: "Bratislava",
+    ico: "31333532",
+    dic: "2020311335",
+    icDph: "SK7120001713",
+    registerSource: "fake",
+    savedAt: "2026-01-12T10:00:00.000Z",
+  });
+
+  const xml = `<?xml version="1.0"?>
+<Invoice xmlns="http://isdoc.cz/namespace/2013" version="6.0.2">
+  <DocumentType>1</DocumentType><ID>FA-2026-0042</ID>
+  <IssueDate>2026-01-10</IssueDate><TaxPointDate>2026-01-09</TaxPointDate>
+  <LocalCurrencyCode>EUR</LocalCurrencyCode>
+  <AccountingSupplierParty><Party><PartyIdentification><ID>87654321</ID></PartyIdentification>
+    <PartyName><Name>Dodávateľ s.r.o.</Name></PartyName>
+    <PartyTaxScheme><CompanyID>SK8765432100</CompanyID><TaxScheme>VAT</TaxScheme></PartyTaxScheme></Party></AccountingSupplierParty>
+  <AccountingCustomerParty><Party><PartyIdentification><ID>31333532</ID></PartyIdentification>
+    <PartyName><Name>Beta s.r.o.</Name></PartyName>
+    <PartyTaxScheme><CompanyID>SK7120001713</CompanyID><TaxScheme>VAT</TaxScheme></PartyTaxScheme></Party></AccountingCustomerParty>
+  <TaxTotal><TaxSubTotal><TaxableAmount>26.83</TaxableAmount><TaxAmount>6.17</TaxAmount>
+    <TaxCategory><Percent>23</Percent></TaxCategory></TaxSubTotal></TaxTotal>
+  <LegalMonetaryTotal><TaxInclusiveAmount>33.00</TaxInclusiveAmount></LegalMonetaryTotal>
+  <PaymentMeans><Payment><Details><PaymentDueDate>2026-01-24</PaymentDueDate><VariableSymbol>20260042</VariableSymbol></Details></Payment></PaymentMeans>
+</Invoice>`;
+  const pdfAccess: PdfAccess = {
+    async extractTextLines() {
+      return ["Faktúra FA-2026-0042"];
+    },
+    async extractAttachments() {
+      return [{ filename: "invoice.isdoc", content: new TextEncoder().encode(xml) }];
+    },
+    async extractPageImages() {
+      return [];
+    },
+  };
+  const modelNeverAsked = {
+    async extract(): Promise<never> {
+      throw new Error("the model must not be asked for an ISDOC invoice");
+    },
+  };
+
+  await discoverModelExtractionForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess,
+    ocr: new FakeOcr(),
+    extractor: modelNeverAsked,
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = getDb().select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
+  assert.equal(row.extractionStatus, "complete");
+  const extracted = parseExtractedPayload(row.extractedPayloadJson);
+  assert.equal(isModelExtractedPayload(extracted) && extracted.source, "isdoc");
+
+  const invoice = buildMonthDocumentView(1, "2026_01")!.documents.find(
+    (document) => document.driveFileId === INVOICE_ID,
+  )!;
+  assert.equal(invoice.extractionSource, "isdoc");
+  assert.equal(invoice.fieldEditor.fields.supplierName, "Dodávateľ s.r.o.");
+  assert.equal(invoice.fieldEditor.fields.customerName, "Beta s.r.o.");
+  assert.equal(invoice.fieldEditor.rolesFlagged, false);
 });

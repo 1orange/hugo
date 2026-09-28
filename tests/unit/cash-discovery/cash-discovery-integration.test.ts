@@ -94,6 +94,9 @@ function syntheticPdfAccess(
     async extractTextLines() {
       return lines;
     },
+    async extractAttachments() {
+      return [];
+    },
     async extractPageImages() {
       return pageImages;
     },
@@ -687,6 +690,9 @@ test("a document that crashes is recorded, and the rest of the month is still re
   const pageImage: PdfPageImage = { kind: "rgba", data: new Uint8ClampedArray([0, 0, 0, 255]), width: 1, height: 1 };
   deps.pdfAccess = {
     async extractTextLines() {
+      return [];
+    },
+    async extractAttachments() {
       return [];
     },
     async extractPageImages(bytes) {

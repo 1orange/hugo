@@ -23,6 +23,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.2",
+    "fast-xml-parser": "^5.11.1",
     "heic-convert": "^2.1.0",
     "iconv-lite": "^0.7.3",
     "jpeg-js": "^0.4.4",

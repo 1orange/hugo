@@ -200,6 +200,9 @@ export function summarizeEventPayload(
       if (source === "ocr") {
         return `Spracované údaje pre ${driveFileId} (OCR)`;
       }
+      if (source === "isdoc") {
+        return `Spracované údaje pre ${driveFileId} (ISDOC)`;
+      }
       return `Spracované údaje pre ${driveFileId}`;
     }
     case "EkasaUidEntered": {

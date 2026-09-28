@@ -12,6 +12,7 @@ import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { runExtractionChecks } from "@/modules/extraction-checks";
 import { modelTextForDocument, type ModelTextSource } from "./model-text";
+import { readEmbeddedIsdoc } from "./isdoc-document";
 import { shouldExtractWithModel } from "./should-extract-with-model";
 
 export type ModelExtractionSource = ModelTextSource;
@@ -71,6 +72,9 @@ export async function processModelExtractionFile(
     process.env.E2E_TEST_AUTH === "true"
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
+  if (e2eLines === null && (await extractFromEmbeddedIsdoc(input, deps, now))) {
+    return;
+  }
   const text = await modelTextForDocument({
     mimeType: input.mimeType,
     fileBytes: input.fileBytes,
@@ -105,6 +109,42 @@ export async function processModelExtractionFile(
     { extractor: deps.extractor, now: deps.now },
     now,
   );
+}
+
+/**
+ * An invoice that carries its own ISDOC is read from it — exact, no OCR, no
+ * model. The checks still run, against the XML itself: data can be
+ * inconsistent, but not a hallucination.
+ */
+export async function extractFromEmbeddedIsdoc(
+  input: { companyId: number; monthKey: string; driveFileId: string; fileBytes: Uint8Array },
+  deps: { pdfAccess: PdfAccess },
+  now: string,
+): Promise<boolean> {
+  const isdoc = await readEmbeddedIsdoc(input.fileBytes, deps.pdfAccess);
+  if (!isdoc) {
+    return false;
+  }
+  const profile = getCompanyProfile(input.companyId);
+  const checked = runExtractionChecks({
+    payload: isdoc.payload,
+    sourceTextLines: [isdoc.xml],
+    monthKey: input.monthKey,
+    issuerCountry: profile?.country ?? null,
+  });
+  const payload: ModelExtractedPayload = {
+    ...checked.payload,
+    source: "isdoc",
+    fieldChecks: checked.flags,
+  };
+  writeExtractedPayload(input.driveFileId, payload, "complete", null);
+  appendCompanySystemEvent(now, input.companyId, "Extracted", {
+    monthKey: input.monthKey,
+    driveFileId: input.driveFileId,
+    source: "isdoc",
+    status: "complete",
+  });
+  return true;
 }
 
 async function runModelExtractionOnLines(

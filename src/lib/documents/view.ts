@@ -83,7 +83,7 @@ export type DocumentListItem = {
   derivedStatus: DerivedDocumentStatus;
   extractionFailureReason: string | null;
   hasExtractedData: boolean;
-  extractionSource: EkasaExtractionSource | "model" | "ocr" | null;
+  extractionSource: EkasaExtractionSource | "model" | "ocr" | "isdoc" | null;
   showUidBox: boolean;
   typedEkasaUid: string | null;
   fieldEditor: DocumentFieldEditorView;

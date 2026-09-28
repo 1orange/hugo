@@ -1,5 +1,5 @@
 import { readingOrderPages, type PositionedText } from "../../modules/reading-order";
-import type { PdfAccess, PdfPageImage, PdfTextLine } from "./port";
+import type { PdfAccess, PdfAttachment, PdfPageImage, PdfTextLine } from "./port";
 
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 type PdfPageProxy = Awaited<
@@ -198,6 +198,19 @@ export function createPdfAccess(): PdfAccess {
       }
       // Grouped per page: y-coordinates restart on every page.
       return pages.flatMap((items) => groupTextItemsIntoLines(items));
+    },
+    async extractAttachments(pdfBytes) {
+      const doc = await openDocument(pdfBytes);
+      // pdf.js 6 lists attachments by id and loads each one's bytes on request.
+      const listed = (await doc.getAttachments()) as Map<string, { filename?: string }> | null;
+      const attachments: PdfAttachment[] = [];
+      for (const [id, entry] of listed ?? []) {
+        const content = (await doc.getAttachmentContent(id)) as unknown;
+        if (content instanceof Uint8Array) {
+          attachments.push({ filename: entry.filename ?? id, content });
+        }
+      }
+      return attachments;
     },
     async extractPageImages(pdfBytes) {
       const pdfjs = await loadPdfJs();

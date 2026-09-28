@@ -35,7 +35,10 @@ import { isReceiptImageMimeType } from "./ekasa-qr-extraction";
 import { isProcessedFolderSlot } from "@/modules/document-state";
 import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
-import { processModelExtractionFromLines } from "@/lib/model-extraction/process-model-extraction";
+import {
+  extractFromEmbeddedIsdoc,
+  processModelExtractionFromLines,
+} from "@/lib/model-extraction/process-model-extraction";
 import { extractModelTextLines } from "@/lib/model-extraction/model-text";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 
@@ -209,6 +212,14 @@ export async function processCashReceiptFile(
     process.env.E2E_TEST_AUTH === "true"
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
+  // An invoice filed with the receipts may carry its own ISDOC.
+  if (
+    e2eLines === null &&
+    input.mimeType === "application/pdf" &&
+    (await extractFromEmbeddedIsdoc(input, deps, now))
+  ) {
+    return;
+  }
   const extracted =
     e2eLines !== null
       ? { ok: true as const, lines: e2eLines }
