@@ -28,6 +28,7 @@ export function isExtractorUnreachableError(error: unknown): boolean {
   return (
     message.includes("fetch failed") ||
     message.includes("Extractor HTTP") ||
+    message.includes("Extractor is unreachable") ||
     message.includes("ECONNREFUSED") ||
     message.includes("ENOTFOUND") ||
     message.includes("network")

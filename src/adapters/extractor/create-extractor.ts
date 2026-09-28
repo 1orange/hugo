@@ -2,6 +2,14 @@ import { createHttpExtractor } from "./http-extractor";
 import { createStubExtractor } from "./stub-extractor";
 import type { Extractor } from "./port";
 
+function unconfiguredExtractor(): Extractor {
+  return {
+    async extract() {
+      throw new Error("Extractor is unreachable: EXTRACTOR_URL and EXTRACTOR_MODEL are not set.");
+    },
+  };
+}
+
 export function createExtractor(env: NodeJS.ProcessEnv = process.env): Extractor {
   const mode = env.EXTRACTOR?.trim().toLowerCase();
   if (mode === "stub" || env.DRIVE_CLIENT === "fake") {
@@ -19,7 +27,10 @@ export function createExtractor(env: NodeJS.ProcessEnv = process.env): Extractor
     if (env.NODE_ENV === "production") {
       throw new Error("EXTRACTOR_URL and EXTRACTOR_MODEL are required in production");
     }
-    return createStubExtractor();
+    // Not configured is not the same as "read nothing": the stub marked real
+    // invoices complete with empty fields, and complete documents are never
+    // read again. Behave like a model that is down, so documents wait for one.
+    return unconfiguredExtractor();
   }
 
   return createHttpExtractor({

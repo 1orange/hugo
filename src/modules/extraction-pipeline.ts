@@ -12,8 +12,10 @@
  *     and OCR paths (PRD 0002).
  * 2 — contrast and print-streak QR retries, legal cash rounding, every PDF page
  *     sent to the model.
+ * 3 — an unconfigured model or OCR leaves documents waiting instead of
+ *     stubbing or faking them; what failed on the fake OCR is read again.
  */
-export const EXTRACTION_PIPELINE_VERSION = 2;
+export const EXTRACTION_PIPELINE_VERSION = 3;
 
 export function needsExtraction(
   document:
