@@ -83,6 +83,9 @@ export function DocumentRail({
                     type="button"
                     onClick={() => onSelect(document.id)}
                     data-testid="month-document-row"
+                    data-document-id={document.id}
+                    // The label turns into the supplier once extraction reads it.
+                    title={document.name}
                     aria-current={selected ? "true" : undefined}
                     className={`grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2.5 rounded-md border-l-2 py-2 pl-[7px] pr-2.5 text-left ${
                       selected

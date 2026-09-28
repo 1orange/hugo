@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { documentRow, resetE2eData } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  await resetE2eData(request);
+});
 
 test("document workbench: filter, confirm, dismiss and persist", async ({ page }) => {
   await page.goto("/sign-in");
@@ -17,30 +22,26 @@ test("document workbench: filter, confirm, dismiss and persist", async ({ page }
     "/companies/1/2026_01?folder=" + encodeURIComponent("06 Iné doklady"),
   );
   await expect(
-    page.getByTestId("month-document-row").filter({ hasText: "receipt-photo.jpg" }),
+    documentRow(page, "e2e-doc-photo-jpeg"),
   ).toBeVisible();
   await expect(
-    page.getByTestId("month-document-row").filter({ hasText: "supplier-invoice.pdf" }),
+    documentRow(page, "e2e-doc-supplier"),
   ).toHaveCount(0);
 
   await page.goto("/companies/1/2026_01");
 
   // The decision belongs to the selected document, under its preview.
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "supplier-invoice.pdf" })
+  await documentRow(page, "e2e-doc-supplier")
     .click();
   await page.getByTestId("document-confirm-e2e-doc-supplier").click();
   await expect
     .poll(async () => page.getByTestId("remaining-count").textContent(), {
       timeout: 15_000,
     })
-    .toMatch(/3 doklady čakajú/);
+    .toMatch(/4 doklady čakajú/);
   await expect(page.getByTestId("decision-chip")).toContainText("Potvrdené");
 
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "IMG_3475.HEIC" })
+  await documentRow(page, "e2e-doc-photo-heic")
     .click();
   await page.getByTestId("document-dismiss-e2e-doc-photo-heic").click();
   await page.getByTestId("dismiss-reason-e2e-doc-photo-heic").fill("Duplicitná fotka");
@@ -49,17 +50,15 @@ test("document workbench: filter, confirm, dismiss and persist", async ({ page }
     .poll(async () => page.getByTestId("remaining-count").textContent(), {
       timeout: 15_000,
     })
-    .toMatch(/2 doklady čakajú/);
+    .toMatch(/3 doklady čakajú/);
 
   await page.reload();
-  await expect(page.getByTestId("remaining-count")).toContainText("2 doklady čakajú");
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "supplier-invoice.pdf" })
+  await expect(page.getByTestId("remaining-count")).toContainText("3 doklady čakajú");
+  await documentRow(page, "e2e-doc-supplier")
     .click();
   await expect(page.getByTestId("decision-chip")).toContainText("Potvrdené");
   await expect(
-    page.getByTestId("month-document-row").filter({ hasText: "IMG_3475.HEIC" }),
+    documentRow(page, "e2e-doc-photo-heic"),
   ).toContainText("Duplicitná fotka");
 });
 
@@ -73,9 +72,7 @@ test("keyboard confirms the selected document without touching the list", async 
   await page.goto("/companies/1/2026_01");
   await expect(page.getByTestId("document-panel")).toBeVisible();
 
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "receipt-photo.jpg" })
+  await documentRow(page, "e2e-doc-photo-jpeg")
     .click();
 
   // Counted rather than asserted absolutely: the seed is shared across specs,
@@ -102,20 +99,16 @@ test("document preview shows PDF and HEIC", async ({ page }) => {
   await page.goto("/companies/1/2026_01");
   await expect(page.getByTestId("document-panel")).toBeVisible();
   await expect(
-    page.getByTestId("month-document-row").filter({ hasText: "supplier-invoice.pdf" }),
+    documentRow(page, "e2e-doc-supplier"),
   ).toBeVisible({ timeout: 10_000 });
 
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "supplier-invoice.pdf" })
+  await documentRow(page, "e2e-doc-supplier")
     .click();
   await expect(page.locator('[data-testid="preview-pane"] iframe')).toBeVisible({
     timeout: 10_000,
   });
 
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "IMG_3475.HEIC" })
+  await documentRow(page, "e2e-doc-photo-heic")
     .click();
   await expect(page.getByTestId("image-preview")).toBeVisible();
 });

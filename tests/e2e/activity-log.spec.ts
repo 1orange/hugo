@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { resetE2eData } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  await resetE2eData(request);
+});
 
 test("company activity log lists sweep discoveries", async ({ page }) => {
   await page.goto("/sign-in");

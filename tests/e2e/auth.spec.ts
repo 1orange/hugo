@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { documentRow, resetE2eData } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  await resetE2eData(request);
+});
 
 test("allowlisted sign-in reaches the chase list", async ({ page }) => {
   await page.goto("/sign-in");
@@ -14,8 +19,12 @@ test("allowlisted sign-in reaches the chase list", async ({ page }) => {
   await expect(page.getByTestId("company-stage-1")).toContainText(
     "Vypýtať bankový výpis",
   );
-  await expect(page.getByText("január 2026")).toBeVisible();
-  await expect(page.getByTestId("company-awaiting-1")).toContainText("4");
+  // Both seeded companies show a month; this one is company 1's.
+  await expect(
+    page.getByRole("row").filter({ has: page.getByTestId("company-1") }).getByText("január 2026"),
+  ).toBeVisible();
+  // Five: the blank receipt for the UID-box spec joined the fixture.
+  await expect(page.getByTestId("company-awaiting-1")).toContainText("5");
   await expect(page.getByTestId("last-sweep-at")).toContainText("Drive načítaný");
 });
 
@@ -53,7 +62,7 @@ test("the workbench filters by folder and surfaces VAT outputs read-only", async
     page.getByTestId("folder-filter").filter({ hasText: "02" }),
   ).toBeVisible();
   await expect(
-    page.getByTestId("month-document-row").filter({ hasText: "supplier-invoice.pdf" }),
+    documentRow(page, "e2e-doc-supplier"),
   ).toBeVisible();
 
   // VAT outputs live at the month root and are never documents.

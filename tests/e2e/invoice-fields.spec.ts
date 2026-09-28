@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { documentRow, resetE2eData, setUpCompanyOneProfile } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  await resetE2eData(request);
+});
 
 test("invoice with both parties persists and matches company profile", async ({ page }) => {
   await page.goto("/sign-in");
@@ -6,16 +11,10 @@ test("invoice with both parties persists and matches company profile", async ({ 
   await page.getByTestId("e2e-submit").click();
   await expect(page).toHaveURL(/\/companies$/);
 
-  await page.getByTestId("company-profile-setup-1").click();
-  await page.getByTestId("profile-candidate-31333532").click();
-  await page.getByTestId("profile-ic-dph").fill("SK7120001713");
-  await page.getByTestId("profile-save").click();
-  await expect(page).toHaveURL(/saved=1/, { timeout: 15_000 });
+  await setUpCompanyOneProfile(page);
 
   await page.goto("/companies/1/2026_01");
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "supplier-invoice.pdf" })
+  await documentRow(page, "e2e-doc-supplier")
     .click();
 
   await page.getByTestId("field-supplier-name").fill("Dodávateľ s.r.o.");
@@ -33,9 +32,7 @@ test("invoice with both parties persists and matches company profile", async ({ 
   await expect(page.getByTestId("party-roles-flagged")).toHaveCount(0);
 
   await page.reload();
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "supplier-invoice.pdf" })
+  await documentRow(page, "e2e-doc-supplier")
     .click();
 
   await expect(page.getByTestId("field-supplier-name")).toHaveValue("Dodávateľ s.r.o.");

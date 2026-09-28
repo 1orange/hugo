@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { documentRow, resetE2eData } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  await resetE2eData(request);
+});
 import { E2E_RESOLVABLE_EKASA_UID } from "../../src/adapters/ekasa-lookup/e2e-fake-ekasa-lookup.ts";
 
 test("UID box loads receipt from fake lookup and persists", async ({ page }) => {
@@ -10,9 +15,7 @@ test("UID box loads receipt from fake lookup and persists", async ({ page }) => 
   await page.goto("/companies/1/2026_01");
   await expect(page.getByTestId("document-panel")).toBeVisible();
 
-  await page
-    .getByTestId("month-document-row")
-    .filter({ hasText: "blank-receipt.pdf" })
+  await documentRow(page, "e2e-doc-blank-receipt")
     .click();
 
   await expect(page.getByTestId("ekasa-uid-box")).toBeVisible();

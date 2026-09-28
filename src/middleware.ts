@@ -15,6 +15,16 @@ function isPublicPath(pathname: string): boolean {
     return true;
   }
 
+  // Playwright resets the e2e database before signing in; the route itself
+  // also refuses to exist without the flag.
+  if (
+    pathname === "/api/e2e/reset" &&
+    process.env.E2E_TEST_AUTH === "true" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    return true;
+  }
+
   return pathname.startsWith("/api/auth/");
 }
 

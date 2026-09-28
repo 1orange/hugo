@@ -1,7 +1,7 @@
 import { FakeDriveClient } from "@/adapters/drive/fake-drive-client";
 import { loadGoogleDriveClientFromEnv } from "@/adapters/drive/google-drive-client";
 import type { DriveClient } from "@/adapters/drive/port";
-import { e2eDriveFixture } from "@/adapters/drive/e2e-fixture";
+import { e2eDriveFileContents, e2eDriveFixture } from "@/adapters/drive/e2e-fixture";
 import type { DriveFileRecord } from "@/modules/drive-tree";
 
 export function createDriveClient(
@@ -20,7 +20,7 @@ export function createDriveClient(
     if (fixture) {
       return new FakeDriveClient(JSON.parse(fixture) as DriveFileRecord[]);
     }
-    return new FakeDriveClient(e2eDriveFixture());
+    return new FakeDriveClient(e2eDriveFixture(), e2eDriveFileContents());
   }
 
   return loadGoogleDriveClientFromEnv(env);

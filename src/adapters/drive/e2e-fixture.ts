@@ -128,3 +128,20 @@ export function e2eDriveFixture(): DriveFileRecord[] {
 }
 
 export const E2E_DRIVE_PARENT_FOLDER_ID = PARENT_ID;
+
+/**
+ * What the fixture's files contain. The e2e server must be able to download
+ * them: without contents every download threw, so discovery never read an
+ * e2e document and the stub extractor never ran.
+ */
+export function e2eDriveFileContents(): Record<string, Uint8Array> {
+  return {
+    "e2e-doc-supplier": new Uint8Array(Buffer.from("%PDF-1.4 supplier")),
+    "e2e-doc-receipt": new Uint8Array(Buffer.from("%PDF-1.4 receipt")),
+    "e2e-doc-blank-receipt": new Uint8Array(Buffer.from("%PDF-1.4 blank")),
+    "e2e-doc-cz-receipt": new Uint8Array(Buffer.from("%PDF-1.4 cz receipt")),
+    "e2e-doc-vat": new Uint8Array(Buffer.from("%PDF-1.4 vat")),
+    "e2e-doc-photo-jpeg": new Uint8Array(Buffer.from("jpeg-bytes")),
+    "e2e-doc-photo-heic": new Uint8Array(Buffer.from("heic-bytes")),
+  };
+}
