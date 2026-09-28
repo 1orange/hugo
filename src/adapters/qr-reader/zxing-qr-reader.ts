@@ -1,7 +1,9 @@
 import type { ReaderOptions } from "zxing-wasm/reader";
 
-import type { QrDecodeInput, QrRasterImage, QrReader } from "./port";
+import type { QrDecodeInput, QrRasterImage, QrReadOptions, QrReader } from "./port";
 import { stretchRasterContrast } from "@/modules/raster-contrast";
+import { closeLightStreaks } from "@/modules/raster-streaks";
+import { jpegToRaster } from "@/adapters/image/jpeg-to-raster";
 
 const QR_READER_OPTIONS: ReaderOptions = {
   formats: ["QRCode"],
@@ -70,28 +72,49 @@ function asImageData(image: QrRasterImage): ImageData {
   } as unknown as ImageData;
 }
 
+/**
+ * Cleaned-up copies of a raster the first decode could not read, cheapest and
+ * most often useful first. Generated lazily: most documents decode at once and
+ * never pay for any of these.
+ */
+function* retryRasters(image: QrRasterImage): Generator<QrRasterImage> {
+  // Faint thermal paper (nákup PHL).
+  const stretched = stretchRasterContrast(image);
+  if (stretched) {
+    yield stretched;
+  }
+  // Print-head streaks (IMG_3440); their direction depends on the photo.
+  for (const width of [3, 5]) {
+    yield closeLightStreaks(image, { across: "x", width });
+    yield closeLightStreaks(image, { across: "y", width });
+  }
+  if (image.width > 1 || image.height > 1) {
+    yield scaleRgba(image, 0.5);
+  }
+}
+
 export function createZxingQrReader(): QrReader {
   return {
-    async readAllCodes(input: QrDecodeInput): Promise<string[]> {
+    async readAllCodes(input: QrDecodeInput, options: QrReadOptions = {}): Promise<string[]> {
+      const satisfied = options.until ?? ((codes) => codes.length > 0);
       const first = await decodeOnce(input);
-      if (first.length > 0) {
+      if (satisfied(first)) {
         return first;
       }
-      if (input.kind !== "rgba") {
+      const raster = input.kind === "rgba" ? input.image : jpegToRaster(input.bytes);
+      if (!raster) {
         return first;
       }
-      if (input.image.width <= 1 && input.image.height <= 1) {
-        return first;
-      }
-      const stretched = stretchRasterContrast(input.image);
-      if (stretched) {
-        const fromStretched = await decodeOnce({ kind: "rgba", image: stretched });
-        if (fromStretched.length > 0) {
-          return fromStretched;
+      // Whatever a cleaned-up copy reads, keep the codes the original read too.
+      const found = new Set(first);
+      for (const retry of retryRasters(raster)) {
+        const codes = await decodeOnce({ kind: "rgba", image: retry });
+        codes.forEach((code) => found.add(code));
+        if (satisfied([...found])) {
+          break;
         }
       }
-      const scaled = scaleRgba(input.image, 0.5);
-      return decodeOnce({ kind: "rgba", image: scaled });
+      return [...found];
     },
   };
 }

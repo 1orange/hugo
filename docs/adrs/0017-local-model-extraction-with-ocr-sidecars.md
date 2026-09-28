@@ -271,3 +271,10 @@ The arithmetic check accepts a total that is exactly the legal cash rounding of 
 document's currency — 5 cents in EUR, a whole koruna in CZK — and nothing else. A Czech cash receipt
 of 99.60 paid as 100 Kč is therefore correct, not flagged. The rule and its reasoning are in ADR
 0016's amendment of the same date.
+
+### Note, 2026-09-27: the model reads every page, up to five
+
+The model received only a PDF's first page, because it shared the eKasa parser's text extraction. It
+now gets pages 1–5 — the O2 invoice grows from 45 to 75 lines — including an invoice filed with the
+receipts that falls through to the model. The cap bounds CPU time on long itemisations, which the
+export never needs; every invoice in the corpus fits.

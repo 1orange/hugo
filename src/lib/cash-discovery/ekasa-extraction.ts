@@ -1,7 +1,10 @@
 import type { EkasaLookup } from "@/adapters/ekasa-lookup/port";
 import type { PdfAccess } from "@/adapters/pdf/port";
 import type { QrReader } from "@/adapters/qr-reader/port";
-import { findEkasaUidInLines } from "@/modules/ekasa-identifiers";
+import {
+  findEkasaUidInLines,
+  listEkasaUidsFromQrPayloads,
+} from "@/modules/ekasa-identifiers";
 import {
   findEkasaUidFromQrPayloads,
   isReceiptImageMimeType,
@@ -75,7 +78,15 @@ export type EkasaExtractionFailure = {
   qrDecodedUid?: string;
 };
 
-export type EkasaExtractionResult = EkasaExtractionSuccess | EkasaExtractionFailure;
+/** A further receipt found in the same file; it becomes a document of its own. */
+export type OtherReceipt = {
+  uid: string;
+  result: EkasaExtractionSuccess | EkasaExtractionFailure;
+};
+
+export type EkasaExtractionResult = (EkasaExtractionSuccess | EkasaExtractionFailure) & {
+  otherReceipts?: OtherReceipt[];
+};
 
 async function extractEkasaWithUid(input: {
   uid: string;
@@ -178,6 +189,10 @@ export async function extractEkasaForReceipt(input: {
   qrReader: QrReader;
   ekasaLookup: EkasaLookup;
   cachedOpdResponse?: unknown;
+  /** The UID the file's own document already holds, kept on a re-read. */
+  preferredUid?: string | null;
+  /** Recorded OPD responses of the file's other receipts, by UID. */
+  cachedOpdResponsesByUid?: Record<string, unknown>;
 }): Promise<EkasaExtractionResult> {
   const textResult = await extractEkasaFromTextLines({
     lines: input.lines,
@@ -210,25 +225,39 @@ export async function extractEkasaForReceipt(input: {
           input.qrReader,
         );
 
-  const uidFromQr = await findEkasaUidFromQrPayloads(qrPayloads);
-  if (uidFromQr.ok) {
+  // One document per receipt: a scan of several receipts yields several UIDs.
+  const uids = listEkasaUidsFromQrPayloads(qrPayloads);
+  if (uids.length > 0) {
+    const preferred = input.preferredUid?.trim().toUpperCase();
+    const primaryUid = preferred && uids.includes(preferred) ? preferred : uids[0]!;
     const fromQr = await extractEkasaWithUid({
-      uid: uidFromQr.uid,
+      uid: primaryUid,
       lines: input.lines,
       ekasaLookup: input.ekasaLookup,
       cachedOpdResponse: input.cachedOpdResponse,
     });
-    if (fromQr.ok) {
-      return fromQr;
+    const otherReceipts: OtherReceipt[] = [];
+    for (const uid of uids.filter((candidate) => candidate !== primaryUid)) {
+      otherReceipts.push({
+        uid,
+        result: await extractEkasaWithUid({
+          uid,
+          // The text layer, if any, belongs to the file's first receipt.
+          lines: [],
+          ekasaLookup: input.ekasaLookup,
+          cachedOpdResponse: input.cachedOpdResponsesByUid?.[uid],
+        }),
+      });
     }
-    return { ...fromQr, qrDecodedUid: uidFromQr.uid };
-  }
-  if (uidFromQr.reason.includes("Multiple different")) {
-    return { ok: false, reason: uidFromQr.reason };
+    return fromQr.ok
+      ? { ...fromQr, otherReceipts }
+      : { ...fromQr, qrDecodedUid: primaryUid, otherReceipts };
   }
 
+  const noCode = await findEkasaUidFromQrPayloads(qrPayloads);
+  const noCodeReason = noCode.ok ? textResult.reason : noCode.reason;
   if (!input.hadTextLayer || input.lines.length === 0) {
-    return { ok: false, reason: uidFromQr.reason };
+    return { ok: false, reason: noCodeReason };
   }
 
   return textResult;

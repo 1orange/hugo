@@ -20,7 +20,10 @@ async function openDocument(
 ): Promise<import("pdfjs-dist/types/src/display/api").PDFDocumentProxy> {
   const pdfjs = await loadPdfJs();
   return pdfjs.getDocument({
-    data: pdfBytes,
+    // pdf.js transfers the buffer it is given and leaves the caller's empty,
+    // so every read gets its own copy: a scan is read for its text layer and
+    // then again for its page images.
+    data: pdfBytes.slice(),
     password,
     useSystemFonts: true,
   }).promise;
@@ -148,16 +151,27 @@ export function createPdfAccess(): PdfAccess {
   return {
     async extractTextLines(pdfBytes, options) {
       const doc = await openDocument(pdfBytes, options?.password);
-      const pageNumber = options?.pageNumber ?? 1;
-      const page = await doc.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const textItems: Array<{ str: string; transform: number[] }> = [];
-      for (const item of content.items) {
-        if ("str" in item) {
-          textItems.push({ str: item.str, transform: item.transform });
+      const pageNumbers =
+        options?.maxPages !== undefined
+          ? Array.from(
+              { length: Math.min(doc.numPages, Math.max(1, options.maxPages)) },
+              (_, index) => index + 1,
+            )
+          : [options?.pageNumber ?? 1];
+      const lines: PdfTextLine[] = [];
+      for (const pageNumber of pageNumbers) {
+        const page = await doc.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const textItems: Array<{ str: string; transform: number[] }> = [];
+        for (const item of content.items) {
+          if ("str" in item) {
+            textItems.push({ str: item.str, transform: item.transform });
+          }
         }
+        // Grouped per page: y-coordinates restart on every page.
+        lines.push(...groupTextItemsIntoLines(textItems));
       }
-      return groupTextItemsIntoLines(textItems);
+      return lines;
     },
     async extractPageImages(pdfBytes) {
       const pdfjs = await loadPdfJs();

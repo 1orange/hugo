@@ -183,6 +183,7 @@ test("re-extraction rewrites extracted payload but keeps confirmed fields", asyn
     .run();
   db.insert(documents)
     .values({
+      id: INVOICE_ID,
       driveFileId: INVOICE_ID,
       companyId: 1,
       monthKey: "2026_01",
@@ -255,6 +256,7 @@ test("unreachable extractor leaves document pending", async () => {
     .run();
   db.insert(documents)
     .values({
+      id: INVOICE_ID,
       driveFileId: INVOICE_ID,
       companyId: 1,
       monthKey: "2026_01",
@@ -286,4 +288,52 @@ test("unreachable extractor leaves document pending", async () => {
 
   const row = db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
   assert.equal(row.extractionStatus, "pending");
+});
+
+// Until 2026-09-27 the model saw only page 1; an invoice whose VAT summary
+// sits on a later page lost it.
+test("the model reads every page of a multi-page invoice, up to the cap", async () => {
+  const dbPath = tempDbPath();
+  process.env.DATABASE_PATH = dbPath;
+  resetDbForTests();
+  runMigrations(dbPath);
+
+  const pageOne = stubTextLinesForDriveFile(INVOICE_ID)!;
+  const pageTwo = ["Rekapitulácia DPH | 23 % | 100,00 | 23,00"];
+  const requestedPages: Array<number | undefined> = [];
+  const twoPagePdf: PdfAccess = {
+    async extractTextLines(_bytes, options) {
+      requestedPages.push(options?.maxPages);
+      return options?.maxPages && options.maxPages >= 2 ? [...pageOne, ...pageTwo] : pageOne;
+    },
+    async extractPageImages() {
+      return [];
+    },
+  };
+  const seenLines: string[][] = [];
+  const stub = createStubExtractor();
+  const recordingExtractor = {
+    async extract(input: Parameters<typeof stub.extract>[0]) {
+      seenLines.push([...input.textLines]);
+      return stub.extract(input);
+    },
+  };
+
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
+  });
+  setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+
+  await discoverModelExtractionForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess: twoPagePdf,
+    ocr: new FakeOcr(),
+    extractor: recordingExtractor,
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  assert.ok(requestedPages.every((maxPages) => maxPages === 5), `asked for ${requestedPages}`);
+  assert.equal(seenLines.length, 1);
+  assert.ok(seenLines[0]!.includes(pageTwo[0]!));
 });

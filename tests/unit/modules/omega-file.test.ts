@@ -14,7 +14,7 @@ function decode1250(bytes: Buffer): string {
 
 function sampleInvoice(partial: Partial<OmegaInvoiceDraft> = {}): OmegaInvoiceDraft {
   return {
-    driveFileId: "inv-1",
+    documentId: "inv-1",
     exportNumber: "H2605-0001",
     docType: 0,
     variableSymbol: "2026075",
@@ -183,7 +183,7 @@ test("partner name is shortened but ICO holds back when too long", () => {
 test("buildOmegaFileBytes appends T00 after T01 for receipts", () => {
   const invoice = sampleInvoice();
   const receipt = {
-    driveFileId: "rcpt-1",
+    documentId: "rcpt-1",
     exportNumber: "H2605-0002",
     docTypeCode: 180,
     evidenceCode: "IDk",
@@ -232,7 +232,7 @@ const T00_ROUNDING_COLUMN = 28;
 
 function cashReceipt(totalCents: number, currency = "EUR") {
   return {
-    driveFileId: "rcpt-cash",
+    documentId: "rcpt-cash",
     exportNumber: "H2605-0003",
     docTypeCode: 180,
     evidenceCode: "IDk",

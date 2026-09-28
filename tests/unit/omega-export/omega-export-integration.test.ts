@@ -41,6 +41,7 @@ function seedFile(db: ReturnType<typeof getDb>, input: {
     .run();
   db.insert(documents)
     .values({
+      id: input.driveFileId,
       driveFileId: input.driveFileId,
       companyId: input.companyId,
       monthKey: input.monthKey,
@@ -127,7 +128,7 @@ test("month export includes confirmed invoices only and keeps export numbers", a
   saveDocumentFields({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "inv-confirmed",
+    documentId: "inv-confirmed",
     fields: fieldInput({
       customerName: "Beta s.r.o.",
       customerIco: "31333532",
@@ -143,21 +144,21 @@ test("month export includes confirmed invoices only and keeps export numbers", a
   confirmDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "inv-confirmed",
+    documentId: "inv-confirmed",
     confirmed: true,
   });
 
   dismissDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "inv-dismissed",
+    documentId: "inv-dismissed",
     reason: "already in Omega",
   });
 
   saveDocumentFields({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "inv-held",
+    documentId: "inv-held",
     fields: fieldInput({
       supplierName: "Long Vendor",
       ico: "87654321",
@@ -171,7 +172,7 @@ test("month export includes confirmed invoices only and keeps export numbers", a
   confirmDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "inv-held",
+    documentId: "inv-held",
     confirmed: true,
   });
 
@@ -298,7 +299,7 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   saveDocumentFields({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "ekasa-rcpt",
+    documentId: "ekasa-rcpt",
     fields: fieldInput({
       supplierName: "Pumpa s.r.o.",
       ico: "12345678",
@@ -311,14 +312,14 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   confirmDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "ekasa-rcpt",
+    documentId: "ekasa-rcpt",
     confirmed: true,
   });
 
   saveDocumentFields({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "typed-rcpt",
+    documentId: "typed-rcpt",
     fields: fieldInput({
       supplierName: "Hotovost",
       ico: "87654321",
@@ -331,14 +332,14 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   confirmDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "typed-rcpt",
+    documentId: "typed-rcpt",
     confirmed: true,
   });
 
   saveDocumentFields({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "bolt-inv",
+    documentId: "bolt-inv",
     fields: fieldInput({
       supplierName: "Bolt",
       ico: "31333532",
@@ -352,7 +353,7 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   confirmDocument({
     companyId,
     monthKey: "2026_05",
-    driveFileId: "bolt-inv",
+    documentId: "bolt-inv",
     confirmed: true,
   });
 

@@ -14,8 +14,8 @@ type DocumentRailProps = {
   folderFilter: string | null;
   totalCount: number;
   readOnlyFiles: ReadOnlyFile[];
-  selectedDriveFileId: string | null;
-  onSelect: (driveFileId: string) => void;
+  selectedDocumentId: string | null;
+  onSelect: (documentId: string) => void;
   basePath: string;
 };
 
@@ -30,7 +30,7 @@ export function DocumentRail({
   folderFilter,
   totalCount,
   readOnlyFiles,
-  selectedDriveFileId,
+  selectedDocumentId,
   onSelect,
   basePath,
 }: DocumentRailProps) {
@@ -74,14 +74,14 @@ export function DocumentRail({
         ) : (
           <ul className="flex flex-col gap-0.5">
             {documents.map((document) => {
-              const selected = document.driveFileId === selectedDriveFileId;
+              const selected = document.id === selectedDocumentId;
               const dismissed = document.decision === "not_relevant";
 
               return (
-                <li key={document.driveFileId}>
+                <li key={document.id}>
                   <button
                     type="button"
-                    onClick={() => onSelect(document.driveFileId)}
+                    onClick={() => onSelect(document.id)}
                     data-testid="month-document-row"
                     aria-current={selected ? "true" : undefined}
                     className={`grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2.5 rounded-md border-l-2 py-2 pl-[7px] pr-2.5 text-left ${
@@ -101,10 +101,18 @@ export function DocumentRail({
                       </span>
                       <span className="block truncate font-mono text-[11px] text-ink-3">
                         {document.folderSlot}
+                        {document.receiptOfFile
+                          ? ` · bloček ${document.receiptOfFile.index} z ${document.receiptOfFile.count}`
+                          : ""}
                         {document.receiptDisplay !== "—"
                           ? ` · ${document.receiptDisplay}`
                           : ""}
                       </span>
+                      {document.sameReceiptAs.length > 0 && document.decision === null ? (
+                        <span className="block truncate text-[11px] text-warn">
+                          Rovnaký bloček aj v {document.sameReceiptAs[0]!.fileName}
+                        </span>
+                      ) : null}
                       {document.decision === null &&
                       document.derivedStatus.kind !== "awaiting-decision" ? (
                         <span

@@ -26,6 +26,7 @@ function file(
   createdTime: string,
 ) {
   return {
+    id: driveFileId,
     driveFileId,
     companyId,
     monthKey,
@@ -47,6 +48,7 @@ function document_(
   decision: string | null,
 ) {
   return {
+    id: driveFileId,
     driveFileId,
     companyId,
     monthKey,

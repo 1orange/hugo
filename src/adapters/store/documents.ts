@@ -10,9 +10,16 @@ import {
   type ExtractedPayload,
 } from "@/modules/document-payload";
 import { isProcessedFolderSlot } from "@/modules/document-state";
+import {
+  EXTRACTION_PIPELINE_VERSION,
+  needsExtraction,
+} from "@/modules/extraction-pipeline";
 
 export type DocumentRow = {
+  /** The document's own key: its file's ID, or `<file>#<UID>` for extra receipts. */
+  id: string;
   driveFileId: string;
+  receiptUid: string | null;
   companyId: number;
   monthKey: string;
   folderSlot: string;
@@ -21,6 +28,7 @@ export type DocumentRow = {
   decidedAt: string | null;
   extractionStatus: string;
   extractionFailureReason: string | null;
+  extractionPipelineVersion: number | null;
   extractedPayloadJson: string;
   confirmedPayloadJson: string;
   note: string | null;
@@ -32,13 +40,28 @@ export type DocumentRow = {
 
 export type ExtractionStatus = "pending" | "complete" | "failed";
 
-export function getDocument(driveFileId: string): DocumentRow | undefined {
+export function getDocument(documentId: string): DocumentRow | undefined {
+  const db = getDb();
+  return db
+    .select()
+    .from(documents)
+    .where(eq(documents.id, documentId))
+    .get();
+}
+
+/** Every document read out of one file: its own, then any further receipts. */
+export function listDocumentsForFile(driveFileId: string): DocumentRow[] {
   const db = getDb();
   return db
     .select()
     .from(documents)
     .where(eq(documents.driveFileId, driveFileId))
-    .get();
+    .all()
+    .sort((left, right) => {
+      if (left.id === driveFileId) return -1;
+      if (right.id === driveFileId) return 1;
+      return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+    });
 }
 
 export function listDocumentsForMonth(
@@ -53,6 +76,11 @@ export function listDocumentsForMonth(
       and(eq(documents.companyId, companyId), eq(documents.monthKey, monthKey)),
     )
     .all();
+}
+
+export function listDocumentsForCompany(companyId: number): DocumentRow[] {
+  const db = getDb();
+  return db.select().from(documents).where(eq(documents.companyId, companyId)).all();
 }
 
 export function countAwaitingDecision(
@@ -112,6 +140,7 @@ export function ensureDocumentsForMonth(
     const existing = getDocument(file.driveFileId);
     if (existing) {
       if (existing.folderSlot !== folderSlot) {
+        // Every receipt read out of the file moves with it.
         db.update(documents)
           .set({ folderSlot })
           .where(eq(documents.driveFileId, file.driveFileId))
@@ -123,6 +152,7 @@ export function ensureDocumentsForMonth(
     const result = db
       .insert(documents)
       .values({
+        id: file.driveFileId,
         driveFileId: file.driveFileId,
         companyId,
         monthKey,
@@ -142,7 +172,7 @@ export function ensureDocumentsForMonth(
 }
 
 export function setDocumentDecision(
-  driveFileId: string,
+  documentId: string,
   decision: "confirmed" | "not_relevant" | null,
   input: {
     decidedAt: string | null;
@@ -157,24 +187,24 @@ export function setDocumentDecision(
       notRelevantReason:
         decision === "not_relevant" ? (input.notRelevantReason ?? null) : null,
     })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
-  return getDocument(driveFileId);
+  return getDocument(documentId);
 }
 
 export function updateDocumentNote(
-  driveFileId: string,
+  documentId: string,
   note: string | null,
 ): void {
   const db = getDb();
   db.update(documents)
     .set({ note })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
 }
 
 export function setExtractionStatus(
-  driveFileId: string,
+  documentId: string,
   status: ExtractionStatus,
   failureReason: string | null,
 ): void {
@@ -184,12 +214,12 @@ export function setExtractionStatus(
       extractionStatus: status,
       extractionFailureReason: failureReason,
     })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
 }
 
 export function writeExtractedPayload(
-  driveFileId: string,
+  documentId: string,
   payload: ExtractedPayload,
   status: ExtractionStatus,
   failureReason: string | null,
@@ -201,67 +231,77 @@ export function writeExtractedPayload(
       extractionStatus: status,
       extractionFailureReason: failureReason,
     })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
-  return getDocument(driveFileId);
+  return getDocument(documentId);
 }
 
 export function writeConfirmedPayload(
-  driveFileId: string,
+  documentId: string,
   payload: ConfirmedPayload,
 ): DocumentRow | undefined {
   const db = getDb();
   db.update(documents)
     .set({ confirmedPayloadJson: serializeConfirmedPayload(payload) })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
-  return getDocument(driveFileId);
+  return getDocument(documentId);
 }
 
 export function upsertEkasaExtractedPayload(input: {
+  /** Defaults to the file's own document. */
+  documentId?: string;
   driveFileId: string;
+  /** Set for an extra receipt of a multi-receipt file. */
+  receiptUid?: string | null;
   companyId: number;
   monthKey: string;
   folderSlot: string;
-  payload: EkasaExtractedPayload;
+  payload: EkasaExtractedPayload | ExtractedPayload;
   extractionStatus: ExtractionStatus;
   extractionFailureReason: string | null;
   createdAt: string;
 }): DocumentRow {
   const db = getDb();
   const serialized = serializeExtractedPayload(input.payload);
+  const documentId = input.documentId ?? input.driveFileId;
   db.insert(documents)
     .values({
+      id: documentId,
       driveFileId: input.driveFileId,
+      receiptUid: input.receiptUid ?? null,
       companyId: input.companyId,
       monthKey: input.monthKey,
       folderSlot: input.folderSlot,
       extractionStatus: input.extractionStatus,
       extractionFailureReason: input.extractionFailureReason,
+      extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
       extractedPayloadJson: serialized,
       confirmedPayloadJson: "{}",
       createdAt: input.createdAt,
     })
     .onConflictDoUpdate({
-      target: documents.driveFileId,
+      target: documents.id,
       set: {
         folderSlot: input.folderSlot,
         extractedPayloadJson: serialized,
         extractionStatus: input.extractionStatus,
         extractionFailureReason: input.extractionFailureReason,
+        extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
       },
     })
     .run();
-  return getDocument(input.driveFileId)!;
+  return getDocument(documentId)!;
 }
 
 export function listPendingExtractionForMonth(
   companyId: number,
   monthKey: string,
-): Array<{ driveFileId: string; extractionFailureReason: string | null }> {
+): Array<{ documentId: string; driveFileId: string; extractionFailureReason: string | null }> {
   const db = getDb();
   return db
     .select({
+      documentId: documents.id,
       driveFileId: documents.driveFileId,
       extractionFailureReason: documents.extractionFailureReason,
     })
@@ -276,9 +316,30 @@ export function listPendingExtractionForMonth(
     .all();
 }
 
-export function extractionAlreadyAttempted(driveFileId: string): boolean {
-  const document = getDocument(driveFileId);
-  return document !== undefined && document.extractionStatus !== "pending";
+export function extractionAlreadyAttempted(documentId: string): boolean {
+  return !needsExtraction(getDocument(documentId));
+}
+
+/**
+ * One unreadable file must not abandon the rest of the month: the error is
+ * recorded on its document, where she sees it, and discovery moves on.
+ */
+export function recordExtractionCrash(documentId: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  writeExtractedPayload(documentId, {}, "failed", `Reading the document failed: ${message}`);
+}
+
+/** Marks a document as being read now, by the current pipeline. */
+export function beginExtractionAttempt(documentId: string): void {
+  const db = getDb();
+  db.update(documents)
+    .set({
+      extractionStatus: "pending",
+      extractionFailureReason: null,
+      extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+    })
+    .where(eq(documents.id, documentId))
+    .run();
 }
 
 export function listExportNumbersForCompany(companyId: number): string[] {
@@ -294,29 +355,29 @@ export function listExportNumbersForCompany(companyId: number): string[] {
 }
 
 export function setDocumentExportNumber(
-  driveFileId: string,
+  documentId: string,
   exportNumber: string,
 ): void {
   const db = getDb();
   db.update(documents)
     .set({ exportNumber })
-    .where(eq(documents.driveFileId, driveFileId))
+    .where(eq(documents.id, documentId))
     .run();
 }
 
 export function markDocumentsExported(input: {
-  driveFileIds: readonly string[];
+  documentIds: readonly string[];
   exportedAt: string;
   exportBatch: string;
 }): void {
   const db = getDb();
-  for (const driveFileId of input.driveFileIds) {
+  for (const documentId of input.documentIds) {
     db.update(documents)
       .set({
         exportedAt: input.exportedAt,
         exportBatch: input.exportBatch,
       })
-      .where(eq(documents.driveFileId, driveFileId))
+      .where(eq(documents.id, documentId))
       .run();
   }
 }

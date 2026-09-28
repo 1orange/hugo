@@ -24,6 +24,7 @@
     "drizzle-orm": "^0.44.2",
     "heic-convert": "^2.1.0",
     "iconv-lite": "^0.7.3",
+    "jpeg-js": "^0.4.4",
     "lucide-react": "^0.511.0",
     "next": "^15.3.3",
     "next-auth": "^5.0.0-beta.28",

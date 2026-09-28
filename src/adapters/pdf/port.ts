@@ -12,7 +12,13 @@ export type PdfPageImage =
 export type PdfAccess = {
   extractTextLines(
     pdfBytes: Uint8Array,
-    options?: { password?: string; pageNumber?: number },
+    options?: {
+      password?: string;
+      /** One page; the first when neither this nor maxPages is given. */
+      pageNumber?: number;
+      /** Pages 1…maxPages (or all, if fewer), their lines in reading order. */
+      maxPages?: number;
+    },
   ): Promise<PdfTextLine[]>;
   extractPageImages(pdfBytes: Uint8Array): Promise<PdfPageImage[]>;
 };

@@ -1,4 +1,4 @@
-import type { QrDecodeInput, QrReader } from "./port";
+import type { QrDecodeInput, QrReadOptions, QrReader } from "./port";
 
 export class FakeQrReader implements QrReader {
   readonly calls: QrDecodeInput[] = [];
@@ -8,8 +8,11 @@ export class FakeQrReader implements QrReader {
     this.codesByCall = codesByCall;
   }
 
-  async readAllCodes(input: QrDecodeInput): Promise<string[]> {
+  readonly options: Array<QrReadOptions | undefined> = [];
+
+  async readAllCodes(input: QrDecodeInput, options?: QrReadOptions): Promise<string[]> {
     this.calls.push(input);
+    this.options.push(options);
     const index = this.calls.length - 1;
     return this.codesByCall[index] ?? [];
   }

@@ -1,9 +1,11 @@
 import { getCompanyById } from "@/adapters/store/companies";
 import { getCompanyProfile } from "@/adapters/store/company-profiles";
 import { homeCurrencyForCountry } from "@/modules/company-profile";
-import { listFilesForMonth } from "@/adapters/store/files";
+import { getFileByDriveId, listFilesForMonth } from "@/adapters/store/files";
+import { receiptUidOfDocument } from "@/modules/receipt-identity";
 import {
   ensureDocumentsForMonth,
+  listDocumentsForCompany,
   listDocumentsForMonth,
 } from "@/adapters/store/documents";
 import { getMonthByKey, getOpenMonthKey } from "@/adapters/store/months";
@@ -59,7 +61,14 @@ export type DocumentFieldEditorView = {
 };
 
 export type DocumentListItem = {
+  /** The document's own ID — what decisions, fields and export key on. */
+  id: string;
+  /** The file it was read from — what the preview shows. */
   driveFileId: string;
+  /** Its place among the receipts of one scan; null for a file with one document. */
+  receiptOfFile: { index: number; count: number } | null;
+  /** Other documents holding the same eKasa receipt, which must be booked once. */
+  sameReceiptAs: Array<{ id: string; fileName: string; monthKey: string }>;
   name: string;
   folderSlot: ProcessedFolderSlot;
   mimeType: string;
@@ -121,6 +130,16 @@ function formatReceiptAt(receiptAt: string | null): string {
   return formatDateTime(receiptAt);
 }
 
+function receiptPosition(
+  idsOfFile: readonly string[],
+  documentId: string,
+): { index: number; count: number } | null {
+  if (idsOfFile.length < 2) {
+    return null;
+  }
+  return { index: idsOfFile.indexOf(documentId) + 1, count: idsOfFile.length };
+}
+
 function documentLabel(
   name: string,
   fields: EditableDocumentFields,
@@ -158,6 +177,23 @@ export function buildMonthDocumentView(
   const files = listFilesForMonth(companyId, monthKey);
   const fileById = new Map(files.map((file) => [file.driveFileId, file]));
   const documentRows = listDocumentsForMonth(companyId, monthKey);
+
+  // A scan of several receipts: the file's own document first, then the rest.
+  const documentsByFile = new Map<string, string[]>();
+  for (const document of documentRows) {
+    documentsByFile.set(document.driveFileId, [...(documentsByFile.get(document.driveFileId) ?? []), document.id]);
+  }
+  for (const [driveFileId, ids] of documentsByFile) {
+    ids.sort((left, right) => (left === driveFileId ? -1 : right === driveFileId ? 1 : left.localeCompare(right)));
+  }
+  // The same receipt anywhere in the company's documents, in any month.
+  const documentsByUid = new Map<string, Array<{ id: string; driveFileId: string; monthKey: string }>>();
+  for (const document of listDocumentsForCompany(companyId)) {
+    const uid = receiptUidOfDocument(document);
+    if (uid) {
+      documentsByUid.set(uid, [...(documentsByUid.get(uid) ?? []), document]);
+    }
+  }
   const monthReadOnly = month.closedAt !== null;
 
   const documentItems = documentRows
@@ -185,7 +221,16 @@ export function buildMonthDocumentView(
       );
 
       return {
+        id: document.id,
         driveFileId: document.driveFileId,
+        receiptOfFile: receiptPosition(documentsByFile.get(document.driveFileId) ?? [], document.id),
+        sameReceiptAs: (documentsByUid.get(receiptUidOfDocument(document) ?? "") ?? [])
+          .filter((other) => other.id !== document.id)
+          .map((other) => ({
+            id: other.id,
+            fileName: getFileByDriveId(other.driveFileId)?.name ?? other.driveFileId,
+            monthKey: other.monthKey,
+          })),
         name: file.name,
         folderSlot,
         mimeType: file.mimeType,
@@ -245,6 +290,20 @@ export function buildMonthDocumentView(
       };
     })
     .filter((item): item is DocumentListItem => item !== null);
+
+  // A scan's further receipts are created after other files' documents; keep
+  // them next to the file's own document, in their order within the file.
+  const fileOrder = new Map<string, number>();
+  documentItems.forEach((item, index) => {
+    if (!fileOrder.has(item.driveFileId)) {
+      fileOrder.set(item.driveFileId, index);
+    }
+  });
+  documentItems.sort(
+    (left, right) =>
+      fileOrder.get(left.driveFileId)! - fileOrder.get(right.driveFileId)! ||
+      (left.receiptOfFile?.index ?? 0) - (right.receiptOfFile?.index ?? 0),
+  );
 
   const openMonthKey = getOpenMonthKey(companyId);
 

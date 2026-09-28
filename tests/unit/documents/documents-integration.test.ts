@@ -281,7 +281,7 @@ test("two confirmed and one dismissed drives awaiting count to zero", () => {
     confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: INVOICE_A,
+      documentId: INVOICE_A,
       confirmed: true,
       now,
     }).ok,
@@ -291,7 +291,7 @@ test("two confirmed and one dismissed drives awaiting count to zero", () => {
     confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: RECEIPT_ID,
+      documentId: RECEIPT_ID,
       confirmed: true,
       now,
     }).ok,
@@ -301,7 +301,7 @@ test("two confirmed and one dismissed drives awaiting count to zero", () => {
     dismissDocument({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: INVOICE_B,
+      documentId: INVOICE_B,
       reason: "proforma",
       now,
     }).ok,
@@ -319,7 +319,7 @@ test("confirming emits Confirmed with driveFileId", () => {
   confirmDocument({
     companyId: 1,
     monthKey: "2026_01",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     confirmed: true,
     now,
   });
@@ -339,7 +339,7 @@ test("notes persist on documents", () => {
     saveDocumentNote({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: INVOICE_A,
+      documentId: INVOICE_A,
       note: "  waiting for supplier reply  ",
     }).ok,
     true,
@@ -365,7 +365,7 @@ test("closed month rejects confirming and dismissing", () => {
     confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: INVOICE_A,
+      documentId: INVOICE_A,
       confirmed: true,
     }).ok,
     false,
@@ -374,7 +374,7 @@ test("closed month rejects confirming and dismissing", () => {
     dismissDocument({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: INVOICE_B,
+      documentId: INVOICE_B,
     }).ok,
     false,
   );
@@ -404,7 +404,7 @@ test("saveDocumentFields writes confirmed payload only", () => {
     saveDocumentFields({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: RECEIPT_ID,
+      documentId: RECEIPT_ID,
       fields: emptyFieldInput({
         supplierName: "Manual Shop",
         ico: "99999999",
@@ -488,7 +488,7 @@ test("confirmed field values survive re-extraction", async () => {
   saveDocumentFields({
     companyId: 1,
     monthKey: "2026_01",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     fields: emptyFieldInput({
       supplierName: "Her corrected name",
       amountLiteral: "99.99",
@@ -526,7 +526,7 @@ test("arithmetic mismatch does not block saving fields", () => {
   const result = saveDocumentFields({
     companyId: 1,
     monthKey: "2026_01",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     fields: emptyFieldInput({
       supplierName: "Shop",
       amountLiteral: "16.85",
@@ -609,7 +609,7 @@ test("closed month rejects saving fields", () => {
     saveDocumentFields({
       companyId: 1,
       monthKey: "2026_01",
-      driveFileId: RECEIPT_ID,
+      documentId: RECEIPT_ID,
       fields: emptyFieldInput({
         supplierName: "Shop",
         amountLiteral: "1.00",

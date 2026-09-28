@@ -27,7 +27,8 @@ export type OmegaPartnerRecord = {
 };
 
 export type OmegaInvoiceDraft = {
-  driveFileId: string;
+  /** The document's ID; a multi-receipt file has several. */
+  documentId: string;
   exportNumber: string;
   docType: 0 | 14;
   variableSymbol: string;
@@ -41,7 +42,7 @@ export type OmegaInvoiceDraft = {
 };
 
 export type OmegaReceiptDraft = {
-  driveFileId: string;
+  documentId: string;
   exportNumber: string;
   docTypeCode: number;
   evidenceCode: string;
@@ -70,7 +71,7 @@ export type OmegaExportInput = {
 export type OmegaExportPlan = {
   includedInvoices: OmegaInvoiceDraft[];
   includedReceipts: OmegaReceiptDraft[];
-  heldBack: Array<{ driveFileId: string; reason: string }>;
+  heldBack: Array<{ documentId: string; reason: string }>;
 };
 
 const LIMIT = {
@@ -257,12 +258,12 @@ function validateInvoice(invoice: OmegaInvoiceDraft): string | null {
 export function planOmegaExport(input: OmegaExportInput): OmegaExportPlan {
   const includedInvoices: OmegaInvoiceDraft[] = [];
   const includedReceipts: OmegaReceiptDraft[] = [];
-  const heldBack: Array<{ driveFileId: string; reason: string }> = [];
+  const heldBack: Array<{ documentId: string; reason: string }> = [];
 
   for (const invoice of input.invoices) {
     const reason = validateInvoice(invoice);
     if (reason) {
-      heldBack.push({ driveFileId: invoice.driveFileId, reason });
+      heldBack.push({ documentId: invoice.documentId, reason });
       continue;
     }
     includedInvoices.push(invoice);
@@ -271,7 +272,7 @@ export function planOmegaExport(input: OmegaExportInput): OmegaExportPlan {
   for (const receipt of input.receipts) {
     const reason = validateReceipt(receipt);
     if (reason) {
-      heldBack.push({ driveFileId: receipt.driveFileId, reason });
+      heldBack.push({ documentId: receipt.documentId, reason });
       continue;
     }
     includedReceipts.push(receipt);

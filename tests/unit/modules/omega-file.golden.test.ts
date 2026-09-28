@@ -61,7 +61,7 @@ test("golden file: spring May issued invoices match Omega T01 data columns", { s
 
 test("golden fixture shape is reserved for private invoices", { skip: fs.existsSync(FIXTURE_PATH) }, () => {
   const sample: OmegaInvoiceDraft = {
-    driveFileId: "placeholder",
+    documentId: "placeholder",
     exportNumber: "H2605-0001",
     docType: 0,
     variableSymbol: "2026075",

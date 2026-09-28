@@ -3,10 +3,12 @@ import type { PdfAccess } from "@/adapters/pdf/port";
 import type { Extractor } from "@/adapters/extractor/port";
 import type { Ocr } from "@/adapters/ocr/port";
 import {
+  beginExtractionAttempt,
   ensureDocumentsForMonth,
   getDocument,
-  setExtractionStatus,
+  recordExtractionCrash,
 } from "@/adapters/store/documents";
+import { needsExtraction } from "@/modules/extraction-pipeline";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { RECEIPT_FOLDER_SLOTS } from "@/lib/cash-discovery/discover-cash-payments";
@@ -92,35 +94,38 @@ export async function discoverModelExtractionForMonth(
   ensureDocumentsForMonth(companyId, monthKey, now);
   const candidates = listModelExtractionCandidates(companyId, monthKey);
 
-  const pending = candidates.filter((file) => {
-    const existing = getDocument(file.driveFileId);
-    return !existing || existing.extractionStatus === "pending";
-  });
+  const pending = candidates.filter((file) =>
+    needsExtraction(getDocument(file.driveFileId)),
+  );
 
   for (const file of pending) {
-    setExtractionStatus(file.driveFileId, "pending", null);
+    beginExtractionAttempt(file.driveFileId);
   }
 
   const concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
 
   await runPool(pending, concurrency, async (file) => {
-    const fileBytes = await deps.driveClient.download(file.driveFileId);
-    await processModelExtractionFile(
-      {
-        companyId,
-        monthKey,
-        driveFileId: file.driveFileId,
-        folderSlot: file.folderSlot,
-        mimeType: file.mimeType,
-        fileBytes,
-      },
-      {
-        pdfAccess: deps.pdfAccess,
-        ocr: deps.ocr,
-        extractor: deps.extractor,
-        now: deps.now,
-      },
-    );
+    try {
+      const fileBytes = await deps.driveClient.download(file.driveFileId);
+      await processModelExtractionFile(
+        {
+          companyId,
+          monthKey,
+          driveFileId: file.driveFileId,
+          folderSlot: file.folderSlot,
+          mimeType: file.mimeType,
+          fileBytes,
+        },
+        {
+          pdfAccess: deps.pdfAccess,
+          ocr: deps.ocr,
+          extractor: deps.extractor,
+          now: deps.now,
+        },
+      );
+    } catch (error) {
+      recordExtractionCrash(file.driveFileId, error);
+    }
   });
 }
 

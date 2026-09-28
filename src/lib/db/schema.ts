@@ -100,9 +100,16 @@ export const monthFolders = sqliteTable("month_folders", {
 });
 
 export const documents = sqliteTable("documents", {
+  /**
+   * The Drive file ID for a file's own document; `<file>#<eKasa UID>` for each
+   * further receipt found in the same file (one document per receipt).
+   */
+  id: text("id").primaryKey(),
   driveFileId: text("drive_file_id")
-    .primaryKey()
+    .notNull()
     .references(() => files.driveFileId),
+  /** Set on the extra receipts of a multi-receipt file; null otherwise. */
+  receiptUid: text("receipt_uid"),
   companyId: integer("company_id")
     .notNull()
     .references(() => companies.id),
@@ -113,6 +120,8 @@ export const documents = sqliteTable("documents", {
   decidedAt: text("decided_at"),
   extractionStatus: text("extraction_status").notNull().default("pending"),
   extractionFailureReason: text("extraction_failure_reason"),
+  /** EXTRACTION_PIPELINE_VERSION of the last attempt; null before versions were kept. */
+  extractionPipelineVersion: integer("extraction_pipeline_version"),
   extractedPayloadJson: text("extracted_payload_json").notNull().default("{}"),
   confirmedPayloadJson: text("confirmed_payload_json").notNull().default("{}"),
   note: text("note"),

@@ -70,6 +70,18 @@ export type EkasaUidFromQrResult =
   | { status: "none" }
   | { status: "conflict"; reason: string };
 
+/** Every distinct eKasa UID in QR payloads, in the order found: one per receipt. */
+export function listEkasaUidsFromQrPayloads(payloads: readonly string[]): string[] {
+  const uids: string[] = [];
+  for (const payload of payloads) {
+    const uid = findEkasaUidInText(payload);
+    if (uid && !uids.includes(uid)) {
+      uids.push(uid);
+    }
+  }
+  return uids;
+}
+
 export function pickEkasaUidFromQrPayloads(
   payloads: readonly string[],
 ): EkasaUidFromQrResult {

@@ -85,6 +85,20 @@
       "when": 1787955000000,
       "tag": "0011_omega_t00_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787955600000,
+      "tag": "0012_extraction_pipeline_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1787956200000,
+      "tag": "0013_document_per_receipt",
+      "breakpoints": true
     }
   ]
 }

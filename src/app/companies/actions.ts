@@ -157,7 +157,7 @@ export async function reopenMonthAction(input: {
 export async function confirmDocumentAction(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   confirmed: boolean;
 }): Promise<MutationActionResult> {
   const result = confirmDocument(input);
@@ -173,7 +173,7 @@ export async function confirmDocumentFormAction(
   await confirmDocumentAction({
     companyId: Number(formData.get("companyId")),
     monthKey: String(formData.get("monthKey") ?? ""),
-    driveFileId: String(formData.get("driveFileId") ?? ""),
+    documentId: String(formData.get("documentId") ?? ""),
     confirmed: formData.get("confirmed") === "true",
   });
 }
@@ -181,7 +181,7 @@ export async function confirmDocumentFormAction(
 export async function dismissDocumentAction(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   reason?: string;
 }): Promise<MutationActionResult> {
   const result = dismissDocument(input);
@@ -197,7 +197,7 @@ export async function dismissDocumentFormAction(
   await dismissDocumentAction({
     companyId: Number(formData.get("companyId")),
     monthKey: String(formData.get("monthKey") ?? ""),
-    driveFileId: String(formData.get("driveFileId") ?? ""),
+    documentId: String(formData.get("documentId") ?? ""),
     reason: String(formData.get("reason") ?? ""),
   });
 }
@@ -205,7 +205,7 @@ export async function dismissDocumentFormAction(
 export async function saveDocumentNoteAction(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   note: string;
 }): Promise<MutationActionResult> {
   const result = saveDocumentNote(input);
@@ -218,7 +218,7 @@ export async function saveDocumentNoteAction(input: {
 export async function lookupEkasaUidAction(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   uid: string;
 }): Promise<
   | { ok: true; found: true }
@@ -242,7 +242,7 @@ export async function lookupEkasaUidAction(input: {
 export async function saveDocumentFieldsAction(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   fields: DocumentFieldFormInput;
 }): Promise<MutationActionResult> {
   const result = saveDocumentFields(input);

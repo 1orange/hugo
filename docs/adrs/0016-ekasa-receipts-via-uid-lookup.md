@@ -176,3 +176,34 @@ does, matches the printed recapitulation on all ten text-layer receipts in the c
 The text-layer parser's checks accept the same rounding, though no rounded text-layer receipt exists
 in the corpus yet — every text-layer eBloček sits in the card folder — so that path is covered by a
 synthetic test only.
+
+## Amendment, 2026-09-27: damaged codes, re-reading old failures, and a pdf.js trap
+
+**Scans never reached the QR step inside the app.** pdf.js takes ownership of the buffer it is
+given and leaves the caller's empty. The pipeline reads a scan twice — its text layer, then its page
+images for the QR code — and the second read threw `DataCloneError`. Discovery had no per-document
+error handling, so that one throw also abandoned every later document of the month. Tests passed
+because each read its file fresh. Every read now gets its own copy, and a document that throws is
+recorded as failed with the error while discovery moves on.
+
+**Old failures are re-read when the pipeline improves.** Discovery skipped any document already
+attempted, so a scan that failed "no extractable text layer" before QR decoding existed stayed failed
+for good. Each attempt now records `EXTRACTION_PIPELINE_VERSION`; a document that failed under an
+older version is read once more, and a complete one never is. On her data this turned seven stale
+failures — every `Potvrdenie_*` receipt scan, `2026-07-20_190652`, `Hudy Bratislava`, `nákup PHL` —
+into complete lookups.
+
+**Print-damaged codes are recoverable after all.** `IMG_3440`'s eKasa QR, which a phone camera reads,
+decodes once the printer's light streaks are closed: each pixel darkened to the darkest of its 3–5
+neighbours across the streak. The streak direction depends on how the receipt lies in the photo, so
+both axes are tried, after the contrast stretch and before a half-size copy. Photos are decoded to
+pixels with `jpeg-js`, pure JS. The retries run only after a plain decode fails, and they continue
+until an **eKasa** code turns up — a Slovnaft receipt's intact marketing QR used to stop them.
+
+**What the new `mix dokladov` pile shows** (40 scans): 18 hold one eKasa receipt, 13 none (invoices, a
+Hornbach receipt printed without a code, statements), and **9 hold several receipts** — up to three
+on one page — which the one-UID-per-file rule still flags rather than splits. One receipt appears in
+two different files. Neither case is solved here.
+
+The multi-receipt and duplicate cases above were resolved the same day: see ADR 0013's amendment,
+*one document per receipt*.

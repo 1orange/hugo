@@ -20,7 +20,7 @@ export type DocumentActionResult =
 export function confirmDocument(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   confirmed: boolean;
   now?: string;
 }): DocumentActionResult {
@@ -29,7 +29,7 @@ export function confirmDocument(input: {
     return readOnly;
   }
 
-  const document = getDocument(input.driveFileId);
+  const document = getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -40,16 +40,17 @@ export function confirmDocument(input: {
 
   const now = input.now ?? new Date().toISOString();
   if (input.confirmed) {
-    setDocumentDecision(input.driveFileId, "confirmed", {
+    setDocumentDecision(input.documentId, "confirmed", {
       decidedAt: now,
       notRelevantReason: null,
     });
     appendUserEvent(now, input.companyId, "Confirmed", {
       monthKey: input.monthKey,
-      driveFileId: input.driveFileId,
+      driveFileId: document.driveFileId,
+      documentId: document.id,
     });
   } else {
-    setDocumentDecision(input.driveFileId, null, {
+    setDocumentDecision(input.documentId, null, {
       decidedAt: null,
       notRelevantReason: null,
     });
@@ -61,7 +62,7 @@ export function confirmDocument(input: {
 export function dismissDocument(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   reason?: string;
   now?: string;
 }): DocumentActionResult {
@@ -70,7 +71,7 @@ export function dismissDocument(input: {
     return readOnly;
   }
 
-  const document = getDocument(input.driveFileId);
+  const document = getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -80,7 +81,7 @@ export function dismissDocument(input: {
   }
 
   const now = input.now ?? new Date().toISOString();
-  setDocumentDecision(input.driveFileId, "not_relevant", {
+  setDocumentDecision(input.documentId, "not_relevant", {
     decidedAt: now,
     notRelevantReason: input.reason?.trim() || null,
   });
@@ -91,7 +92,7 @@ export function dismissDocument(input: {
 export function saveDocumentNote(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   note: string;
 }): DocumentActionResult {
   const readOnly = assertMonthEditable(input.companyId, input.monthKey);
@@ -99,7 +100,7 @@ export function saveDocumentNote(input: {
     return readOnly;
   }
 
-  const document = getDocument(input.driveFileId);
+  const document = getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -108,14 +109,14 @@ export function saveDocumentNote(input: {
     return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
-  updateDocumentNote(input.driveFileId, input.note.trim() || null);
+  updateDocumentNote(input.documentId, input.note.trim() || null);
   return { ok: true };
 }
 
 export function saveDocumentFields(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   fields: DocumentFieldFormInput;
 }): DocumentActionResult {
   const readOnly = assertMonthEditable(input.companyId, input.monthKey);
@@ -123,7 +124,7 @@ export function saveDocumentFields(input: {
     return readOnly;
   }
 
-  const document = getDocument(input.driveFileId);
+  const document = getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -142,12 +143,13 @@ export function saveDocumentFields(input: {
   );
   const next = readExportSectionOverride(parsed.payload);
 
-  writeConfirmedPayload(input.driveFileId, parsed.payload);
+  writeConfirmedPayload(input.documentId, parsed.payload);
 
   if (previous !== next) {
     appendUserEvent(new Date().toISOString(), input.companyId, "ExportSectionChanged", {
       monthKey: input.monthKey,
-      driveFileId: input.driveFileId,
+      driveFileId: document.driveFileId,
+      documentId: document.id,
       previous,
       next,
     });

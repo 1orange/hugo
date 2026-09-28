@@ -1,6 +1,7 @@
 import type { CompanyRegister } from "@/adapters/company-register/port";
 import { getCompanyProfile } from "@/adapters/store/company-profiles";
 import {
+  listDocumentsForCompany,
   listDocumentsForMonth,
   listExportNumbersForCompany,
   markDocumentsExported,
@@ -25,6 +26,7 @@ import {
 } from "@/modules/export-numbering";
 import { organizationNameFromOpd } from "@/modules/ekasa-lookup-mapping";
 import { resolveExportSection } from "@/modules/omega-export-section";
+import { receiptUidOfDocument } from "@/modules/receipt-identity";
 import {
   buildOmegaFileBytes,
   planOmegaExport,
@@ -146,13 +148,13 @@ function assignMissingExportNumbers(input: {
 
   for (const document of input.documents) {
     if (document.exportNumber) {
-      numbers.set(document.driveFileId, document.exportNumber);
+      numbers.set(document.id, document.exportNumber);
       continue;
     }
     const exportNumber = formatExportNumber(input.monthKey, sequence);
     sequence += 1;
-    setDocumentExportNumber(document.driveFileId, exportNumber);
-    numbers.set(document.driveFileId, exportNumber);
+    setDocumentExportNumber(document.id, exportNumber);
+    numbers.set(document.id, exportNumber);
     existing.push(exportNumber);
   }
 
@@ -200,7 +202,7 @@ function buildInvoiceDraft(input: {
     vatRecap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
 
   return {
-    driveFileId: input.document.driveFileId,
+    documentId: input.document.id,
     exportNumber: input.exportNumber,
     docType: invoiceDocType(input.document.folderSlot),
     variableSymbol,
@@ -256,7 +258,7 @@ function buildReceiptDraft(input: {
     : Number(input.settings.omegaT00DocumentTypeCode) || 180;
 
   return {
-    driveFileId: input.document.driveFileId,
+    documentId: input.document.id,
     exportNumber: input.exportNumber,
     docTypeCode,
     evidenceCode: input.settings.omegaT00EvidenceCode,
@@ -277,6 +279,7 @@ function buildReceiptDraft(input: {
 }
 
 export type MonthExportPreviewItem = {
+  documentId: string;
   driveFileId: string;
   fileName: string;
   exportNumber: string | null;
@@ -320,10 +323,39 @@ export async function buildMonthOmegaExport(input: {
   const invoices: OmegaInvoiceDraft[] = [];
   const receipts: OmegaReceiptDraft[] = [];
   const partners: OmegaPartnerRecord[] = [];
-  const preHeldBack: Array<{ driveFileId: string; reason: string }> = [];
-  const sectionByFile = new Map<string, "T01" | "T00">();
+  const preHeldBack: Array<{ documentId: string; reason: string }> = [];
+  const sectionByDocument = new Map<string, "T01" | "T00">();
+  const documentsById = new Map(confirmed.map((document) => [document.id, document]));
+
+  // The same receipt must reach Omega once, even when it sits in two files
+  // (2026-08-17_094259 and _094358 both carry O-5EA6…D41C).
+  const exportedByUid = new Map<string, DocumentRow>();
+  for (const document of listDocumentsForCompany(input.companyId)) {
+    const uid = receiptUidOfDocument(document);
+    if (uid && document.exportedAt && !exportedByUid.has(uid)) {
+      exportedByUid.set(uid, document);
+    }
+  }
+  const includedByUid = new Map<string, DocumentRow>();
 
   for (const document of confirmed) {
+    const uid = receiptUidOfDocument(document);
+    if (uid) {
+      const earlier = [exportedByUid.get(uid), includedByUid.get(uid)].find(
+        (other) => other && other.id !== document.id,
+      );
+      if (earlier) {
+        preHeldBack.push({
+          documentId: document.id,
+          reason: `Rovnaký bloček (${uid}) je už v exporte ako ${
+            getFileByDriveId(earlier.driveFileId)?.name ?? earlier.driveFileId
+          }${earlier.exportNumber ? ` (${earlier.exportNumber})` : ""}.`,
+        });
+        continue;
+      }
+      includedByUid.set(uid, document);
+    }
+
     const extracted = parseExtractedPayload(document.extractedPayloadJson);
     const confirmedPayload = parseConfirmedPayload(document.confirmedPayloadJson);
     const section = resolveExportSection({
@@ -331,7 +363,7 @@ export async function buildMonthOmegaExport(input: {
       confirmed: confirmedPayload,
       folderSlot: document.folderSlot,
     });
-    sectionByFile.set(document.driveFileId, section);
+    sectionByDocument.set(document.id, section);
 
     const merged = mergeDocumentFields(extracted, confirmedPayload, {
       folderSlot: document.folderSlot,
@@ -368,7 +400,7 @@ export async function buildMonthOmegaExport(input: {
     });
     partners.push(counterparty);
 
-    const exportNumber = exportNumbers.get(document.driveFileId)!;
+    const exportNumber = exportNumbers.get(document.id)!;
 
     if (section === "T01") {
       const draft = buildInvoiceDraft({
@@ -377,7 +409,7 @@ export async function buildMonthOmegaExport(input: {
         counterparty,
       });
       if ("heldBack" in draft) {
-        preHeldBack.push({ driveFileId: document.driveFileId, reason: draft.reason });
+        preHeldBack.push({ documentId: document.id, reason: draft.reason });
         continue;
       }
       invoices.push(draft);
@@ -392,7 +424,7 @@ export async function buildMonthOmegaExport(input: {
       homeCurrency,
     });
     if ("heldBack" in draft) {
-      preHeldBack.push({ driveFileId: document.driveFileId, reason: draft.reason });
+      preHeldBack.push({ documentId: document.id, reason: draft.reason });
       continue;
     }
     receipts.push(draft);
@@ -424,31 +456,36 @@ export async function buildMonthOmegaExport(input: {
 
   const includedRows = [
     ...plan.includedInvoices.map((row) => ({
-      driveFileId: row.driveFileId,
+      documentId: row.documentId,
       label: row.variableSymbol,
     })),
     ...plan.includedReceipts.map((row) => ({
-      driveFileId: row.driveFileId,
+      documentId: row.documentId,
       label: row.externalNumber,
     })),
   ];
 
+  const fileOf = (documentId: string) => {
+    const driveFileId = documentsById.get(documentId)?.driveFileId ?? documentId;
+    return { driveFileId, fileName: getFileByDriveId(driveFileId)?.name ?? driveFileId };
+  };
+
   const preview: MonthExportPreview = {
     exportBatch,
     included: includedRows.map((row) => ({
-      driveFileId: row.driveFileId,
-      exportNumber: exportNumbers.get(row.driveFileId) ?? null,
-      fileName: getFileByDriveId(row.driveFileId)?.name ?? row.driveFileId,
+      documentId: row.documentId,
+      ...fileOf(row.documentId),
+      exportNumber: exportNumbers.get(row.documentId) ?? null,
       label: row.label,
-      section: sectionByFile.get(row.driveFileId) ?? "T00",
+      section: sectionByDocument.get(row.documentId) ?? "T00",
     })),
     heldBack: heldBack.map((row) => ({
-      driveFileId: row.driveFileId,
-      exportNumber: exportNumbers.get(row.driveFileId) ?? null,
-      fileName: getFileByDriveId(row.driveFileId)?.name ?? row.driveFileId,
-      label: exportNumbers.get(row.driveFileId) ?? "—",
+      documentId: row.documentId,
+      ...fileOf(row.documentId),
+      exportNumber: exportNumbers.get(row.documentId) ?? null,
+      label: exportNumbers.get(row.documentId) ?? "—",
       reason: row.reason,
-      section: sectionByFile.get(row.driveFileId) ?? "T00",
+      section: sectionByDocument.get(row.documentId) ?? "T00",
     })),
   };
 
@@ -460,7 +497,7 @@ export async function buildMonthOmegaExport(input: {
 
   if (input.persist !== false) {
     markDocumentsExported({
-      driveFileIds: includedRows.map((row) => row.driveFileId),
+      documentIds: includedRows.map((row) => row.documentId),
       exportedAt: now,
       exportBatch,
     });
@@ -468,7 +505,8 @@ export async function buildMonthOmegaExport(input: {
       monthKey: input.monthKey,
       exportBatch,
       included: preview.included,
-      heldBack: preview.heldBack.map(({ driveFileId, reason, exportNumber, section }) => ({
+      heldBack: preview.heldBack.map(({ documentId, driveFileId, reason, exportNumber, section }) => ({
+        documentId,
         driveFileId,
         reason,
         exportNumber,

@@ -144,15 +144,14 @@ export function FieldsPanel({
     document ? draftFrom(document) : null,
   );
 
-  const driveFileId = document?.driveFileId ?? null;
-
+  const documentId = document?.id ?? null;
   useEffect(() => {
     const next = document ? draftFrom(document) : null;
     setDraft(next);
     setSaved(next);
     setUidDraft(document?.typedEkasaUid ?? "");
     setUidValidationMessage(null);
-  }, [driveFileId, document]);
+  }, [documentId, document]);
 
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(saved),
@@ -283,6 +282,26 @@ export function FieldsPanel({
           {readOnly ? "len na čítanie" : "ukladá sa pri opustení poľa"}
         </span>
       </div>
+      {document.receiptOfFile ? (
+        <p
+          className="shrink-0 border-b border-line bg-surface px-3 py-1.5 text-[11.5px] text-ink-2"
+          data-testid="receipt-of-file"
+        >
+          Bloček {document.receiptOfFile.index} z {document.receiptOfFile.count} v tomto súbore
+        </p>
+      ) : null}
+      {document.sameReceiptAs.length > 0 ? (
+        <p
+          className="shrink-0 border-b border-line bg-warn-soft px-3 py-1.5 text-[11.5px] text-warn"
+          data-testid="same-receipt-as"
+        >
+          Rovnaký bloček je aj v{" "}
+          {document.sameReceiptAs
+            .map((other) => `${other.fileName} (${other.monthKey.replace("_", "/")})`)
+            .join(", ")}
+          . Do Omegy pôjde len raz — druhý označ ako nerelevantný.
+        </p>
+      ) : null}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2">
         <label className="text-[11px] text-ink-2" htmlFor="export-section">
           Sekcia v Omega
@@ -753,7 +772,7 @@ export function FieldsPanel({
                 onBlur={onNoteSave}
                 placeholder="Poznámka k dokladu"
                 aria-label="Poznámka k dokladu"
-                data-testid={`document-note-${document.driveFileId}`}
+                data-testid={`document-note-${document.id}`}
                 className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-[12.5px]"
               />
               <button

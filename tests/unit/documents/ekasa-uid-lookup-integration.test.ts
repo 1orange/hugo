@@ -84,7 +84,7 @@ test("valid UID fills extracted lookup payload and records event", async () => {
   const result = await lookupEkasaUidForDocument({
     companyId: 1,
     monthKey: "2026_04",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     uidRaw: SYNTHETIC_FIXTURE.uid,
     ekasaLookup: lookup,
     now: "2026-04-11T10:00:00.000Z",
@@ -126,7 +126,7 @@ test("unknown UID stores typed value without changing extracted fields", async (
   const result = await lookupEkasaUidForDocument({
     companyId: 1,
     monthKey: "2026_04",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     uidRaw: SYNTHETIC_FIXTURE.uid,
     ekasaLookup: lookup,
   });
@@ -154,7 +154,7 @@ test("closed month rejects UID lookup", async () => {
   const result = await lookupEkasaUidForDocument({
     companyId: 1,
     monthKey: "2026_04",
-    driveFileId: RECEIPT_ID,
+    documentId: RECEIPT_ID,
     uidRaw: SYNTHETIC_FIXTURE.uid,
     ekasaLookup: new FakeEkasaLookup(),
   });

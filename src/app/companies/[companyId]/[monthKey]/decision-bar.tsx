@@ -39,7 +39,7 @@ export function DecisionBar({
 }: DecisionBarProps) {
   const [reason, setReason] = useState("");
   const reasonRef = useRef<HTMLInputElement>(null);
-  const driveFileId = document?.driveFileId;
+  const documentId = document?.id;
 
   useEffect(() => {
     if (dismissOpen) {
@@ -47,7 +47,7 @@ export function DecisionBar({
     } else {
       setReason("");
     }
-  }, [dismissOpen, driveFileId]);
+  }, [dismissOpen, documentId]);
 
   if (!document) {
     return null;
@@ -93,7 +93,7 @@ export function DecisionBar({
               type="button"
               disabled={pending}
               onClick={onConfirm}
-              data-testid={`document-confirm-${document.driveFileId}`}
+              data-testid={`document-confirm-${document.id}`}
               className="inline-flex items-center gap-2 rounded-md bg-good px-[15px] py-2 text-[13px] font-semibold text-good-ink hover:brightness-110 disabled:opacity-40"
             >
               ✓ Potvrdiť
@@ -105,7 +105,7 @@ export function DecisionBar({
               type="button"
               disabled={pending}
               onClick={onOpenDismiss}
-              data-testid={`document-dismiss-${document.driveFileId}`}
+              data-testid={`document-dismiss-${document.id}`}
               className="inline-flex items-center gap-2 rounded-md border border-line-2 bg-surface px-[15px] py-2 text-[13px] text-ink-2 hover:border-bad hover:text-bad disabled:opacity-40"
             >
               Nerelevantné
@@ -126,7 +126,7 @@ export function DecisionBar({
               type="button"
               disabled={pending}
               onClick={onUndo}
-              data-testid={`document-undo-${document.driveFileId}`}
+              data-testid={`document-undo-${document.id}`}
               className="text-[12.5px] text-accent underline underline-offset-2 disabled:opacity-40"
             >
               Vrátiť
@@ -158,7 +158,7 @@ export function DecisionBar({
             }}
             placeholder="Prečo je nerelevantný? (nepovinné)"
             aria-label="Dôvod nerelevantnosti"
-            data-testid={`dismiss-reason-${document.driveFileId}`}
+            data-testid={`dismiss-reason-${document.id}`}
             className="min-w-0 flex-1 rounded-md border border-line-2 bg-surface-2 px-2.5 py-1.5 text-[12.5px]"
           />
           <button

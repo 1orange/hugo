@@ -87,3 +87,33 @@ improving a parser cannot overwrite what she typed.
   Attractive, and exactly what ADR 0009 was built for, but it reintroduces decryption, stored
   passwords and per-bank parsers to produce a hint she has not asked for and Omega already gives
   her.
+
+## Amendment, 2026-09-27: one document per receipt, not per file
+
+"The `Document` is the primary entity — one per proof file" held until real scans arrived. Clients
+scan several receipts onto one page: of the 40 files in `mix dokladov`, **9 hold 20 receipts between
+them**, up to three per page (Stabilit next to an Orlen fuel receipt; Betis rental, Garost and HQ
+Tools on one sheet). Each is a separate accounting document in Omega, so one document per file either
+lost all but one receipt or — under the flag-a-conflict rule — lost them all.
+
+**A document is now one proof, and a file can carry several.** `documents` has its own `id`:
+
+- The file's own document keeps the **Drive file ID as its ID**, so every existing document and
+  every single-receipt file is unchanged.
+- Each further eKasa receipt found in the file is a sibling with ID **`<file>#<UID>`** and its
+  `receipt_uid` set — stable across re-reads because the UID is. On a re-read the file's own document
+  keeps the UID it already holds.
+- Each sibling has its own lookup data, decision, confirmed values, note and export number, and
+  previews the same file. A sibling whose lookup fails still exists, with its UID, for her to fill in.
+- Moving the file moves all its documents; the folder remains the only thing they share.
+
+The workbench shows *bloček 2 z 3*. Decisions, fields, notes, the UID box and the export all key on
+the document; only the preview and the Drive link use the file.
+
+**The same receipt is booked once.** One receipt appears in two files of the pile (`O-5EA6…D41C`).
+Documents sharing an eKasa UID — in any month — are flagged on both sides, and the export holds back
+any receipt whose UID is already in another included or exported document, naming it. Which copy to
+keep stays her decision: she marks the other not relevant (ADR 0010).
+
+Only eKasa receipts are split, because only they carry an identifier per receipt. A scan of several
+non-eKasa receipts is still one document.

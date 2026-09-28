@@ -6,10 +6,12 @@ import type { PdfAccess } from "@/adapters/pdf/port";
 import type { QrReader } from "@/adapters/qr-reader/port";
 import { appendCompanySystemEvent } from "@/adapters/store/events";
 import {
+  beginExtractionAttempt,
   ensureDocumentsForMonth,
   extractionAlreadyAttempted,
   getDocument,
-  setExtractionStatus,
+  listDocumentsForFile,
+  recordExtractionCrash,
   upsertEkasaExtractedPayload,
   writeExtractedPayload,
 } from "@/adapters/store/documents";
@@ -19,11 +21,19 @@ import {
   emptyExtractedPayload,
   isEkasaPayload,
   parseExtractedPayload,
+  withTypedEkasaUid,
 } from "@/modules/document-payload";
-import { extractEkasaForReceipt, extractEkasaFromTextLines } from "./ekasa-extraction";
+import {
+  extractEkasaForReceipt,
+  extractEkasaFromTextLines,
+  type OtherReceipt,
+} from "./ekasa-extraction";
+import { receiptDocumentId } from "@/modules/receipt-identity";
 import { findEkasaUidInLines } from "@/modules/ekasa-identifiers";
 import { ocrDocumentToLines } from "@/lib/ocr/document-ocr";
 import { isReceiptImageMimeType } from "./ekasa-qr-extraction";
+import { isProcessedFolderSlot } from "@/modules/document-state";
+import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
 import { processModelExtractionFromLines } from "@/lib/model-extraction/process-model-extraction";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
@@ -52,15 +62,23 @@ export type CashDiscoveryDeps = {
   now?: () => string;
 };
 
+/**
+ * The model reads the whole invoice, not only its first page — capped, because
+ * a telecom itemisation can run to twenty pages the export never needs and CPU
+ * time grows with every token. Every invoice in the corpus fits (O2: 3 pages).
+ */
+export const MODEL_MAX_PDF_PAGES = 5;
+
 export async function extractReceiptTextLines(
   pdfBytes: Uint8Array,
   pdfAccess: PdfAccess,
+  options: { maxPages?: number } = {},
 ): Promise<
   | { ok: true; lines: string[] }
   | { ok: false; reason: string }
 > {
   try {
-    const lines = await pdfAccess.extractTextLines(pdfBytes);
+    const lines = await pdfAccess.extractTextLines(pdfBytes, options);
     if (lines.length === 0) {
       return {
         ok: false,
@@ -88,6 +106,62 @@ function markManualEntry(
     "failed",
     input.reason,
   );
+}
+
+async function wholeDocumentLines(
+  pdfBytes: Uint8Array,
+  pdfAccess: PdfAccess,
+  firstPageLines: string[],
+): Promise<string[]> {
+  const extracted = await extractReceiptTextLines(pdfBytes, pdfAccess, {
+    maxPages: MODEL_MAX_PDF_PAGES,
+  });
+  return extracted.ok ? extracted.lines : firstPageLines;
+}
+
+function writeOtherReceipt(input: {
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  folderSlot: string;
+  now: string;
+  other: OtherReceipt;
+}): void {
+  const { other } = input;
+  const base = {
+    documentId: receiptDocumentId(input.driveFileId, other.uid),
+    driveFileId: input.driveFileId,
+    receiptUid: other.uid,
+    companyId: input.companyId,
+    monthKey: input.monthKey,
+    folderSlot: input.folderSlot,
+    createdAt: input.now,
+  };
+  if (!other.result.ok) {
+    upsertEkasaExtractedPayload({
+      ...base,
+      payload: withTypedEkasaUid(emptyExtractedPayload(), other.uid),
+      extractionStatus: "failed",
+      extractionFailureReason: other.result.reason,
+    });
+    return;
+  }
+  const foreign = other.result.payload.currency !== "EUR";
+  upsertEkasaExtractedPayload({
+    ...base,
+    payload: other.result.payload,
+    extractionStatus: foreign ? "failed" : "complete",
+    extractionFailureReason: foreign
+      ? `Receipt is in ${other.result.payload.currency} — enter the EUR amount manually.`
+      : null,
+  });
+  appendCompanySystemEvent(input.now, input.companyId, "Extracted", {
+    monthKey: input.monthKey,
+    driveFileId: input.driveFileId,
+    documentId: base.documentId,
+    source: other.result.source,
+    status: foreign ? "failed" : "complete",
+  });
 }
 
 export async function processCashReceiptFile(
@@ -124,6 +198,14 @@ export async function processCashReceiptFile(
     isEkasaPayload(existingPayload) && existingPayload.opdResponse !== undefined
       ? existingPayload.opdResponse
       : undefined;
+  // The file's further receipts, from an earlier read: their UIDs and responses.
+  const cachedOpdResponsesByUid: Record<string, unknown> = {};
+  for (const sibling of listDocumentsForFile(input.driveFileId)) {
+    const siblingPayload = parseExtractedPayload(sibling.extractedPayloadJson);
+    if (sibling.receiptUid && isEkasaPayload(siblingPayload) && siblingPayload.opdResponse !== undefined) {
+      cachedOpdResponsesByUid[sibling.receiptUid] = siblingPayload.opdResponse;
+    }
+  }
 
   const e2eLines =
     process.env.E2E_TEST_AUTH === "true"
@@ -148,7 +230,14 @@ export async function processCashReceiptFile(
     qrReader: deps.qrReader,
     ekasaLookup: deps.ekasaLookup,
     cachedOpdResponse,
+    preferredUid: isEkasaPayload(existingPayload) ? existingPayload.ekasaUid : null,
+    cachedOpdResponsesByUid,
   });
+
+  // Each further receipt in the file is a document of its own.
+  for (const other of ekasa.otherReceipts ?? []) {
+    writeOtherReceipt({ ...input, now, other });
+  }
 
   let modelSource: "model" | "ocr" = "model";
 
@@ -156,7 +245,8 @@ export async function processCashReceiptFile(
     !ekasa.ok &&
     !hadTextLayer &&
     !findEkasaUidInLines(lines) &&
-    !ekasa.qrDecodedUid
+    !ekasa.qrDecodedUid &&
+    (ekasa.otherReceipts?.length ?? 0) === 0
   ) {
     const ocrResult = await ocrDocumentToLines({
       mimeType: input.mimeType,
@@ -180,13 +270,19 @@ export async function processCashReceiptFile(
 
   if (!ekasa.ok) {
     if (shouldExtractWithModel({ lines, hadTextLayer, fromOcr: modelSource === "ocr" })) {
+      // The eKasa parser only needed page 1; an invoice filed with the receipts
+      // (the Bolt taxi invoice in 05) goes to the model whole.
+      const modelLines =
+        hadTextLayer && e2eLines === null
+          ? await wholeDocumentLines(input.fileBytes, deps.pdfAccess, lines)
+          : lines;
       await processModelExtractionFromLines(
         {
           companyId: input.companyId,
           monthKey: input.monthKey,
           driveFileId: input.driveFileId,
           folderSlot: input.folderSlot,
-          lines,
+          lines: modelLines,
           source: modelSource,
         },
         { extractor: deps.extractor, now: deps.now },
@@ -251,15 +347,17 @@ export function listCashReceiptCandidates(
   folderSlot: string;
 }> {
   return listFilesForMonth(companyId, monthKey)
-    .filter(
-      (file) =>
-        !file.deleted &&
-        (RECEIPT_FOLDER_SLOTS as readonly string[]).includes(
-          file.folderSlot ?? "",
-        ) &&
-        file.mimeType === "application/pdf" ||
-        isReceiptImageMimeType(file.mimeType),
-    )
+    .filter((file) => {
+      if (file.deleted) {
+        return false;
+      }
+      const folderSlot = file.folderSlot ?? "";
+      // PDFs in the receipt folders; photos wherever a processed document may sit.
+      if (file.mimeType === "application/pdf") {
+        return (RECEIPT_FOLDER_SLOTS as readonly string[]).includes(folderSlot);
+      }
+      return isReceiptImageMimeType(file.mimeType) && isProcessedFolderSlot(folderSlot);
+    })
     .map((file) => ({
       driveFileId: file.driveFileId,
       name: file.name,
@@ -283,25 +381,28 @@ export async function discoverCashPaymentsForMonth(
   const candidates = listCashReceiptCandidates(companyId, monthKey);
 
   for (const file of candidates) {
-    const existing = getDocument(file.driveFileId);
-    if (existing && existing.extractionStatus !== "pending") {
+    if (!needsExtraction(getDocument(file.driveFileId))) {
       continue;
     }
 
-    setExtractionStatus(file.driveFileId, "pending", null);
+    beginExtractionAttempt(file.driveFileId);
 
-    const fileBytes = await deps.driveClient.download(file.driveFileId);
-    await processCashReceiptFile(
-      {
-        companyId,
-        monthKey,
-        driveFileId: file.driveFileId,
-        folderSlot: file.folderSlot,
-        mimeType: file.mimeType,
-        fileBytes,
-      },
-      deps,
-    );
+    try {
+      const fileBytes = await deps.driveClient.download(file.driveFileId);
+      await processCashReceiptFile(
+        {
+          companyId,
+          monthKey,
+          driveFileId: file.driveFileId,
+          folderSlot: file.folderSlot,
+          mimeType: file.mimeType,
+          fileBytes,
+        },
+        deps,
+      );
+    } catch (error) {
+      recordExtractionCrash(file.driveFileId, error);
+    }
   }
 }
 

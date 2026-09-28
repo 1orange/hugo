@@ -92,7 +92,7 @@ export function OmegaExportPanel({ companyId, monthKey }: OmegaExportPanelProps)
                 <li className="text-ink-2">Žiadne potvrdené doklady.</li>
               ) : (
                 preview.included.map((row) => (
-                  <li key={row.driveFileId}>
+                  <li key={row.documentId}>
                     <span className="font-mono">{row.exportNumber}</span>{" "}
                     <span className="text-ink-2">[{row.section}]</span> — {row.fileName}{" "}
                     <span className="text-ink-2">{row.label}</span>
@@ -110,7 +110,7 @@ export function OmegaExportPanel({ companyId, monthKey }: OmegaExportPanelProps)
                 <li className="text-ink-2">—</li>
               ) : (
                 preview.heldBack.map((row) => (
-                  <li key={row.driveFileId}>
+                  <li key={row.documentId}>
                     {row.fileName}: {row.reason}
                   </li>
                 ))

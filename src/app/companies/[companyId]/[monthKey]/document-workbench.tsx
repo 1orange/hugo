@@ -54,13 +54,13 @@ export function DocumentWorkbench({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [uidLookupMessage, setUidLookupMessage] = useState<string | null>(null);
   const [dismissOpen, setDismissOpen] = useState(false);
-  const [selectedDriveFileId, setSelectedDriveFileId] = useState<string | null>(
-    view.documents[0]?.driveFileId ?? null,
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
+    view.documents[0]?.id ?? null,
   );
 
   const documents = view.documents;
   const selectedIndex = documents.findIndex(
-    (document) => document.driveFileId === selectedDriveFileId,
+    (document) => document.id === selectedDocumentId,
   );
   const selectedDocument =
     selectedIndex >= 0 ? documents[selectedIndex]! : documents[0] ?? null;
@@ -99,19 +99,19 @@ export function DocumentWorkbench({
   // no longer contains it.
   useEffect(() => {
     if (
-      selectedDriveFileId &&
-      !documents.some((document) => document.driveFileId === selectedDriveFileId)
+      selectedDocumentId &&
+      !documents.some((document) => document.id === selectedDocumentId)
     ) {
-      setSelectedDriveFileId(documents[0]?.driveFileId ?? null);
+      setSelectedDocumentId(documents[0]?.id ?? null);
     }
-  }, [documents, selectedDriveFileId]);
+  }, [documents, selectedDocumentId]);
 
   const [note, setNote] = useState(selectedDocument?.note ?? "");
-  const noteSourceId = useRef<string | null>(selectedDocument?.driveFileId ?? null);
+  const noteSourceId = useRef<string | null>(selectedDocument?.id ?? null);
 
   useEffect(() => {
-    if (noteSourceId.current !== (selectedDocument?.driveFileId ?? null)) {
-      noteSourceId.current = selectedDocument?.driveFileId ?? null;
+    if (noteSourceId.current !== (selectedDocument?.id ?? null)) {
+      noteSourceId.current = selectedDocument?.id ?? null;
       setNote(selectedDocument?.note ?? "");
       setUidLookupMessage(null);
     }
@@ -151,7 +151,7 @@ export function DocumentWorkbench({
     ];
     const next = ordered.find((document) => document.decision === null);
     if (next) {
-      setSelectedDriveFileId(next.driveFileId);
+      setSelectedDocumentId(next.id);
     }
   }, [autoAdvance, documents, selectedIndex]);
 
@@ -163,7 +163,7 @@ export function DocumentWorkbench({
       const from = selectedIndex < 0 ? 0 : selectedIndex;
       const next = Math.min(documents.length - 1, Math.max(0, from + delta));
       setDismissOpen(false);
-      setSelectedDriveFileId(documents[next]!.driveFileId);
+      setSelectedDocumentId(documents[next]!.id);
     },
     [documents, selectedIndex],
   );
@@ -178,7 +178,7 @@ export function DocumentWorkbench({
         confirmDocumentAction({
           companyId,
           monthKey,
-          driveFileId: selectedDocument.driveFileId,
+          documentId: selectedDocument.id,
           confirmed: true,
         }),
       selectNextAwaiting,
@@ -196,7 +196,7 @@ export function DocumentWorkbench({
           dismissDocumentAction({
             companyId,
             monthKey,
-            driveFileId: selectedDocument.driveFileId,
+            documentId: selectedDocument.id,
             reason,
           }),
         selectNextAwaiting,
@@ -213,7 +213,7 @@ export function DocumentWorkbench({
       confirmDocumentAction({
         companyId,
         monthKey,
-        driveFileId: selectedDocument.driveFileId,
+        documentId: selectedDocument.id,
         confirmed: false,
       }),
     );
@@ -254,7 +254,7 @@ export function DocumentWorkbench({
       saveDocumentFieldsAction({
         companyId,
         monthKey,
-        driveFileId: selectedDocument.driveFileId,
+        documentId: selectedDocument.id,
         fields,
       }),
     );
@@ -270,7 +270,7 @@ export function DocumentWorkbench({
     void lookupEkasaUidAction({
       companyId,
       monthKey,
-      driveFileId: selectedDocument.driveFileId,
+      documentId: selectedDocument.id,
       uid,
     })
       .then((result) => {
@@ -298,7 +298,7 @@ export function DocumentWorkbench({
       saveDocumentNoteAction({
         companyId,
         monthKey,
-        driveFileId: selectedDocument.driveFileId,
+        documentId: selectedDocument.id,
         note,
       }),
     );
@@ -328,10 +328,10 @@ export function DocumentWorkbench({
             folderFilter={view.folderFilter}
             totalCount={view.totalCount}
             readOnlyFiles={view.readOnlyFiles}
-            selectedDriveFileId={selectedDocument?.driveFileId ?? null}
-            onSelect={(driveFileId) => {
+            selectedDocumentId={selectedDocument?.id ?? null}
+            onSelect={(documentId) => {
               setDismissOpen(false);
-              setSelectedDriveFileId(driveFileId);
+              setSelectedDocumentId(documentId);
             }}
             basePath={basePath}
           />

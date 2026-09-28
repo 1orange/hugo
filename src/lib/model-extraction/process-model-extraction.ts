@@ -9,7 +9,10 @@ import {
 } from "@/adapters/store/documents";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
-import { extractReceiptTextLines } from "@/lib/cash-discovery/discover-cash-payments";
+import {
+  extractReceiptTextLines,
+  MODEL_MAX_PDF_PAGES,
+} from "@/lib/cash-discovery/discover-cash-payments";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { runExtractionChecks } from "@/modules/extraction-checks";
 import { ocrDocumentToLines } from "@/lib/ocr/document-ocr";
@@ -74,7 +77,9 @@ export async function processModelExtractionFile(
   const extracted =
     e2eLines !== null
       ? { ok: true as const, lines: e2eLines }
-      : await extractReceiptTextLines(input.fileBytes, deps.pdfAccess);
+      : await extractReceiptTextLines(input.fileBytes, deps.pdfAccess, {
+          maxPages: MODEL_MAX_PDF_PAGES,
+        });
   let lines = extracted.ok ? extracted.lines : [];
   let hadTextLayer = extracted.ok && lines.length > 0;
   let extractionSource: ModelExtractionSource = "model";

@@ -24,11 +24,11 @@ export type EkasaUidLookupResult =
   | { ok: true; found: false; message: string }
   | { ok: false; message: string };
 
-function storeTypedUidOnly(driveFileId: string, uid: string): void {
-  const document = getDocument(driveFileId);
+function storeTypedUidOnly(documentId: string, uid: string): void {
+  const document = getDocument(documentId);
   const payload = parseExtractedPayload(document?.extractedPayloadJson ?? "{}");
   writeExtractedPayload(
-    driveFileId,
+    documentId,
     withTypedEkasaUid(payload, uid),
     document?.extractionStatus === "pending"
       ? "pending"
@@ -40,7 +40,7 @@ function storeTypedUidOnly(driveFileId: string, uid: string): void {
 export async function lookupEkasaUidForDocument(input: {
   companyId: number;
   monthKey: string;
-  driveFileId: string;
+  documentId: string;
   uidRaw: string;
   ekasaLookup: EkasaLookup;
   now?: string;
@@ -56,7 +56,7 @@ export async function lookupEkasaUidForDocument(input: {
   }
   const uid = validated.uid;
 
-  const document = getDocument(input.driveFileId);
+  const document = getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -88,10 +88,11 @@ export async function lookupEkasaUidForDocument(input: {
   } else {
     const lookup = await input.ekasaLookup.findReceipt(uid);
     if (!lookup.ok) {
-      storeTypedUidOnly(input.driveFileId, uid);
+      storeTypedUidOnly(input.documentId, uid);
       appendUserEvent(now, input.companyId, "EkasaUidEntered", {
         monthKey: input.monthKey,
-        driveFileId: input.driveFileId,
+        driveFileId: document.driveFileId,
+      documentId: document.id,
         uid,
         found: false,
       });
@@ -105,10 +106,11 @@ export async function lookupEkasaUidForDocument(input: {
     raw: lookupRaw,
   });
   if (!mapped.ok) {
-    storeTypedUidOnly(input.driveFileId, uid);
+    storeTypedUidOnly(input.documentId, uid);
     appendUserEvent(now, input.companyId, "EkasaUidEntered", {
       monthKey: input.monthKey,
-      driveFileId: input.driveFileId,
+      driveFileId: document.driveFileId,
+      documentId: document.id,
       uid,
       found: false,
     });
@@ -119,14 +121,15 @@ export async function lookupEkasaUidForDocument(input: {
 
   if (payload.currency !== "EUR") {
     writeExtractedPayload(
-      input.driveFileId,
+      input.documentId,
       { ...payload, typedEkasaUid: uid },
       "failed",
       `Receipt is in ${payload.currency} — enter the EUR amount manually.`,
     );
     appendUserEvent(now, input.companyId, "EkasaUidEntered", {
       monthKey: input.monthKey,
-      driveFileId: input.driveFileId,
+      driveFileId: document.driveFileId,
+      documentId: document.id,
       uid,
       found: true,
       source: "lookup",
@@ -139,14 +142,14 @@ export async function lookupEkasaUidForDocument(input: {
   }
 
   writeExtractedPayload(
-    input.driveFileId,
+    input.documentId,
     { ...payload, typedEkasaUid: uid },
     "complete",
     null,
   );
 
   const confirmedAfter = parseConfirmedPayload(
-    getDocument(input.driveFileId)?.confirmedPayloadJson ?? "{}",
+    getDocument(input.documentId)?.confirmedPayloadJson ?? "{}",
   );
   if (JSON.stringify(confirmedBefore) !== JSON.stringify(confirmedAfter)) {
     throw new Error("Confirmed payload changed during eKasa UID lookup.");
@@ -154,7 +157,8 @@ export async function lookupEkasaUidForDocument(input: {
 
   appendUserEvent(now, input.companyId, "EkasaUidEntered", {
     monthKey: input.monthKey,
-    driveFileId: input.driveFileId,
+    driveFileId: document.driveFileId,
+    documentId: document.id,
     uid,
     found: true,
     source: "lookup",
