@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { createHttpExtractor } from "../src/adapters/extractor/http-extractor.ts";
 import { createStubExtractor } from "../src/adapters/extractor/stub-extractor.ts";
 import type { Extractor } from "../src/adapters/extractor/port.ts";
@@ -5,6 +6,7 @@ import { createOcr } from "../src/adapters/ocr/create-ocr.ts";
 import type { Ocr } from "../src/adapters/ocr/port.ts";
 import { createPdfAccess } from "../src/adapters/pdf/pdf-access.ts";
 import { modelTextForDocument } from "../src/lib/model-extraction/model-text.ts";
+import { isExtractorUnreachableError } from "../src/lib/model-extraction/process-model-extraction.ts";
 import {
   aggregateBenchmarkScores,
   scoreBenchmarkDocument,
@@ -59,11 +61,13 @@ function createBenchmarkExtractor(useReal: boolean): {
 
   const baseUrl = process.env.EXTRACTOR_URL?.trim() ?? "http://127.0.0.1:8080";
   const model = process.env.EXTRACTOR_MODEL?.trim() ?? "local";
+  const timeoutMs = Number(process.env.EXTRACTOR_TIMEOUT_MS);
   return {
     extractor: createHttpExtractor({
       baseUrl,
       model,
       thinkingEnabled: process.env.EXTRACTOR_THINKING === "true",
+      ...(timeoutMs > 0 ? { timeoutMs } : {}),
     }),
     modeLabel: `HTTP Extractor (${baseUrl}, model=${model}, Docker CPU-only timing)`,
   };
@@ -92,6 +96,12 @@ async function main(): Promise<void> {
   const ocrDurationsMs: number[] = [];
   const skippedWithoutOcr: string[] = [];
   const withoutText: string[] = [];
+  const failedByModel: string[] = [];
+  // Per document: what the model read, what it answered, what it cost.
+  const perDocument: Record<
+    string,
+    { lines: string[]; payload: ExtractedPayload; modelMs?: number; tokens?: number; failure?: string }
+  > = {};
   const documentScores = [];
   const pdfAccess = createPdfAccess();
 
@@ -125,11 +135,33 @@ async function main(): Promise<void> {
       documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
       continue;
     }
-    const result = await extractor.extract({
-      driveFileId: label.driveFileId,
-      monthKey: label.monthKey,
-      textLines,
-    });
+    const extractStarted = Date.now();
+    let result: Awaited<ReturnType<Extractor["extract"]>>;
+    try {
+      result = await extractor.extract({
+        driveFileId: label.driveFileId,
+        monthKey: label.monthKey,
+        textLines,
+      });
+    } catch (error) {
+      // An extractor that is down stops the run; a document the model could
+      // not finish is failed, as the app fails it: every field empty.
+      if (isExtractorUnreachableError(error)) {
+        throw error;
+      }
+      const reason = error instanceof Error ? error.message : String(error);
+      failedByModel.push(`${label.driveFileId}: ${reason}`);
+      modelDurationsMs.push(Date.now() - extractStarted);
+      perDocument[label.driveFileId] = {
+        lines: textLines,
+        payload: {},
+        modelMs: Date.now() - extractStarted,
+        failure: reason,
+      };
+      payloadsByDriveFileId[label.driveFileId] = {};
+      documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
+      continue;
+    }
     const checked = runExtractionChecks({
       payload: result.payload,
       sourceTextLines: textLines,
@@ -141,6 +173,12 @@ async function main(): Promise<void> {
       completionTokens.push(result.completionTokens);
     }
     payloadsByDriveFileId[label.driveFileId] = checked.payload;
+    perDocument[label.driveFileId] = {
+      lines: textLines,
+      payload: { ...checked.payload, fieldChecks: checked.flags },
+      modelMs: result.durationMs,
+      tokens: result.completionTokens,
+    };
     documentScores.push(
       scoreBenchmarkDocument({
         label,
@@ -154,6 +192,12 @@ async function main(): Promise<void> {
         companyIco,
       }),
     );
+  }
+
+  // Answers saved beside the log, to re-score or inspect without the model.
+  const payloadsOut = process.env.BENCHMARK_PAYLOADS_OUT?.trim();
+  if (payloadsOut) {
+    fs.writeFileSync(payloadsOut, `${JSON.stringify(perDocument, null, 2)}\n`);
   }
 
   const aggregate = aggregateBenchmarkScores({
@@ -170,10 +214,17 @@ async function main(): Promise<void> {
   if (withoutText.length > 0) {
     console.log(`  ${withoutText.length} documents gave no text: scored as all fields empty`);
   }
+  for (const failure of failedByModel) {
+    console.log(`  failed, scored as all fields empty — ${failure}`);
+  }
   console.log("");
 
   for (const document of aggregate.documents) {
     console.log(document.driveFileId);
+    const cost = perDocument[document.driveFileId];
+    if (cost?.modelMs !== undefined) {
+      console.log(`  model ${cost.modelMs} ms${cost.tokens !== undefined ? `, ${cost.tokens} tokens` : ""}`);
+    }
     for (const field of document.fields) {
       console.log(
         `  ${field.field.padEnd(18)} ${field.outcome.padEnd(16)} expected=${field.expected ?? "—"} actual=${field.actual ?? "—"}`,

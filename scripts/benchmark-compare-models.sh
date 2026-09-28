@@ -91,6 +91,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   EXTRACTOR_URL="$BASE_URL" \
     EXTRACTOR_MODEL="${EXTRACTOR_MODEL:-local}" \
     EXTRACTOR_THINKING="$thinking" \
+    BENCHMARK_PAYLOADS_OUT="$RESULTS_DIR/${safe_label}.payloads.json" \
     npm run benchmark -- --real 2>&1 | tee "$log"
   bench_status=${PIPESTATUS[0]}
   set -e

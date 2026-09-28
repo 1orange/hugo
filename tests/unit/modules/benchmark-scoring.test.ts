@@ -215,6 +215,22 @@ test("a counterparty name matches her shorthand without the legal form", () => {
   assert.equal(scoreName("UPC BROADBAND", "SPRING.etc., spol. s r. o."), "wrong_plausible");
 });
 
+test("a name her VAT register cut to 15 characters matches the full name", () => {
+  const scoreName = (labelName: string, modelName: string, side: "received" | "issued" = "received") => {
+    const party = { name: labelName, ico: "12345678", dic: null, icDph: null };
+    return scoreBenchmarkDocument({
+      label: syntheticLabel(side === "received" ? { supplier: party } : { side, customer: party }),
+      payload: extracted({ parties: [{ name: modelName, ico: "12345678", dic: null, icDph: null }] }),
+    }).fields.find((field) => field.field === "counterpartyName")!.outcome;
+  };
+  assert.equal(scoreName("Grand hotel Per", "Grand hotel Permon, s.r.o."), "exact");
+  assert.equal(scoreName("IKEA Bratislava", "IKEA / IKEA Bratislava, s.r.o."), "wrong_plausible");
+  // Shorter than the register's width: the whole name, not a prefix.
+  assert.equal(scoreName("UPC BROADBAND", "UPC BROADBAND SLOVAKIA, s.r.o."), "wrong_plausible");
+  // Issued labels come from her T01 export, which keeps names whole.
+  assert.equal(scoreName("Grand hotel Per", "Grand hotel Permon", "issued"), "wrong_plausible");
+});
+
 test("the counterparty is the party that is not the company, as in production", () => {
   const label = syntheticLabel({
     supplier: { name: "Poradca", ico: null, dic: null, icDph: null },

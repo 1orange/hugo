@@ -78,6 +78,12 @@ function normalizeIco(value: string | null | undefined): string {
 // `O2 Slovakia` for `O2 Slovakia, s.r.o.`.
 const LEGAL_FORM = /[\s,]*(spol\.\s*s\s*r\.\s*o\.|s\.\s*r\.\s*o\.|a\.\s*s\.|k\.\s*s\.|v\.\s*o\.\s*s\.)$/i;
 
+/**
+ * Her VAT register prints a partner's name in 15 characters (`Grand hotel
+ * Per`); a received label's name of that length may be the start of the name.
+ */
+const REGISTER_NAME_WIDTH = 15;
+
 function normalizeCompanyName(value: string | null | undefined): string {
   return normalizeText(value).replace(LEGAL_FORM, "").toLowerCase();
 }
@@ -163,6 +169,8 @@ function scoreScalar(
   expected: string | null,
   actual: string | null,
   checkState: FieldCheckState | undefined,
+  /** The label may be cut to this many characters: its start must match. */
+  truncatedAt?: number,
 ): BenchmarkFieldScore {
   if (expected === null || expected.trim().length === 0) {
     return { field, outcome: "skipped", expected, actual };
@@ -184,7 +192,11 @@ function scoreScalar(
         : normalizeText(value);
   const normalizedExpected = normalize(expected);
   const normalizedActual = normalize(actual);
-  if (normalizedExpected === normalizedActual) {
+  const cutShort =
+    truncatedAt !== undefined &&
+    (expected ?? "").length === truncatedAt &&
+    normalizedActual.startsWith(normalizeText(expected).toLowerCase());
+  if (normalizedExpected === normalizedActual || cutShort) {
     return { field, outcome: "exact", expected, actual };
   }
   if (checkState === "flagged") {
@@ -297,6 +309,8 @@ export function scoreBenchmarkDocument(input: {
       party.name,
       modelParty?.name ?? (isEkasaPayload(payload) ? payload.supplierName : null),
       fieldCheckStates?.counterpartyName,
+      // Received labels come from her VAT register.
+      label.side === "received" ? REGISTER_NAME_WIDTH : undefined,
     ),
   );
   fields.push(
