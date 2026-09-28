@@ -22,7 +22,7 @@ import {
 } from "../src/modules/benchmark-fixtures.ts";
 import { benchmarkFieldCheckStates } from "../src/modules/extraction-checks-benchmark.ts";
 import { runExtractionChecks } from "../src/modules/extraction-checks.ts";
-import type { ExtractedPayload } from "../src/modules/document-payload.ts";
+import type { ExtractedPayload, ModelExtractedPayload } from "../src/modules/document-payload.ts";
 import type { CompanyCountry } from "../src/modules/company-profile.ts";
 
 function formatRate(rate: number): string {
@@ -100,15 +100,71 @@ async function main(): Promise<void> {
   // Per document: what the model read, what it answered, what it cost.
   const perDocument: Record<
     string,
-    { lines: string[]; payload: ExtractedPayload; modelMs?: number; tokens?: number; failure?: string }
+    {
+      lines: string[];
+      payload: ExtractedPayload;
+      modelMs?: number;
+      tokens?: number;
+      ocrMs?: number;
+      failure?: string;
+    }
   > = {};
   const documentScores = [];
   const pdfAccess = createPdfAccess();
+  // `--rescore <row>.payloads.json`: a recorded row's answers, scored as the
+  // scoring is now — no model, no OCR. The normalisers ran when it was recorded.
+  const rescoreIndex = process.argv.indexOf("--rescore");
+  const rescorePath = rescoreIndex >= 0 ? process.argv[rescoreIndex + 1] : undefined;
+  const saved: typeof perDocument | null = rescorePath
+    ? (JSON.parse(fs.readFileSync(rescorePath, "utf8")) as typeof perDocument)
+    : null;
 
   for (const label of labels) {
+    if (saved) {
+      const entry = saved[label.driveFileId];
+      if (!entry) {
+        // The recorded run had no OCR for it.
+        skippedWithoutOcr.push(label.driveFileId);
+        continue;
+      }
+      perDocument[label.driveFileId] = entry;
+      if (entry.ocrMs !== undefined) {
+        ocrDurationsMs.push(entry.ocrMs);
+      }
+      if (entry.modelMs !== undefined) {
+        modelDurationsMs.push(entry.modelMs);
+      }
+      if (entry.tokens !== undefined) {
+        completionTokens.push(entry.tokens);
+      }
+      if (entry.failure !== undefined || entry.lines.length === 0) {
+        if (entry.failure !== undefined) {
+          failedByModel.push(`${label.driveFileId}: ${entry.failure}`);
+        } else {
+          withoutText.push(label.driveFileId);
+        }
+        payloadsByDriveFileId[label.driveFileId] = {};
+        documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
+        continue;
+      }
+      const { fieldChecks, ...payload } = entry.payload as ModelExtractedPayload;
+      payloadsByDriveFileId[label.driveFileId] = payload;
+      documentScores.push(
+        scoreBenchmarkDocument({
+          label,
+          payload,
+          fieldCheckStates: fieldChecks
+            ? benchmarkFieldCheckStates(fieldChecks, label, payload, companyIco)
+            : undefined,
+          companyIco,
+        }),
+      );
+      continue;
+    }
     // The document's own file, read as the app reads it for the model.
     const source = loadBenchmarkSourceFile(label.driveFileId, fixturesDir);
     let textLines: string[];
+    let ocrMs: number | undefined;
     if (source) {
       const text = await modelTextForDocument({
         mimeType: source.mimeType,
@@ -123,6 +179,7 @@ async function main(): Promise<void> {
       }
       if (text.ocrDurationMs !== null) {
         ocrDurationsMs.push(text.ocrDurationMs);
+        ocrMs = text.ocrDurationMs;
       }
       textLines = text.lines;
     } else {
@@ -131,6 +188,7 @@ async function main(): Promise<void> {
     if (textLines.length === 0) {
       // The app marks it failed and she types it: every field empty.
       withoutText.push(label.driveFileId);
+      perDocument[label.driveFileId] = { lines: [], payload: {}, ocrMs };
       payloadsByDriveFileId[label.driveFileId] = {};
       documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
       continue;
@@ -156,6 +214,7 @@ async function main(): Promise<void> {
         lines: textLines,
         payload: {},
         modelMs: Date.now() - extractStarted,
+        ocrMs,
         failure: reason,
       };
       payloadsByDriveFileId[label.driveFileId] = {};
@@ -178,6 +237,7 @@ async function main(): Promise<void> {
       payload: { ...checked.payload, fieldChecks: checked.flags },
       modelMs: result.durationMs,
       tokens: result.completionTokens,
+      ocrMs,
     };
     documentScores.push(
       scoreBenchmarkDocument({
@@ -196,7 +256,7 @@ async function main(): Promise<void> {
 
   // Answers saved beside the log, to re-score or inspect without the model.
   const payloadsOut = process.env.BENCHMARK_PAYLOADS_OUT?.trim();
-  if (payloadsOut) {
+  if (payloadsOut && !saved) {
     fs.writeFileSync(payloadsOut, `${JSON.stringify(perDocument, null, 2)}\n`);
   }
 
@@ -205,7 +265,9 @@ async function main(): Promise<void> {
     payloadsByDriveFileId,
   });
 
-  console.log(`Benchmark harness — ${labels.length} documents (${modeLabel})`);
+  console.log(
+    `Benchmark harness — ${labels.length} documents (${rescorePath ? `re-scored from ${rescorePath}` : modeLabel})`,
+  );
   if (skippedWithoutOcr.length > 0) {
     console.log(
       `  skipped ${skippedWithoutOcr.length} documents that need OCR: OCR_URL not set or unreachable`,
@@ -227,7 +289,7 @@ async function main(): Promise<void> {
     }
     for (const field of document.fields) {
       console.log(
-        `  ${field.field.padEnd(18)} ${field.outcome.padEnd(16)} expected=${field.expected ?? "—"} actual=${field.actual ?? "—"}`,
+        `  ${field.field.padEnd(18)} ${field.outcome.padEnd(16)} expected=${field.expected ?? "—"} actual=${field.actual ?? "—"}${field.note ? `  (${field.note})` : ""}`,
       );
     }
     console.log("");
@@ -264,7 +326,8 @@ async function main(): Promise<void> {
   const medianOcrMs = median(ocrDurationsMs);
   const worstOcrMs =
     ocrDurationsMs.length === 0 ? 0 : Math.max(...ocrDurationsMs);
-  if (useReal) {
+  // A re-scored row reports the timings recorded by its real run.
+  if (useReal || saved) {
     console.log(
       `  median OCR time (image docs): ${ocrDurationsMs.length === 0 ? "—" : `${medianOcrMs.toFixed(0)} ms`}`,
     );

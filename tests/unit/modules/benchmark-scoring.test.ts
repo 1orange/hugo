@@ -165,6 +165,29 @@ test("a model that returns no recap rows scores the recap empty, not zero", () =
   }
 });
 
+test("a VAT split the invoice rounds differently from her books is not a misread", () => {
+  const row = (baseCents: number, vatCents: number) => ({
+    rateLiteral: "23",
+    baseLiteral: (baseCents / 100).toFixed(2),
+    baseCents,
+    vatLiteral: (vatCents / 100).toFixed(2),
+    vatCents,
+  });
+  const label = syntheticLabel({ amountCents: 1834, amountLiteral: "18.34", vatRecap: [row(1491, 343)] });
+  const outcomes = (base: number, vat: number) =>
+    Object.fromEntries(
+      scoreBenchmarkDocument({ label, payload: extracted({ amountCents: 1834, vatRecap: [row(base, vat)] }) })
+        .fields.filter((field) => field.field.startsWith("vatRecap"))
+        .map((field) => [field.field, field.outcome]),
+    );
+  // UPC prints 14.92 + 3.42; she booked 14.91 + 3.43.
+  assert.deepEqual(outcomes(1492, 342), { vatRecapBase: "exact", vatRecapVat: "exact", vatRecapTotal: "exact" });
+  // A cent off with a different total is a misread.
+  assert.equal(outcomes(1492, 343).vatRecapBase, "wrong_plausible");
+  // More than a cent is not a rounding split.
+  assert.equal(outcomes(1494, 340).vatRecapBase, "wrong_plausible");
+});
+
 // The bar is "correct, flagged or empty — never silently wrong": a wrong value
 // the checks flagged is visible to her, so it is not wrong-but-plausible.
 test("a wrong value the checks flagged is not counted as wrong-but-plausible", () => {

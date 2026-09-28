@@ -39,6 +39,8 @@ export type BenchmarkFieldScore = {
   outcome: BenchmarkFieldOutcome;
   expected: string | null;
   actual: string | null;
+  /** Why an outcome is not the plain comparison it looks like. */
+  note?: string;
 };
 
 export type BenchmarkDocumentScore = {
@@ -340,22 +342,44 @@ export function scoreBenchmarkDocument(input: {
   const actualVat = hasRecap ? actualRecap.reduce((sum, row) => sum + row.vatCents, 0) : null;
   const actualTotal = actualBase !== null && actualVat !== null ? actualBase + actualVat : null;
 
+  // UPC prints 14.92 + 3.42 = 18.34; her register books 14.91 + 3.43, the
+  // VAT recomputed from the gross. Two misreads that cancel to the cent are no
+  // accident: the invoice and her books round the split differently.
+  const roundingSplit =
+    actualBase !== null &&
+    actualVat !== null &&
+    actualBase !== labelBase &&
+    actualBase + actualVat === labelTotal &&
+    Math.abs(actualBase - labelBase) <= 1 &&
+    Math.abs(actualVat - labelVat) <= 1;
+  const splitScore = (field: "vatRecapBase" | "vatRecapVat", expected: number, actual: number): BenchmarkFieldScore => ({
+    field,
+    outcome: "exact",
+    expected: amountCentsLiteral(expected),
+    actual: amountCentsLiteral(actual),
+    note: "rounding split: the invoice rounds VAT differently from her books",
+  });
+
   if (scoreVatAmounts) {
     fields.push(
-      scoreScalar(
-        "vatRecapBase",
-        amountCentsLiteral(labelBase),
-        amountCentsLiteral(actualBase),
-        fieldCheckStates?.vatRecapBase,
-      ),
+      roundingSplit
+        ? splitScore("vatRecapBase", labelBase, actualBase!)
+        : scoreScalar(
+            "vatRecapBase",
+            amountCentsLiteral(labelBase),
+            amountCentsLiteral(actualBase),
+            fieldCheckStates?.vatRecapBase,
+          ),
     );
     fields.push(
-      scoreScalar(
-        "vatRecapVat",
-        amountCentsLiteral(labelVat),
-        amountCentsLiteral(actualVat),
-        fieldCheckStates?.vatRecapVat,
-      ),
+      roundingSplit
+        ? splitScore("vatRecapVat", labelVat, actualVat!)
+        : scoreScalar(
+            "vatRecapVat",
+            amountCentsLiteral(labelVat),
+            amountCentsLiteral(actualVat),
+            fieldCheckStates?.vatRecapVat,
+          ),
     );
     fields.push(
       scoreScalar(
