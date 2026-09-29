@@ -61,3 +61,7 @@ next-env.d.ts
 
 # The worker bundle (npm run build:worker)
 /dist
+
+# Local k3s (scripts/k3s-local.sh): kubeconfig, secrets, the generated config
+/.k3s-local
+/deploy/k3s-local/local.env

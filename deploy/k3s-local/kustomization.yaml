@@ -1,0 +1,53 @@
+# The k3s manifests on a laptop (scripts/k3s-local.sh): the same namespace, with
+# only what a laptop lacks changed — no TLS, no public URL, the model file from
+# the repo's ./models instead of a download. local.env is written by the
+# script from .env and not committed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../k3s
+configMapGenerator:
+  - name: hugo-config
+    namespace: hugo
+    behavior: merge
+    envs:
+      - local.env
+    options:
+      disableNameSuffixHash: true
+patches:
+  # http://localhost on Traefik's web entrypoint.
+  - target:
+      kind: Ingress
+      name: hugo
+    patch: |-
+      - op: replace
+        path: /metadata/annotations
+        value:
+          traefik.ingress.kubernetes.io/router.entrypoints: web
+      - op: remove
+        path: /spec/tls
+      - op: replace
+        path: /spec/rules/0/host
+        value: localhost
+  # The model is already on disk: the node has ./models mounted at /models.
+  - target:
+      kind: Deployment
+      name: extractor
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: models
+          hostPath:
+            path: /models
+            type: Directory
+  - target:
+      kind: PersistentVolumeClaim
+      name: extractor-models
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: extractor-models
+        namespace: hugo

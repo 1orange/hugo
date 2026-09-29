@@ -11,31 +11,28 @@ and the model and OCR sidecars the workers call (ADR 0017). One image serves bot
 
 Every process migrates the database on start; an advisory lock makes that happen once.
 
-## Everything locally, as in production
+## Try it locally
 
-```bash
-cp .env.docker.example .env.docker          # ports, Postgres credentials, model file
-docker compose --env-file .env.docker --profile app up -d --build
-```
+Three ways, from lightest to most like production. All serve **http://localhost:3000** — the
+address Google sign-in already knows — so run one at a time. `.env` holds the secrets and settings
+for all three; `.env.docker` the compose ports and credentials (copy both from their `.example`).
 
-This starts Postgres, Redis, two web replicas (host ports `WEB_PORT_RANGE`, 3000–3001), one
-worker, the llama.cpp model server and the OCR sidecar. The app containers read secrets (Auth.js,
-Google) from `.env`; the service URLs in `docker-compose.yml` take precedence.
+| | Start | Stop | What runs |
+|---|---|---|---|
+| **dev** | `docker compose --env-file .env.docker up -d postgres redis extractor ocr`, then `npm run dev` | Ctrl-C | Next with the worker in the same process (`HUGO_ROLE=all`), hot reload |
+| **compose** | `docker compose --env-file .env.docker --profile app up -d --build` | `docker compose --env-file .env.docker --profile app stop proxy web worker` | Traefik → two web replicas, one worker, the sidecars — the production image |
+| **k3s** | `scripts/k3s-local.sh up` | `scripts/k3s-local.sh stop` (keeps data) or `down` | The manifests of `deploy/k3s` on a k3s in Docker: Traefik, network policies, probes |
 
-For development, run only the infrastructure and the app on the host:
-
-```bash
-docker compose --env-file .env.docker up -d postgres redis extractor ocr
-npm run dev          # web and worker in one process (HUGO_ROLE=all)
-```
-
-Or split them as production does: `HUGO_ROLE=web npm run dev` and `npm run worker:dev`.
-
-Data from the SQLite version (ADR 0004) is copied once, ids kept:
-
-```bash
-npm run db:import-sqlite -- ./dev.db        # add --replace to overwrite a non-empty database
-```
+- **dev** and **compose** share the compose Postgres and Redis, so they see the same data.
+- **k3s** has its own database: the first `up` copies the dev one into it (`HUGO_LOCAL_EMPTY=1` to
+  start empty). It reads the model from `./models` instead of downloading it, and stops the compose
+  extractor while it runs — two copies of the model do not fit in Docker Desktop's 8 GB. `status`,
+  `logs <web|worker|extractor|ocr|postgres|redis>` and `kubectl <args>` work against that cluster
+  only, never your current kube context.
+- No public URL locally, so no Drive push: the worker polls Drive every 15 minutes, and opening a
+  month queues its documents at once.
+- Data from the SQLite version (ADR 0004) is copied once, ids kept:
+  `npm run db:import-sqlite -- ./dev.db` (add `--replace` to overwrite a non-empty database).
 
 ## k3s
 
