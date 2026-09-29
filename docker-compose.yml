@@ -1,17 +1,109 @@
-# Local model sidecar for ADR 0017. Runs CPU-only in Docker (no Apple GPU on macOS).
+# The whole app as it runs in production (ADR 0021): Postgres and Redis for
+# state, stateless web replicas, one worker that reads documents, and the model
+# and OCR sidecars (ADR 0017). CPU-only in Docker (no Apple GPU on macOS).
 #
-# Configure via .env.docker (copy from .env.docker.example) or environment:
-#   EXTRACTOR_PORT=8080
-#   EXTRACTOR_MODEL_FILE=model.gguf   — file under ./models
-#   EXTRACTOR_MODEL=local             — name passed to the app (EXTRACTOR_MODEL)
-#   EXTRACTOR_THINKING=false          — app env; thinking off by default
+#   docker compose --env-file .env.docker up -d            # infrastructure + sidecars, for `npm run dev`
+#   docker compose --env-file .env.docker --profile app up -d --build   # + web ×2 and the worker
 #
-# App: EXTRACTOR_URL=http://127.0.0.1:${EXTRACTOR_PORT}/v1  (or http://extractor:8080/v1 from another container)
-#      OCR_URL=http://127.0.0.1:${OCR_PORT:-8090}
+# Configure via .env.docker (copy from .env.docker.example). The app containers
+# also read .env for their secrets (Auth.js, Google), with the service URLs
+# below taking precedence.
 #
-# Alternative: `docker compose --profile ollama up` uses Ollama instead of llama.cpp server.
+# Host (npm run dev):  DATABASE_URL=postgres://hugo:hugo@127.0.0.1:5432/hugo
+#                      REDIS_URL=redis://127.0.0.1:6379
+#                      EXTRACTOR_URL=http://127.0.0.1:${EXTRACTOR_PORT:-8080}/v1
+#                      OCR_URL=http://127.0.0.1:${OCR_PORT:-8090}
+#
+# Alternative model server: `--profile ollama` runs Ollama instead of llama.cpp.
+
+x-app: &app
+  build: .
+  image: hugo-app
+  env_file:
+    - path: .env
+      required: false
+  environment: &app-env
+    NODE_ENV: production
+    DATABASE_URL: postgres://${POSTGRES_USER:-hugo}:${POSTGRES_PASSWORD:-hugo}@postgres:5432/${POSTGRES_DB:-hugo}
+    REDIS_URL: redis://redis:6379
+    EXTRACTOR_URL: http://extractor:8080/v1
+    EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-local}
+    OCR_URL: http://ocr:8090
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hugo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hugo}
+      POSTGRES_DB: ${POSTGRES_DB:-hugo}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # BullMQ keeps jobs in Redis: an evicted key is a lost document.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Stateless: any number of replicas behind a load balancer. Pages, server
+  # actions and the event stream to browsers; documents are only queued here.
+  web:
+    <<: *app
+    profiles: ["app"]
+    command: ["node", "node_modules/next/dist/bin/next", "start", "-p", "3000"]
+    environment:
+      <<: *app-env
+      HUGO_ROLE: web
+    deploy:
+      replicas: 2
+    ports:
+      - "${WEB_PORT_RANGE:-3000-3001}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Reads documents (model, OCR, eKasa) and sweeps Drive on schedule. Several
+  # can run; Redis keeps each document read once and the model within its slots.
+  worker:
+    <<: *app
+    profiles: ["app"]
+    command: ["node", "dist/worker.mjs"]
+    environment:
+      <<: *app-env
+      HUGO_ROLE: worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      extractor:
+        condition: service_started
+      ocr:
+        condition: service_started
+
   extractor:
     image: ghcr.io/ggml-org/llama.cpp:server
     ports:
@@ -58,4 +150,6 @@ services:
       - OLLAMA_HOST=0.0.0.0
 
 volumes:
+  postgres_data:
+  redis_data:
   ollama_data:
