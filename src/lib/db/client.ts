@@ -48,13 +48,23 @@ export function getDb(): Db {
 }
 
 /**
- * Refused, unresolvable, or up but not yet accepting connections (57P03):
- * Postgres is starting. Anything else — a wrong password, a failed migration —
- * will not fix itself by waiting.
+ * Refused, unreachable, unresolvable, or up but not yet accepting connections
+ * (57P03): Postgres is starting. A Kubernetes Service with no ready pod yet
+ * answers "host unreachable" on k3s, not "refused". Anything else — a wrong
+ * password, a failed migration — will not fix itself by waiting.
  */
-const NOT_UP_YET = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "57P03"]);
+const NOT_UP_YET = new Set([
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "57P03",
+]);
 
-function isPostgresStarting(error: unknown): boolean {
+export function isPostgresStarting(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && NOT_UP_YET.has(code);
 }

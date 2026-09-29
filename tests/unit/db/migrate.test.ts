@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { MIGRATIONS_FOLDER, runMigrations } from "../../../src/lib/db/client.ts";
+import { isPostgresStarting, MIGRATIONS_FOLDER, runMigrations } from "../../../src/lib/db/client.ts";
 
 const clients: PGlite[] = [];
 
@@ -104,4 +104,15 @@ test("an error that waiting will not fix fails at once", async (t) => {
   // A port no server can have: a configuration error, not a start-up.
   await assert.rejects(runMigrations("postgres://hugo:x@127.0.0.1:99999/hugo", { attempts: 3, delayMs: 10 }));
   assert.equal(warnings.length, 0);
+});
+
+test("what counts as Postgres still starting", () => {
+  for (const code of ["ECONNREFUSED", "EHOSTUNREACH", "ENOTFOUND", "57P03"]) {
+    assert.equal(isPostgresStarting({ code }), true, code);
+  }
+  // A wrong password (28P01) or an unknown database (3D000) will not change by waiting.
+  for (const code of ["28P01", "3D000", "ERR_SOCKET_BAD_PORT"]) {
+    assert.equal(isPostgresStarting({ code }), false, code);
+  }
+  assert.equal(isPostgresStarting(new Error("no code")), false);
 });
