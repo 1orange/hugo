@@ -12,7 +12,7 @@ import {
   normalizeModelVariableSymbol,
 } from "../../modules/model-output-normalize";
 import type { DocTypeHint, ModelExtractedPayload } from "../../modules/document-payload";
-import type { Extractor, ExtractorInput, ExtractorOutput } from "./port";
+import type { Extractor, ExtractorInput, ExtractorOutput, ExtractorProgress } from "./port";
 import {
   MODEL_EXTRACTED_JSON_SCHEMA,
   type ModelExtractionResponseBody,
@@ -146,6 +146,8 @@ function completionTokensOf(raw: unknown): number | undefined {
 type StreamChunk = {
   choices?: Array<{ delta?: { content?: string | null; reasoning_content?: string | null } }>;
   usage?: { completion_tokens?: unknown };
+  /** llama.cpp with `return_progress`: how much of the prompt it has read. */
+  prompt_progress?: { total?: number; processed?: number };
   error?: { message?: string };
 };
 
@@ -156,7 +158,10 @@ type StreamChunk = {
  * 300 s without headers — a thinking model took longer and the document was
  * taken for an unreachable extractor, retried for ever.
  */
-async function readStreamedCompletion(response: Response): Promise<unknown> {
+async function readStreamedCompletion(
+  response: Response,
+  onProgress?: (progress: ExtractorProgress) => void,
+): Promise<unknown> {
   const reader = response.body?.getReader();
   if (!reader) {
     return null;
@@ -166,6 +171,7 @@ async function readStreamedCompletion(response: Response): Promise<unknown> {
   let content = "";
   let generated = 0;
   let usage: StreamChunk["usage"];
+  let prompt: StreamChunk["prompt_progress"];
   const readLine = (line: string) => {
     const data = line.trim().replace(/^data:\s*/, "");
     if (!line.trim().startsWith("data:") || data === "[DONE]") {
@@ -176,11 +182,20 @@ async function readStreamedCompletion(response: Response): Promise<unknown> {
       throw new Error(`Extractor error: ${chunk.error.message ?? "unknown"}`);
     }
     const delta = chunk.choices?.[0]?.delta;
+    const generatedBefore = generated;
     if (delta?.content || delta?.reasoning_content) {
       content += delta.content ?? "";
       generated += 1;
     }
     usage = chunk.usage ?? usage;
+    if (onProgress && (chunk.prompt_progress || generated !== generatedBefore)) {
+      prompt = chunk.prompt_progress ?? prompt;
+      onProgress({
+        ...(typeof prompt?.total === "number" ? { promptTotal: prompt.total } : {}),
+        ...(typeof prompt?.processed === "number" ? { promptProcessed: prompt.processed } : {}),
+        generatedTokens: generated,
+      });
+    }
   };
   for (;;) {
     const { done, value } = await reader.read();
@@ -233,6 +248,11 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       body.cache_prompt = false;
       body.stream = true;
       body.stream_options = { include_usage: true };
+      if (input.onProgress) {
+        // llama.cpp streams how much of the prompt it has read, which on CPU
+        // is half the wait; other servers ignore the field.
+        body.return_progress = true;
+      }
       const maxTokens =
         options.maxTokens ??
         (options.thinkingEnabled === true ? undefined : DEFAULT_MAX_TOKENS_WITHOUT_THINKING);
@@ -261,7 +281,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
 
         // A server that ignores `stream` answers with one JSON body.
         raw = (response.headers.get("content-type") ?? "").includes("text/event-stream")
-          ? await readStreamedCompletion(response)
+          ? await readStreamedCompletion(response, input.onProgress)
           : await response.json();
       } catch (error) {
         if (isTimeout(error)) {

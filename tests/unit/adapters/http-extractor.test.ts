@@ -190,6 +190,55 @@ test("without usage from the server, each streamed delta counts as a token", asy
   assert.equal(result.completionTokens, 3);
 });
 
+// The queue page's bar: on CPU, reading the prompt is half the wait.
+test("the prompt read and the tokens written are reported as they stream", async () => {
+  let seenBody: Record<string, unknown> = {};
+  const answer = JSON.stringify(minimalModelJson());
+  const progress: unknown[] = [];
+  const extractor = createHttpExtractor({
+    baseUrl: "http://127.0.0.1:8080",
+    model: "m",
+    fetchImpl: async (_url, init) => {
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return eventStream([
+        { ...delta(null), prompt_progress: { total: 3000, cache: 0, processed: 0, time_ms: 0 } },
+        { ...delta(null), prompt_progress: { total: 3000, cache: 0, processed: 2048, time_ms: 17000 } },
+        { ...delta(null), prompt_progress: { total: 3000, cache: 0, processed: 3000, time_ms: 25000 } },
+        delta(answer.slice(0, 5)),
+        delta(answer.slice(5)),
+      ]);
+    },
+  });
+  await extractor.extract({
+    driveFileId: "d",
+    monthKey: "2026_05",
+    textLines: ["x"],
+    onProgress: (report) => progress.push(report),
+  });
+  assert.equal(seenBody.return_progress, true);
+  assert.deepEqual(progress, [
+    { promptTotal: 3000, promptProcessed: 0, generatedTokens: 0 },
+    { promptTotal: 3000, promptProcessed: 2048, generatedTokens: 0 },
+    { promptTotal: 3000, promptProcessed: 3000, generatedTokens: 0 },
+    { promptTotal: 3000, promptProcessed: 3000, generatedTokens: 1 },
+    { promptTotal: 3000, promptProcessed: 3000, generatedTokens: 2 },
+  ]);
+});
+
+test("without a progress listener the request is as it was", async () => {
+  let seenBody: Record<string, unknown> = {};
+  const extractor = createHttpExtractor({
+    baseUrl: "http://127.0.0.1:8080",
+    model: "m",
+    fetchImpl: async (_url, init) => {
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return eventStream([delta(JSON.stringify(minimalModelJson()))]);
+    },
+  });
+  await extractor.extract({ driveFileId: "d", monthKey: "2026_05", textLines: ["x"] });
+  assert.equal("return_progress" in seenBody, false);
+});
+
 test("a document past its deadline fails; it does not wait as if the model were down", async () => {
   const extractor = createHttpExtractor({
     baseUrl: "http://127.0.0.1:8080",
