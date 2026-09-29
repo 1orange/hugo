@@ -405,3 +405,45 @@ text prints only as the due date is now flagged.
   black and white read worse and is not used. HEIC photos go as JPEG.
 - **A refused request** (4xx) fails its document with the server's reason; only an unreachable or
   failing server (5xx) makes documents wait.
+
+### Note, 2026-09-29: what her Drive's documents taught
+
+A local pass over all 195 PDFs in her Drive (text layers, attachments, prompt sizes; no model)
+found the causes behind the failures she saw:
+
+- **Context.** One five-page loan contract was 9,550 tokens against the 8,192 of `-c`, and
+  `llama.cpp` refused it. The text is now cut to fit (`EXTRACTOR_CONTEXT`, the same variable as
+  `-c`): the start and the end kept, the middle marked `[…]`, at 1.5 characters a token — every
+  real text layer of hers runs at 1.6 or more. The next-longest document is 3,940 tokens.
+- **Garbled text layers.** Two invoices saved again from Safari wrote glyph numbers for letters
+  (a car service's name came out as "$XWRVHUYLV"), losing the supplier's ISDOC too; the model returned no
+  JSON. A text layer whose letters are under a third vowels and under two fifths lowercase — real
+  ones: at least 36% and 55% — goes to OCR. OCR reads a PDF's images, not its drawn text, so when
+  it finds no amount the document fails with that reason: the model, given the letterhead alone,
+  made up an invoice for 1,000.00 EUR.
+- **Tax numbers** are checked for their form: a DIČ is digits (a Czech one is its VAT number), an
+  IČ DPH a country's prefix and at least six digits. The model had filed a Polish waste-register
+  number, a phone number, a car plate and an IBAN as tax numbers. An `SK` number given as the DIČ
+  is the IČ DPH. When the model misses the counterparty's IČ DPH and the text prints exactly one
+  VAT number that is no party's and not hers, it is taken (two of 105 documents, both right).
+- **Her company among the parties** is found by IČO, else by DIČ, IČ DPH or name: MODIVO's invoice
+  names the customer without an IČO. With roles unknown, the checks shown beside a field are
+  that party's own.
+- **Receipts.** A receipt has one seller: parties sharing an IČO are merged there (a parking
+  ticket's brand and legal name; the car's plate given the seller's numbers). On an invoice the same
+  IČO twice stays two parties and flagged — it was the model's mistake each time. A document among
+  the receipts that prints no eKasa mark (parking machine, train ticket, invoice paid by card) is
+  booked as before, but no UID is asked for.
+- **Scans of a small receipt on A4** are cut to their print before the 2000 px scaling: the
+  letters were 10 px high and "IČO: 50 861 930" read "1C0 90 80 :930". On her nine eKasa receipt
+  scans, which fill their page, nothing changed.
+- **A due date the document never prints** (MODIVO's, paid online: only "Dátum vytvorenia") is
+  flagged when the model returns another labelled date for it; a printed payment date counts as
+  printed.
+
+On the benchmark (Qwen3 4B Q4_0, same labels): exact or empty-flagged 94.9% → **96.2%**,
+wrong-but-plausible 1.3% → 1.9%, no amount wrong while the arithmetic passed, median 36.4 s. The
+Bolt receipt's seller is now right (merged), Bonami's IBAN no longer stands as its IČ DPH. The one
+new wrong-but-plausible field was flagged only because her company went unfound: found by name
+now, 2Checkout's invoice names "Verifone Payments BV dba 2Checkout", the seller of record, where
+her register has "Kaspersky".

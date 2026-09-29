@@ -14,8 +14,11 @@
  *     sent to the model.
  * 3 — an unconfigured model or OCR leaves documents waiting instead of
  *     stubbing or faking them; what failed on the fake OCR is read again.
+ * 4 — a text longer than the model's context is cut to fit it (a loan
+ *     contract was refused); a garbled text layer goes to OCR, or fails with
+ *     what to do about it.
  */
-export const EXTRACTION_PIPELINE_VERSION = 3;
+export const EXTRACTION_PIPELINE_VERSION = 4;
 
 export function needsExtraction(
   document:
