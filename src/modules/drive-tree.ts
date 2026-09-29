@@ -5,6 +5,7 @@ import {
   type FolderTaxonomySettings,
 } from "./folder-taxonomy";
 import type { DriveCapabilities } from "./drive-mutation";
+import { isSystemFile } from "./system-files";
 
 export const FOLDER_MIME = "application/vnd.google-apps.folder";
 
@@ -317,7 +318,13 @@ function normalizeRecordName(record: DriveFileRecord): DriveFileRecord {
 }
 
 export function buildDriveTree(input: DriveTreeInput): DriveTreeResult {
-  input = { ...input, files: input.files.map(normalizeRecordName) };
+  // desktop.ini and its kind never enter the app (system-files module).
+  input = {
+    ...input,
+    files: input.files
+      .map(normalizeRecordName)
+      .filter((record) => isFolder(record) || !isSystemFile(record.name)),
+  };
   const byId = indexFiles(input.files);
   const storedById = new Map(
     input.storedFiles.map((file) => [file.driveFileId, { ...file }]),
@@ -433,10 +440,14 @@ export function buildDriveTree(input: DriveTreeInput): DriveTreeResult {
       continue;
     }
     stored.deleted = true;
-    events.push({
-      type: "FileDeleted",
-      driveFileId: stored.driveFileId,
-    });
+    // One stored before system files were left out goes without a word: it
+    // was never a document, and saying it was deleted would only be noise.
+    if (!isSystemFile(stored.name)) {
+      events.push({
+        type: "FileDeleted",
+        driveFileId: stored.driveFileId,
+      });
+    }
   }
 
   const tree = buildTree(

@@ -313,3 +313,43 @@ test("buildDriveTree emits FileRenamedInDrive when only the name changes", () =>
     },
   ]);
 });
+
+test("buildDriveTree leaves out desktop.ini and .DS_Store, and forgets stored ones silently", () => {
+  const junk = (id: string, name: string, parent: string): DriveFileRecord => ({
+    ...file(id, name, [parent]),
+    mimeType: "application/octet-stream",
+  });
+  const stored: StoredFileState[] = [
+    {
+      driveFileId: "old-desktop-ini",
+      companyDriveFolderId: COMPANY_ID,
+      monthKey: "2026_01",
+      folderSlot: "01 Vystavené faktúry",
+      parentId: SLOT_01_ID,
+      name: "desktop.ini",
+      mimeType: "application/octet-stream",
+      driveCreatedTime: "2026-01-15T00:00:00.000Z",
+      firstSeenAt: "2026-08-27T10:00:00.000Z",
+      lastSeenAt: "2026-08-27T10:00:00.000Z",
+      deleted: false,
+    },
+  ];
+  const { tree, events, updatedFiles } = runTree(
+    [
+      ...baseFixture,
+      junk("old-desktop-ini", "desktop.ini", SLOT_01_ID),
+      junk("new-ds-store", ".DS_Store", MONTH_01_ID),
+    ],
+    stored,
+  );
+
+  assert.equal(
+    events.some((event) => "driveFileId" in event && ["old-desktop-ini", "new-ds-store"].includes(event.driveFileId)),
+    false,
+  );
+  assert.equal(updatedFiles.find((row) => row.driveFileId === "old-desktop-ini")?.deleted, true);
+  assert.equal(updatedFiles.some((row) => row.driveFileId === "new-ds-store"), false);
+  const month = tree[0]!.months.find((entry) => entry.key === "2026_01")!;
+  const names = [...month.folderSlots.flatMap((slot) => slot.documents), ...month.monthRootOutputs].map((doc) => doc.name);
+  assert.deepEqual(names.sort(), ["invoice-001.pdf", "vat-report.pdf"]);
+});
