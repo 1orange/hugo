@@ -8,9 +8,8 @@ import { getOpenMonthKey } from "@/adapters/store/months";
 import {
   loadCompanyProfileView,
   lookupCompanyRegister,
-  searchCompanyRegister,
 } from "@/lib/company-profile/service";
-import type { CompanyCountry, RegisterSearchHit } from "@/modules/company-profile";
+import type { CompanyCountry } from "@/modules/company-profile";
 import { saveCompanyProfileFormAction } from "./actions";
 import { CompanyProfileForm } from "./company-profile-form";
 
@@ -48,13 +47,14 @@ export default async function CompanyProfilePage({
 
   const settings = await getSettings();
   const openMonth = await getOpenMonthKey(companyId);
-  let initialCandidates: RegisterSearchHit[] = [];
   let registerLookupError: string | null = null;
   let pickedFromRegister: {
     legalName: string;
     address: string;
     ico: string;
     dic: string;
+    icDph: string | null;
+    icDphNote: string | null;
     registerSource: string;
   } | null = null;
 
@@ -62,11 +62,9 @@ export default async function CompanyProfilePage({
     view.profile?.country ??
     (countryParam === "CZ" ? "CZ" : "SK");
 
+  // The folder-name search runs in the form once the page is up: RPO takes
+  // 6–7 s, and the page waited for it.
   if (view.profile === null) {
-    const search = await searchCompanyRegister(companyId, view.companyName, setupCountry);
-    if (search.ok) {
-      initialCandidates = search.hits;
-    }
     if (pickIco) {
       const lookup = await lookupCompanyRegister(pickIco, setupCountry);
       if (lookup.ok) {
@@ -75,6 +73,8 @@ export default async function CompanyProfilePage({
           address: lookup.lookup.address,
           ico: lookup.lookup.ico,
           dic: lookup.lookup.dic,
+          icDph: lookup.icDph,
+          icDphNote: lookup.icDphNote,
           registerSource: lookup.registerSource,
         };
       } else {
@@ -124,7 +124,6 @@ export default async function CompanyProfilePage({
             folderName={view.companyName}
             initialCountry={setupCountry}
             initialProfile={view.profile}
-            initialCandidates={initialCandidates}
             pickedFromRegister={pickedFromRegister}
             registerLookupError={registerLookupError}
             saveFormAction={saveCompanyProfileFormAction.bind(null, companyId)}

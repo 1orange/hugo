@@ -1,28 +1,29 @@
 "use client";
 
-import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import type { CompanyProfileRow } from "@/adapters/store/company-profiles";
 import type { CompanyCountry, RegisterSearchHit } from "@/modules/company-profile";
 import {
   countrySetupLabel,
   registerDirectLookupLabel,
   registerSearchHeading,
-  registerStatusLabel,
 } from "@/modules/company-profile";
-import { lookupRegisterAction, searchRegisterAction } from "./actions";
+import { lookupRegisterAction } from "./actions";
+import { RegisterSearchCombobox } from "./register-search-combobox";
 
 type CompanyProfileFormProps = {
   companyId: number;
   folderName: string;
   initialCountry: CompanyCountry;
   initialProfile: CompanyProfileRow | null;
-  initialCandidates?: RegisterSearchHit[];
   pickedFromRegister?: {
     legalName: string;
     address: string;
     ico: string;
     dic: string;
+    /** SK + DIČ when VIES confirmed it; otherwise she types it. */
+    icDph: string | null;
+    icDphNote: string | null;
     registerSource: string;
   } | null;
   registerLookupError?: string | null;
@@ -30,6 +31,13 @@ type CompanyProfileFormProps = {
   savedFlash?: boolean;
   saveErrorFlash?: string | null;
 };
+
+function lookupMessage(country: CompanyCountry, icDphNote: string | null): string {
+  if (country === "CZ") {
+    return "Údaje z ARES doplnené. DIČ je zároveň IČ DPH.";
+  }
+  return `Údaje z registra doplnené. ${icDphNote ?? "IČ DPH zadaj ručne."}`;
+}
 
 type Draft = {
   legalName: string;
@@ -45,7 +53,6 @@ export function CompanyProfileForm({
   folderName,
   initialCountry,
   initialProfile,
-  initialCandidates = [],
   pickedFromRegister = null,
   registerLookupError = null,
   saveFormAction,
@@ -55,8 +62,6 @@ export function CompanyProfileForm({
   const [country, setCountry] = useState<CompanyCountry>(
     initialProfile?.country ?? initialCountry,
   );
-  const [searchQuery, setSearchQuery] = useState(folderName);
-  const [hits, setHits] = useState<RegisterSearchHit[]>(initialCandidates);
   const [directIco, setDirectIco] = useState(pickedFromRegister?.ico ?? "");
   const [draft, setDraft] = useState<Draft>(() => {
     if (initialProfile) {
@@ -75,7 +80,7 @@ export function CompanyProfileForm({
         address: pickedFromRegister.address,
         ico: pickedFromRegister.ico,
         dic: pickedFromRegister.dic,
-        icDph: "",
+        icDph: pickedFromRegister.icDph ?? "",
         registerSource: pickedFromRegister.registerSource,
       };
     }
@@ -93,16 +98,13 @@ export function CompanyProfileForm({
       return "Profil firmy uložený.";
     }
     if (pickedFromRegister) {
-      return country === "CZ"
-        ? "Údaje z ARES doplnené. DIČ je zároveň IČ DPH."
-        : "Údaje z registra doplnené. IČ DPH zadaj ručne.";
+      return lookupMessage(country, pickedFromRegister.icDphNote);
     }
     return null;
   });
   const [error, setError] = useState<string | null>(
     saveErrorFlash ?? registerLookupError,
   );
-  const [searchPending, startSearch] = useTransition();
   const [lookupPending, setLookupPending] = useState(false);
 
   const isCzech = country === "CZ";
@@ -121,11 +123,25 @@ export function CompanyProfileForm({
         address: result.data.lookup.address,
         ico: result.data.lookup.ico,
         dic: result.data.lookup.dic,
+        icDph: result.data.icDph,
+        icDphNote: result.data.icDphNote,
         registerSource: result.data.registerSource,
       });
+    } catch (lookupError) {
+      setError(
+        `Načítanie z registra zlyhalo (${lookupError instanceof Error ? lookupError.message : String(lookupError)}).`,
+      );
     } finally {
       setLookupPending(false);
     }
+  }
+
+  function pickCandidate(hit: RegisterSearchHit) {
+    setDirectIco(hit.ico);
+    // The pick in the address, as a link to it always was, so a reload keeps
+    // it — without the round trip that would search the register again.
+    window.history.replaceState(null, "", profilePickHref(hit.ico));
+    void runLookup(hit.ico);
   }
 
   function applyLookup(fields: {
@@ -133,6 +149,8 @@ export function CompanyProfileForm({
     address: string;
     ico: string;
     dic: string;
+    icDph: string | null;
+    icDphNote: string | null;
     registerSource: string;
   }) {
     setDraft((prev) => ({
@@ -141,15 +159,12 @@ export function CompanyProfileForm({
       address: fields.address,
       ico: fields.ico,
       dic: fields.dic,
-      icDph: prev.icDph,
+      // What she already typed stands unless VIES confirmed a number.
+      icDph: fields.icDph ?? prev.icDph,
       registerSource: fields.registerSource,
     }));
     setError(null);
-    setMessage(
-      isCzech
-        ? "Údaje z ARES doplnené. DIČ je zároveň IČ DPH."
-        : "Údaje z registra doplnené. IČ DPH zadaj ručne.",
-    );
+    setMessage(lookupMessage(country, fields.icDphNote));
   }
 
   function profilePickHref(ico: string): string {
@@ -181,7 +196,6 @@ export function CompanyProfileForm({
                   data-testid={`profile-country-${value}`}
                   onChange={() => {
                     setCountry(value);
-                    setHits([]);
                     setMessage(null);
                     setError(null);
                   }}
@@ -198,67 +212,18 @@ export function CompanyProfileForm({
           <header className="border-b border-line px-4 py-3">
             <h2 className="text-[15px]">{registerSearchHeading(country)}</h2>
             <p className="mt-1 text-[12.5px] text-ink-2">
-              Názov priečinka v Drive sa zriedka rovná právnemu názvu — prehľadaj register podľa
-              názvu priečinka alebo vlastného textu.
+              Názov priečinka v Drive sa zriedka rovná právnemu názvu. Píš a vyber firmu zo zoznamu —
+              hľadá sa aj podľa časti názvu.
             </p>
           </header>
           <div className="flex flex-col gap-3 p-4">
-            <label className="flex flex-col gap-1 text-[12.5px]">
-              <span className="text-ink-2">Hľadaný názov</span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                data-testid="profile-search-query"
-                className="rounded border border-line bg-surface-2 px-3 py-2 text-[13px]"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={searchPending}
-              data-testid="profile-search-submit"
-              className="w-fit rounded bg-accent px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50"
-              onClick={() => {
-                setError(null);
-                startSearch(async () => {
-                  const result = await searchRegisterAction(companyId, searchQuery, country);
-                  if (!result.ok) {
-                    setError(result.message);
-                    return;
-                  }
-                  setHits(result.data.hits);
-                  if (result.data.hits.length === 0) {
-                    setMessage("Register nevrátil žiadne zhody.");
-                  } else {
-                    setMessage(null);
-                  }
-                });
-              }}
-            >
-              {searchPending ? "Hľadám…" : "Hľadať v registri"}
-            </button>
-
-            {hits.length > 0 ? (
-              <ul className="flex flex-col gap-2" data-testid="profile-candidates">
-                {hits.map((hit) => (
-                  <li key={hit.ico}>
-                    <Link
-                      href={profilePickHref(hit.ico)}
-                      data-testid={`profile-candidate-${hit.ico}`}
-                      className="block w-full rounded border border-line bg-surface-2 px-3 py-2 text-left text-[13px] hover:border-accent"
-                    >
-                      <span className="font-semibold">{hit.legalName}</span>
-                      <span className="mt-0.5 block font-mono text-[12px] text-ink-2">
-                        IČO {hit.ico} · {registerStatusLabel(hit.status)}
-                      </span>
-                      {hit.address ? (
-                        <span className="mt-0.5 block text-[12px] text-ink-3">{hit.address}</span>
-                      ) : null}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            <RegisterSearchCombobox
+              companyId={companyId}
+              country={country}
+              initialQuery={pickedFromRegister?.legalName ?? folderName}
+              searchOnMount={!pickedFromRegister}
+              onPick={pickCandidate}
+            />
 
             <div className="border-t border-line pt-4">
               <label className="flex flex-col gap-1 text-[12.5px]">
@@ -298,7 +263,7 @@ export function CompanyProfileForm({
           <p className="mt-1 text-[12.5px] text-ink-2">
             {isCzech
               ? "Právny názov, adresa a DIČ pochádzajú z ARES. České DIČ je zároveň identifikátor pre DPH."
-              : "Právny názov, adresa a DIČ pochádzajú z registra. IČ DPH sa nikdy nepredvyplní — zadaj ho podľa dokladov klienta."}
+              : "Právny názov, adresa a DIČ pochádzajú z registra. IČ DPH sa doplní, len keď ho pod rovnakým názvom potvrdí VIES — inak ho zadaj podľa dokladov klienta."}
           </p>
         </header>
         <form action={saveFormAction} className="flex flex-col gap-3 p-4">

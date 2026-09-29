@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { FakeCompanyRegister } from "../../../src/adapters/company-register/fake-company-register.ts";
+import type { CompanyRegister } from "../../../src/adapters/company-register/port.ts";
+import { FakeVatRegister } from "../../../src/adapters/vat-register/fake-vat-register.ts";
+import type { VatRegister } from "../../../src/adapters/vat-register/port.ts";
 import { getCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
 import { events, companies } from "../../../src/lib/db/schema.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
@@ -29,7 +32,10 @@ test("profile save emits CompanyProfileSaved and clears chase marker", async () 
   }
   assert.ok(search.hits.length > 0);
 
-  const lookup = await lookupCompanyRegister(search.hits[0]!.ico, "SK", { register });
+  const lookup = await lookupCompanyRegister(search.hits[0]!.ico, "SK", {
+    register,
+    vatRegister: new FakeVatRegister(),
+  });
   assert.equal(lookup.ok, true);
   if (!lookup.ok) {
     return;
@@ -108,3 +114,70 @@ test("czech profile saves without IČ DPH and uses ARES source", async () => {
   assert.equal(profile.registerSource, "ares");
 });
 
+async function withDb(): Promise<void> {
+  await freshTestDb();
+}
+
+// Beta s.r.o.'s DIČ in the fake register is 2020311335.
+test("a Slovak lookup fills IČ DPH with SK + DIČ when VIES registers it to the same name", async () => {
+  await withDb();
+  const lookup = await lookupCompanyRegister("31333532", "SK", {
+    register: new FakeCompanyRegister(),
+    vatRegister: new FakeVatRegister({ SK2020311335: "Beta, s. r. o." }),
+  });
+  assert.ok(lookup.ok);
+  assert.equal(lookup.icDph, "SK2020311335");
+  assert.equal(lookup.registerSource, "rpo+ruz+vies");
+  assert.match(lookup.icDphNote ?? "", /overené vo VIES/);
+});
+
+test("IČ DPH stays empty when VIES does not register SK + DIČ — a VAT group member", async () => {
+  await withDb();
+  const lookup = await lookupCompanyRegister("31333532", "SK", {
+    register: new FakeCompanyRegister(),
+    vatRegister: new FakeVatRegister(),
+  });
+  assert.ok(lookup.ok);
+  assert.equal(lookup.icDph, null);
+  assert.equal(lookup.registerSource, "rpo+ruz");
+  assert.match(lookup.icDphNote ?? "", /skupine DPH/);
+});
+
+test("IČ DPH stays empty when VIES registers the number to another name", async () => {
+  await withDb();
+  const lookup = await lookupCompanyRegister("31333532", "SK", {
+    register: new FakeCompanyRegister(),
+    vatRegister: new FakeVatRegister({ SK2020311335: "Group registration - This VAT ID corresponds to a Group of Taxpayers" }),
+  });
+  assert.ok(lookup.ok);
+  assert.equal(lookup.icDph, null);
+  assert.match(lookup.icDphNote ?? "", /iným názvom/);
+});
+
+test("a VIES outage leaves IČ DPH to her, and the lookup still succeeds", async () => {
+  await withDb();
+  const down: VatRegister = {
+    async check() {
+      throw new Error("VIES: MS_UNAVAILABLE");
+    },
+  };
+  const lookup = await lookupCompanyRegister("31333532", "SK", { register: new FakeCompanyRegister(), vatRegister: down });
+  assert.ok(lookup.ok);
+  assert.equal(lookup.icDph, null);
+  assert.match(lookup.icDphNote ?? "", /VIES teraz neodpovedá/);
+});
+
+test("a register that fails says so instead of throwing", async () => {
+  await withDb();
+  const failing: CompanyRegister = {
+    async searchByName() {
+      throw new Error("RPO search failed: HTTP 400");
+    },
+    async lookupByIco() {
+      throw new Error("RÚZ lookup failed: HTTP 403");
+    },
+  };
+  const lookup = await lookupCompanyRegister("45891761", "SK", { register: failing, vatRegister: new FakeVatRegister() });
+  assert.deepEqual(lookup.ok, false);
+  assert.match(lookup.ok ? "" : lookup.message, /RÚZ teraz neodpovedá \(RÚZ lookup failed: HTTP 403\)/);
+});

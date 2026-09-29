@@ -5,9 +5,8 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import {
   lookupCompanyRegister,
   saveCompanyProfileForUser,
-  searchCompanyRegister,
 } from "@/lib/company-profile/service";
-import type { CompanyCountry, RegisterLookup, RegisterSearchHit } from "@/modules/company-profile";
+import type { CompanyCountry, RegisterLookup } from "@/modules/company-profile";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -34,33 +33,12 @@ async function assertAllowed(): Promise<{ ok: false; message: string } | null> {
   return null;
 }
 
-export async function searchRegisterAction(
-  companyId: number,
-  query: string,
-  countryRaw: string,
-): Promise<
-  ActionResult<{ hits: RegisterSearchHit[]; folderName: string }>
-> {
-  const denied = await assertAllowed();
-  if (denied) {
-    return denied;
-  }
-
-  const result = await searchCompanyRegister(companyId, query, parseCountry(countryRaw));
-  if (!result.ok) {
-    return { ok: false, message: result.message };
-  }
-
-  return {
-    ok: true,
-    data: { hits: result.hits, folderName: result.folderName },
-  };
-}
-
 export async function lookupRegisterAction(
   ico: string,
   countryRaw: string,
-): Promise<ActionResult<{ lookup: RegisterLookup; registerSource: string }>> {
+): Promise<
+  ActionResult<{ lookup: RegisterLookup; registerSource: string; icDph: string | null; icDphNote: string | null }>
+> {
   const denied = await assertAllowed();
   if (denied) {
     return denied;
@@ -73,7 +51,12 @@ export async function lookupRegisterAction(
 
   return {
     ok: true,
-    data: { lookup: result.lookup, registerSource: result.registerSource },
+    data: {
+      lookup: result.lookup,
+      registerSource: result.registerSource,
+      icDph: result.icDph,
+      icDphNote: result.icDphNote,
+    },
   };
 }
 
