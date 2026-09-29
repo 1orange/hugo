@@ -105,3 +105,35 @@ only has to get the IČO right, which grounding already verifies.
   registers remove most of the typing and every transcription error in the DIČ.
 - **Store roles on the document.** Goes stale when a profile is corrected, the same argument ADR
   0013 made against storing cash versus card.
+
+## Amendment, 2026-09-29 — IČ DPH when VIES vouches for it, and the registers as they answer
+
+The first real setup, SPRING.etc., spol. s r. o., ended with an empty IČ DPH she had to type, for a
+company whose "SK" + DIČ is its IČ DPH. Decision 4 kept the field empty because that guess is wrong
+for a VAT group member. VIES, the EU's check of a VAT ID against the member state's register, tells
+the two apart — measured on 2026-09-29:
+
+- `SK2023141351` (SPRING.etc., SK + its DIČ) is valid, registered to "SPRING.etc., spol. s r. o.";
+- `SK2020372640` (Slovnaft, SK + its DIČ) is **invalid**: it is in a VAT group;
+- `SK7120001713` (the group's number, printed on Slovnaft's receipts) is valid, named only "Group
+  registration".
+
+**Decision 4 now reads:** after a Slovak lookup the app asks VIES about SK + DIČ. IČ DPH is filled in
+only when VIES says it is registered **and** to the same name as the register's, legal form aside
+(register-search module); the profile's source is then `rpo+ruz+vies`. Invalid, another name, or
+VIES not answering — the field stays empty, as before, with a line saying which. The value filled in
+is a registration VIES confirms, not a plausible guess, so it is not the value ADR 0017 exists to
+prevent. She still sees it and can change it before saving. VIES needs no key; it is asked once per
+setup, never per document.
+
+Two things about the registers themselves, found when setup failed on a real IČO:
+
+- **RÚZ** refuses (HTTP 403, from its firewall) a list request without `zmenene-od`, and the list
+  returns ids only; the name, address and DIČ come from a second request per id. An IČO can hold a
+  live record beside withdrawn ones (`stav: "ZMAZANÉ"`), which are skipped.
+- **RPO** returns every attribute as a history — the current entry has no `validTo` — and matches
+  the name as one literal substring, former names included, capped at 500 entities, in 5–8 s:
+  "spring" finds 123, "spring etc" none. The setup form therefore searches as she types, asks again
+  by the longest word when a query of several finds nothing, ranks live companies and closer names
+  first, and keeps each answer for ten minutes. A register that fails is a message in the form, and
+  in the Omega export a counterparty keeps the document's own name and DIČ.
