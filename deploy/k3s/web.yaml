@@ -117,6 +117,13 @@ spec:
               port: http
             periodSeconds: 20
             failureThreshold: 3
+          # Traefik learns a pod is going a moment after it is told to stop;
+          # serving through that moment keeps a rolling update from dropping
+          # requests.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
