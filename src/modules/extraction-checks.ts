@@ -10,13 +10,21 @@ import type {
   ModelExtractedPayload,
 } from "./document-payload";
 import { parseMonthKey } from "./format-sk";
-import { isLabelledOnlyAsDue, labelledDates } from "./labelled-dates";
+import { isDueDateNotPrinted, isLabelledOnlyAsDue, labelledDates } from "./labelled-dates";
+import type { ClientIdentity } from "./party-roles";
+import { fillCounterpartyIcDph } from "./printed-vat-numbers";
+import { mergePartiesSharingIco } from "./document-parties";
+import { deriveReceiptKind } from "./document-state";
 
 export type ExtractionChecksInput = {
   payload: ModelExtractedPayload;
   sourceTextLines: string[];
   monthKey: string;
   issuerCountry?: CompanyCountry | null;
+  /** Her company: with it, a VAT number the model missed is taken from the text (printed-vat-numbers). */
+  client?: ClientIdentity | null;
+  /** Among the receipts, parties sharing an IČO are the one seller (document-parties). */
+  folderSlot?: string | null;
 };
 
 export type PartyFieldCheckStates = {
@@ -298,7 +306,16 @@ export function runExtractionChecks(input: ExtractionChecksInput): ExtractionChe
 
   const parties: DocumentParty[] = [];
   const partyFlags: PartyFieldCheckStates[] = [];
-  for (const party of input.payload.parties) {
+  // On an invoice two parties with one IČO are a model's mistake, flagged
+  // below; a receipt has one seller, and a second one is that seller again.
+  const oneEach =
+    input.folderSlot && deriveReceiptKind(input.folderSlot) !== null
+      ? mergePartiesSharingIco(input.payload.parties)
+      : input.payload.parties;
+  const extractedParties = input.client
+    ? fillCounterpartyIcDph(oneEach, input.sourceTextLines, input.client)
+    : oneEach;
+  for (const party of extractedParties) {
     const grounded = applyGroundingParty(party, haystack);
     parties.push(grounded.party);
     partyFlags.push(formatPartyFlags(grounded.party, grounded.dropped));
@@ -323,7 +340,9 @@ export function runExtractionChecks(input: ExtractionChecksInput): ExtractionChe
   const taxableFlagged =
     !datePlausible(input.monthKey, payload.taxableSupplyDate) ||
     isLabelledOnlyAsDue(payload.taxableSupplyDate, dateLabels);
-  const dueFlagged = !datePlausible(input.monthKey, payload.dueDate);
+  const dueFlagged =
+    !datePlausible(input.monthKey, payload.dueDate) ||
+    isDueDateNotPrinted(payload.dueDate, input.sourceTextLines, dateLabels);
 
   const flags: ExtractionCheckFlags = {
     documentNumber: checkStateForValue(

@@ -4,11 +4,10 @@ import {
   normalizeModelAmountLiteral,
   normalizeModelCurrency,
   normalizeModelDate,
-  normalizeModelDic,
   normalizeModelDocumentNumber,
-  normalizeModelIcDph,
   normalizeModelIco,
   normalizeModelPartyName,
+  normalizeModelTaxNumbers,
   normalizeModelVariableSymbol,
 } from "../../modules/model-output-normalize";
 import type { DocTypeHint, ModelExtractedPayload } from "../../modules/document-payload";
@@ -124,8 +123,7 @@ function mapResponseBody(body: ModelExtractionResponseBody): ModelExtractedPaylo
     parties: body.parties.map((party) => ({
       name: normalizeModelPartyName(party.name),
       ico: normalizeModelIco(party.ico),
-      dic: normalizeModelDic(party.dic),
-      icDph: normalizeModelIcDph(party.icDph),
+      ...normalizeModelTaxNumbers(party),
     })),
     documentNumber: normalizeModelDocumentNumber(body.documentNumber),
     variableSymbol: normalizeModelVariableSymbol(body.variableSymbol),

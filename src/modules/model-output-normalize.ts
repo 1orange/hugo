@@ -65,16 +65,57 @@ export function normalizeModelVariableSymbol(value: string | null | undefined): 
 const TAX_NUMBER_LABEL = /^(i[čc]\s*dph|di[čc]|vat(\s*(id|no\.?|number))?)\s*[:|.\-]*\s*/i;
 
 function compactTaxNumber(value: string | null | undefined): string | null {
-  const compact = (value ?? "").trim().replace(TAX_NUMBER_LABEL, "").replace(/\s/g, "").toUpperCase();
+  const compact = (value ?? "")
+    .trim()
+    .replace(TAX_NUMBER_LABEL, "")
+    .replace(/[\s.\-/]/g, "")
+    .toUpperCase();
   return compact.length > 0 ? compact : null;
 }
 
+// What the model put in a tax number field on her documents, and was not
+// one: a Polish waste-register number ("BDO 000012345"), a phone number, a car's
+// plate, an IBAN.
+//
+// IČ DPH: a VAT number — an EU country's prefix, then its national number;
+// Slovak and Czech ones checked for length.
+// An EU VAT number has six digits or more; "PLATBA" is not a Polish one.
+const VAT_NUMBER =
+  /^(?:SK\d{10}|CZ\d{8,10}|(?:AT|BE|BG|CY|DE|DK|EE|EL|ES|FI|FR|GB|HR|HU|IE|IT|LT|LU|LV|MT|NL|NO|PL|PT|RO|SE|SI|XI)(?=(?:[A-Z]*\d){6})[0-9A-Z]{2,13})$/;
+// DIČ: a Slovak one is ten digits, a Czech one is its VAT number; other
+// countries' tax numbers are digits too (a Polish NIP, 123-456-78-90).
+const TAX_NUMBER = /^(?:\d{8,13}|CZ\d{8,10})$/;
+
 export function normalizeModelIcDph(value: string | null | undefined): string | null {
-  return compactTaxNumber(value);
+  const compact = compactTaxNumber(value);
+  return compact && VAT_NUMBER.test(compact) ? compact : null;
 }
 
 export function normalizeModelDic(value: string | null | undefined): string | null {
-  return compactTaxNumber(value);
+  const compact = compactTaxNumber(value);
+  return compact && TAX_NUMBER.test(compact) ? compact : null;
+}
+
+/**
+ * A party's DIČ and IČ DPH, each where it belongs. MODIVO prints its Slovak
+ * VAT number as "DIČ: SK4120004493": a Slovak DIČ never has the prefix, so it
+ * is the IČ DPH. A bare ten digits in the IČ DPH field is a DIČ.
+ */
+export function normalizeModelTaxNumbers(party: {
+  dic: string | null | undefined;
+  icDph: string | null | undefined;
+}): { dic: string | null; icDph: string | null } {
+  let dic = normalizeModelDic(party.dic);
+  let icDph = normalizeModelIcDph(party.icDph);
+  const dicAsVat = dic === null ? normalizeModelIcDph(party.dic) : null;
+  if (dicAsVat && !dicAsVat.startsWith("CZ")) {
+    icDph ??= dicAsVat;
+  }
+  const vatAsDic = icDph === null ? normalizeModelDic(party.icDph) : null;
+  if (vatAsDic && /^\d+$/.test(vatAsDic)) {
+    dic ??= vatAsDic;
+  }
+  return { dic, icDph };
 }
 
 // The words printed before the number: `Faktúra - daňový doklad - 5420373176`,

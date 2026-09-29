@@ -4,7 +4,6 @@ import {
 } from "./ekasa-timestamp";
 import { cashRoundingCents } from "./cash-rounding";
 import { parseDecimalAmount } from "./money";
-import type { CompanyProfileFields } from "./company-profile";
 import { homeCurrencyForCountry, type HomeCurrency } from "./company-profile";
 import type {
   ConfirmedPayload,
@@ -16,6 +15,7 @@ import { isEkasaPayload, isModelExtractedPayload } from "./document-payload";
 import {
   assignPartiesFromExtracted,
   validateLabeledPartyRoles,
+  type ClientIdentity,
 } from "./party-roles";
 
 export type EditableDocumentFields = {
@@ -87,7 +87,7 @@ export type MergedDocumentFields = {
 
 export type MergeDocumentFieldsOptions = {
   folderSlot?: string;
-  profile?: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  profile?: ClientIdentity | null;
   homeCurrency?: HomeCurrency;
 };
 

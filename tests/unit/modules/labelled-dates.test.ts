@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isLabelledOnlyAsDue, labelledDates } from "../../../src/modules/labelled-dates.ts";
+import { isDueDateNotPrinted, isLabelledOnlyAsDue, labelledDates } from "../../../src/modules/labelled-dates.ts";
 
 // Bonami's invoice, as the model reads it.
 const BONAMI = [
@@ -46,4 +46,14 @@ test("several labels on one line each take their own date; Czech and OCR text to
 test("without a label for another date, nothing is flagged", () => {
   const labels = labelledDates(["Splatnosť: 17.05.2026", "Spolu 12,00 EUR"]);
   assert.equal(isLabelledOnlyAsDue("2026-05-17", labels), false);
+});
+
+// MODIVO's invoice, paid online: only a creation date, no due date.
+test("a due date the document never prints is not taken from its issue date", () => {
+  const modivo = ["Faktúra DPH čislo FV/0000001/2605/0001", "Dátum vytvorenia: 2026-05-19", "Zaplatiť (EUR): | 298,00"];
+  assert.equal(isDueDateNotPrinted("2026-05-19", modivo), true);
+  // Printed under its label, it stands; so does a date the text does not label.
+  assert.equal(isDueDateNotPrinted("2026-05-17", BONAMI), false);
+  assert.equal(isDueDateNotPrinted("2026-05-03", BONAMI), false);
+  assert.equal(isDueDateNotPrinted("2026-06-02", modivo), false);
 });

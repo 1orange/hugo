@@ -1,8 +1,7 @@
 import type { FieldCheckState, ScalarFieldKey } from "./document-fields";
 import type { ModelExtractedPayload } from "./document-payload";
 import type { ExtractionCheckFlags } from "./extraction-checks";
-import type { CompanyProfileFields } from "./company-profile";
-import { partyRoleIndices } from "./party-roles";
+import { partyRoleIndices, type ClientIdentity } from "./party-roles";
 
 export type EditorScalarFieldChecks = Partial<
   Record<ScalarFieldKey | "vatRecap", FieldCheckState>
@@ -11,7 +10,7 @@ export type EditorScalarFieldChecks = Partial<
 export function editorFieldChecksFromModel(input: {
   extracted: ModelExtractedPayload;
   folderSlot: string;
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  profile: ClientIdentity | null;
 }): EditorScalarFieldChecks | null {
   const flags: ExtractionCheckFlags | undefined = input.extracted.fieldChecks;
   if (!flags) {

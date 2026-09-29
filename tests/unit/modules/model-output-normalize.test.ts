@@ -7,6 +7,7 @@ import {
   normalizeModelDic,
   normalizeModelDocumentNumber,
   normalizeModelIcDph,
+  normalizeModelTaxNumbers,
   normalizeModelIco,
   normalizeModelPartyName,
   normalizeModelVariableSymbol,
@@ -61,6 +62,47 @@ test("a tax number loses the label printed before it", () => {
   assert.equal(normalizeModelIcDph("IČ DPH: SK 2020449189"), "SK2020449189");
   assert.equal(normalizeModelDic("DIC:2022620941"), "2022620941");
   assert.equal(normalizeModelIcDph("IČ DPH:"), null);
+});
+
+// What the model put in tax number fields on her documents, and was not one.
+test("what is not a tax number is no tax number", () => {
+  assert.equal(normalizeModelDic("BDO 000012345"), null);
+  assert.equal(normalizeModelIcDph("+421900123456"), null);
+  assert.equal(normalizeModelIcDph("BA123XY"), null);
+  assert.equal(normalizeModelDic("BA123XY"), null);
+  assert.equal(normalizeModelIcDph("SK00 1234 5678 9012 3456 7890"), null);
+  assert.equal(normalizeModelDic("1C09080:930"), null);
+  assert.equal(normalizeModelIcDph("PLATBA"), null);
+});
+
+test("DIČ and IČ DPH of the countries on her invoices", () => {
+  assert.equal(normalizeModelDic("2020123456"), "2020123456");
+  assert.equal(normalizeModelDic("CZ49451871"), "CZ49451871");
+  assert.equal(normalizeModelDic("929-193-54-94"), "9291935494");
+  assert.equal(normalizeModelIcDph("CZ 699 000 761"), "CZ699000761");
+  assert.equal(normalizeModelIcDph("IE 3668997OH"), "IE3668997OH");
+  assert.equal(normalizeModelIcDph("ATU 12345678"), "ATU12345678");
+});
+
+// MODIVO prints "DIČ: SK4120004493"; a Slovak DIČ has no prefix.
+test("a VAT number given as the DIČ is the IČ DPH; ten digits given as the IČ DPH are the DIČ", () => {
+  assert.deepEqual(normalizeModelTaxNumbers({ dic: "SK4120004493", icDph: null }), {
+    dic: null,
+    icDph: "SK4120004493",
+  });
+  assert.deepEqual(normalizeModelTaxNumbers({ dic: null, icDph: "2020123456" }), {
+    dic: "2020123456",
+    icDph: null,
+  });
+  assert.deepEqual(normalizeModelTaxNumbers({ dic: "SK7120001713", icDph: "SK7120001713" }), {
+    dic: null,
+    icDph: "SK7120001713",
+  });
+  // A Czech DIČ is its VAT number, and stays where it was printed.
+  assert.deepEqual(normalizeModelTaxNumbers({ dic: "CZ49451871", icDph: null }), {
+    dic: "CZ49451871",
+    icDph: null,
+  });
 });
 
 test("a document number loses the label printed before it", () => {

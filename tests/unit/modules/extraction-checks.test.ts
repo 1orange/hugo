@@ -241,3 +241,29 @@ test("a row's VAT is checked against its rate even when the total was not read",
   const payload = basePayload({ vatRecap: [recapRow("23", 56396, 12269)] });
   assert.equal(run(payload, source(["563,96"])).flags.vatRecap, "flagged");
 });
+
+// A receipt has one seller; on an invoice one IČO twice is a mistake to see.
+test("parties sharing an IČO are merged among the receipts only", async () => {
+  const { runExtractionChecks } = await import("../../../src/modules/extraction-checks.ts");
+  const seller = { name: "Stanica Nivy s.r.o.", ico: "50861930", dic: null, icDph: "SK2120532249" };
+  const plate = { name: "BA123XY", ico: "50861930", dic: null, icDph: "SK2120532249" };
+  const payload = {
+    kind: "extracted" as const,
+    parties: [seller, plate],
+    documentNumber: "12345",
+    variableSymbol: null,
+    issueDate: "2026-07-23",
+    taxableSupplyDate: "2026-07-23",
+    dueDate: null,
+    currency: "EUR",
+    amountCents: 300,
+    amountLiteral: "3,00",
+    vatRecap: [],
+    docTypeHint: "receipt" as const,
+  };
+  const lines = ["Stanica Nivy s.r.o.", "IČO: 50 861 930", "IČ DPH: SK2120532249", "BA123XY", "Spolu s DPH | €3,00"];
+  const run = (folderSlot: string) =>
+    runExtractionChecks({ payload, sourceTextLines: lines, monthKey: "2026_07", folderSlot }).payload.parties.length;
+  assert.equal(run("05 Bločky_firemná karta"), 1);
+  assert.equal(run("02 Prijaté faktúry"), 2);
+});

@@ -3,6 +3,7 @@ import type { BenchmarkLabel } from "./benchmark-label";
 import type { FieldCheckState } from "./document-fields";
 import type { ModelExtractedPayload } from "./document-payload";
 import type { ExtractionCheckFlags } from "./extraction-checks";
+import { clientPartyIndex, type ClientIdentity } from "./party-roles";
 
 function normalizeIco(value: string | null | undefined): string {
   return (value ?? "").replace(/\s/g, "");
@@ -33,16 +34,16 @@ export function benchmarkFieldCheckStates(
   label: BenchmarkLabel,
   payload: ModelExtractedPayload,
   companyIco?: string | null,
+  client?: ClientIdentity | null,
 ): Partial<Record<BenchmarkFieldKey, FieldCheckState>> {
   const partyIndex = counterpartyPartyIndex(payload.parties, label, companyIco);
   const partyFlags = flags.parties[partyIndex];
-  // Production derives roles from the company's own IČO and flags them unless
-  // exactly one party carries it (clientPartyIndex); the benchmark must not
+  // Production finds her company among the parties and flags the roles
+  // unless exactly one party is it (clientPartyIndex); the benchmark must not
   // pick one silently.
   const ownIco = normalizeIco(companyIco);
-  const rolesUndetermined =
-    ownIco.length > 0 &&
-    payload.parties.filter((party) => normalizeIco(party.ico) === ownIco).length !== 1;
+  const identity = client ?? (ownIco.length > 0 ? { country: "SK" as const, ico: ownIco, icDph: "" } : null);
+  const rolesUndetermined = identity !== null && clientPartyIndex(payload.parties, identity) === null;
   const counterpartyState = (state: FieldCheckState | undefined): FieldCheckState =>
     rolesUndetermined ? "flagged" : (state ?? "empty");
 

@@ -178,6 +178,8 @@ async function runModelExtractionOnLines(
       sourceTextLines: input.lines,
       monthKey: input.monthKey,
       issuerCountry: profile?.country ?? null,
+      client: profile,
+      folderSlot: input.folderSlot,
     });
 
     const payload: ModelExtractedPayload = {

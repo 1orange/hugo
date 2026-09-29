@@ -11,9 +11,10 @@ export type DateLabel = "issue" | "taxable" | "due";
 
 // Matched without diacritics, lower case: Slovak and Czech labels, as printed.
 const LABELS: Array<{ kind: DateLabel; pattern: RegExp }> = [
-  { kind: "due", pattern: /splatnost/ },
+  // A paid invoice prints when it was paid instead ("Dátum prijatia platby").
+  { kind: "due", pattern: /splatnost|prijatia platby|datum platby|datum uhrady/ },
   { kind: "taxable", pattern: /duzp|zdanitel|danovej povinnost|danove povinnost|dodani|dodanie|datum plneni/ },
-  { kind: "issue", pattern: /vystaven|vyhotoven/ },
+  { kind: "issue", pattern: /vystaven|vyhotoven|vytvoren/ },
 ];
 const DATE = /(\d{1,2}\.\s*\d{1,2}\.\s*\d{4}|\d{4}-\d{2}-\d{2})/;
 
@@ -46,6 +47,24 @@ export function labelledDates(lines: readonly string[]): Map<string, Set<DateLab
     });
   }
   return found;
+}
+
+/**
+ * True when the text labels `date` as the issue or taxable supply date and
+ * prints no due date at all. MODIVO's invoice, paid online, has only "Dátum
+ * vytvorenia"; the model returned that date as the due date too.
+ */
+export function isDueDateNotPrinted(
+  date: string | null,
+  lines: readonly string[],
+  labels: Map<string, Set<DateLabel>> = labelledDates(lines),
+): boolean {
+  const kinds = date ? labels.get(date) : undefined;
+  if (!kinds || kinds.has("due")) {
+    return false;
+  }
+  const due = LABELS.find((label) => label.kind === "due")!.pattern;
+  return !lines.some((line) => due.test(fold(line)));
 }
 
 /**

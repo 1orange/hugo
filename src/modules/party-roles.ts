@@ -48,13 +48,29 @@ function partyToIdentity(party: DocumentParty): PartyIdentity {
   };
 }
 
-export function partyMatchesClient(
-  party: DocumentParty,
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph">,
-): boolean {
+/** Her company as the documents name it; DIČ and name when the profile has them. */
+export type ClientIdentity = Pick<CompanyProfileFields, "country" | "ico" | "icDph"> &
+  Partial<Pick<CompanyProfileFields, "dic" | "legalName">>;
+
+function compactName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Whether the party is her company. By IČO; a party without one — MODIVO's
+ * invoice prints only the customer's DIČ — by DIČ, IČ DPH or name.
+ */
+export function partyMatchesClient(party: DocumentParty, profile: ClientIdentity): boolean {
   const partyIco = normalizeIco(party.ico ?? "");
+  if (partyIco.length === 0) {
+    return partyMatchesClientWithoutIco(party, profile);
+  }
   const profileIco = normalizeIco(profile.ico);
-  if (partyIco.length === 0 || partyIco !== profileIco) {
+  if (partyIco !== profileIco) {
     return false;
   }
 
@@ -77,10 +93,19 @@ export function partyMatchesClient(
   return true;
 }
 
-export function clientPartyIndex(
-  parties: DocumentParty[],
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph">,
-): number | null {
+function partyMatchesClientWithoutIco(party: DocumentParty, profile: ClientIdentity): boolean {
+  const same = (left: string | null | undefined, right: string | null | undefined) => {
+    const a = (left ?? "").replace(/\s/g, "").toUpperCase();
+    return a.length > 0 && a === (right ?? "").replace(/\s/g, "").toUpperCase();
+  };
+  if (same(party.icDph, profile.icDph) || same(party.dic, profile.dic)) {
+    return true;
+  }
+  const name = compactName(party.name ?? "");
+  return name.length > 0 && name === compactName(profile.legalName ?? "");
+}
+
+export function clientPartyIndex(parties: DocumentParty[], profile: ClientIdentity): number | null {
   const matches = parties
     .map((party, index) => (partyMatchesClient(party, profile) ? index : -1))
     .filter((index) => index >= 0);
@@ -100,7 +125,7 @@ function isIssuedInvoices(folderSlot: string): boolean {
 
 export function partyRoleIndices(input: {
   parties: DocumentParty[];
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  profile: ClientIdentity | null;
   folderSlot: string;
 }): { supplierIndex: number; customerIndex: number } {
   if (input.parties.length === 0) {
@@ -111,7 +136,13 @@ export function partyRoleIndices(input: {
   }
 
   const clientIndex = clientPartyIndex(input.parties, input.profile);
-  const client = clientIndex ?? 0;
+  // Unknown roles keep the order the parties were read in, as
+  // assignPartiesFromExtracted does: the checks shown beside the supplier's
+  // fields must be the supplier's.
+  if (clientIndex === null) {
+    return { supplierIndex: 0, customerIndex: Math.min(1, input.parties.length - 1) };
+  }
+  const client = clientIndex;
   const counterparty = client === 0 ? 1 : 0;
 
   if (isReceivedInvoices(input.folderSlot)) {
@@ -125,7 +156,7 @@ export function partyRoleIndices(input: {
 
 export function assignPartiesFromExtracted(input: {
   folderSlot: string;
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  profile: ClientIdentity | null;
   parties: DocumentParty[];
 }): PartyRoleAssignment {
   const first = input.parties[0] ? partyToIdentity(input.parties[0]) : emptyIdentity();
@@ -182,7 +213,7 @@ export function assignPartiesFromExtracted(input: {
 
 export function validateLabeledPartyRoles(input: {
   folderSlot: string;
-  profile: Pick<CompanyProfileFields, "country" | "ico" | "icDph"> | null;
+  profile: ClientIdentity | null;
   supplier: PartyIdentity;
   customer: PartyIdentity;
 }): PartyRoleValidation {

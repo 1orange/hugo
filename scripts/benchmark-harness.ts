@@ -24,6 +24,7 @@ import { benchmarkFieldCheckStates } from "../src/modules/extraction-checks-benc
 import { runExtractionChecks } from "../src/modules/extraction-checks.ts";
 import type { ExtractedPayload, ModelExtractedPayload } from "../src/modules/document-payload.ts";
 import type { CompanyCountry } from "../src/modules/company-profile.ts";
+import type { ClientIdentity } from "../src/modules/party-roles.ts";
 
 function formatRate(rate: number): string {
   return `${(rate * 100).toFixed(1)}%`;
@@ -92,7 +93,17 @@ async function main(): Promise<void> {
   }
 
   const { extractor, modeLabel } = createBenchmarkExtractor(useReal);
-  const companyIco = loadBenchmarkManifest(fixturesDir)?.companyIco ?? null;
+  const manifest = loadBenchmarkManifest(fixturesDir);
+  const companyIco = manifest?.companyIco ?? null;
+  const client: ClientIdentity | null = companyIco
+    ? {
+        country: "SK",
+        ico: companyIco,
+        dic: manifest?.companyDic ?? "",
+        icDph: manifest?.companyIcDph ?? "",
+        legalName: manifest?.companyName ?? "",
+      }
+    : null;
   const ocr: Ocr = createOcr(process.env);
   const payloadsByDriveFileId: Record<string, ExtractedPayload> = {};
   const modelDurationsMs: number[] = [];
@@ -159,6 +170,8 @@ async function main(): Promise<void> {
             sourceTextLines: entry.lines,
             monthKey: label.monthKey,
             issuerCountry: issuerCountryFromLabel(label),
+            client,
+            folderSlot: label.folderSlot,
           })
         : null;
       const payload = rechecked?.payload ?? recorded;
@@ -169,7 +182,7 @@ async function main(): Promise<void> {
           label,
           payload,
           fieldCheckStates: fieldChecks
-            ? benchmarkFieldCheckStates(fieldChecks, label, payload, companyIco)
+            ? benchmarkFieldCheckStates(fieldChecks, label, payload, companyIco, client)
             : undefined,
           companyIco,
         }),
@@ -241,6 +254,8 @@ async function main(): Promise<void> {
       sourceTextLines: textLines,
       monthKey: label.monthKey,
       issuerCountry: issuerCountryFromLabel(label),
+      client,
+      folderSlot: label.folderSlot,
     });
     modelDurationsMs.push(result.durationMs);
     if (result.completionTokens !== undefined) {
@@ -263,6 +278,7 @@ async function main(): Promise<void> {
           label,
           checked.payload,
           companyIco,
+          client,
         ),
         companyIco,
       }),
