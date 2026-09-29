@@ -136,7 +136,7 @@ test("a worker reads a queued document, and every replica hears it", { skip }, a
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   assert.equal(await enqueueMonthExtraction(new BullmqExtractionJobQueue(), 1, "2026_01"), 1);
-  const worker = startExtractionWorker(
+  const { worker } = startExtractionWorker(
     {
       driveClient,
       pdfAccess,

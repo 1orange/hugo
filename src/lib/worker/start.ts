@@ -28,7 +28,7 @@ export async function startWorker(env: NodeJS.ProcessEnv = process.env): Promise
   const stopMonitor = startServiceMonitor(env);
   await scheduleDrivePoll(env);
 
-  for (const worker of [extraction, sweep]) {
+  for (const { worker } of [extraction, sweep]) {
     worker.on("failed", (job, error) => console.warn(`[worker] ${worker.name} job ${job?.id} failed`, error));
     worker.on("error", (error) => console.warn(`[worker] ${worker.name}`, error));
   }
@@ -36,8 +36,13 @@ export async function startWorker(env: NodeJS.ProcessEnv = process.env): Promise
   return {
     async close() {
       stopMonitor();
-      // Waits for the documents being read to finish.
-      await Promise.all([extraction.close(), sweep.close()]);
+      // Waits for a document being read, or a sweep, to finish. With neither
+      // there is nothing to wait for — and BullMQ's graceful close needs Redis:
+      // a Redis stopping at the same moment held the pod for its whole grace.
+      await Promise.all([
+        extraction.worker.close(!extraction.busy()),
+        sweep.worker.close(!sweep.busy()),
+      ]);
     },
   };
 }

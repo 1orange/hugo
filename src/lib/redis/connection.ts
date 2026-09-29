@@ -31,7 +31,17 @@ export function redisKey(...parts: string[]): string {
  * blocking commands must never time out (`maxRetriesPerRequest: null`).
  */
 export function createRedisConnection(env: NodeJS.ProcessEnv = process.env): Redis {
-  return new Redis(requireRedisUrl(env), { maxRetriesPerRequest: null });
+  const connection = new Redis(requireRedisUrl(env), { maxRetriesPerRequest: null });
+  // ioredis reconnects by itself; without a listener each failed attempt is
+  // an "Unhandled error event". Once in a while is enough to see it is down.
+  let warnedAt = 0;
+  connection.on("error", (error: Error) => {
+    if (Date.now() - warnedAt > 30_000) {
+      warnedAt = Date.now();
+      console.warn(`[redis] ${error.message}`);
+    }
+  });
+  return connection;
 }
 
 type Holder = { commands?: Redis; opened: Redis[] };
@@ -61,5 +71,12 @@ export async function closeRedis(): Promise<void> {
   const all = [...(state.commands ? [state.commands] : []), ...state.opened];
   state.commands = undefined;
   state.opened = [];
-  await Promise.all(all.map((connection) => connection.quit().catch(() => connection.disconnect())));
+  // QUIT waits for Redis; a Redis that is gone would never answer.
+  await Promise.all(
+    all.map((connection) =>
+      Promise.race([connection.quit(), new Promise((resolve) => setTimeout(resolve, 2000))])
+        .catch(() => undefined)
+        .finally(() => connection.disconnect()),
+    ),
+  );
 }

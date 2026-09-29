@@ -37,15 +37,25 @@ async function main(): Promise<void> {
     }
     stopping = true;
     console.log(`[worker] ${signal}: finishing the documents being read`);
+    // Inside the pod's grace period (660 s): whatever still hangs is cut.
+    setTimeout(() => {
+      console.warn("[worker] shutdown took too long; exiting");
+      process.exit(1);
+    }, Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS) || 630_000).unref();
     server.close();
     await worker.close();
-    await closeQueues();
+    await within(5000, closeQueues());
     await closeRedis();
-    await closeDb();
+    await within(5000, closeDb());
     process.exit(0);
   };
   process.on("SIGTERM", () => void stop("SIGTERM"));
   process.on("SIGINT", () => void stop("SIGINT"));
+}
+
+/** Waits for `work`, but no longer than `ms`: closing a connection to a service that is gone must not hold the exit. */
+function within(ms: number, work: Promise<unknown>): Promise<void> {
+  return Promise.race([work.then(() => undefined, () => undefined), new Promise<void>((resolve) => setTimeout(resolve, ms))]);
 }
 
 main().catch((error: unknown) => {
