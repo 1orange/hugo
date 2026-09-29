@@ -397,3 +397,77 @@ test("an invoice that carries its ISDOC is read from it, without the model", asy
   assert.equal(invoice.fieldEditor.fields.customerName, "Beta s.r.o.");
   assert.equal(invoice.fieldEditor.rolesFlagged, false);
 });
+
+// Slovnaft's fuel-card invoices attach a MOL e-invoice; it has no IČO.
+test("a MOL e-invoice is read from its XML, the seller's IČO from its text", async () => {
+  await freshTestDb();
+
+  const driveClient = new FakeDriveClient(fixtureTree, {
+    [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
+  });
+  await setDriveParentFolderId(PARENT_ID);
+  await runSweep(driveClient);
+  await saveCompanyProfile(1, {
+    country: "SK",
+    legalName: "Beta s.r.o.",
+    address: "Bratislava",
+    ico: "31333532",
+    dic: "2020311335",
+    icDph: "SK2020311335",
+    registerSource: "fake",
+    savedAt: "2026-01-12T10:00:00.000Z",
+  });
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<invoice xmlns:invoice="http://www.mol.hu/e-invoice">
+<header>
+<seller><name>Palivá Slovensko, a.s.</name><taxnumber>2020111111</taxnumber><eutaxnumber>SK7020111111</eutaxnumber></seller>
+<buyer><name>Beta s.r.o.</name><taxnumber>2020311335</taxnumber><eutaxnumber>SK2020311335</eutaxnumber></buyer>
+<invoiceinfo><invoicenumber> 4500000001</invoicenumber><invoicedate>2026.01.10</invoicedate><deliverydate>2026.01.09</deliverydate>
+<duedate>2026.01.24</duedate><invoicetype>NORMAL</invoicetype><currency>EUR</currency></invoiceinfo>
+</header>
+<summary><vatcell id="1"><vatpercent>23%</vatpercent><netamount>26,83</netamount><vatamount>6,17</vatamount><grossamount>33,00</grossamount></vatcell>
+<grossamountsummary>33,00</grossamountsummary></summary>
+</invoice>`;
+  const pdfAccess: PdfAccess = {
+    async extractTextLines() {
+      return ["Faktúra 4500000001", "IČO/Registration no: 31000001 | IČO/Registration no: 31333532"];
+    },
+    async extractAttachments() {
+      return [{ filename: "SK_MSSK_4500000001_I_CARD.xml", content: new TextEncoder().encode(xml) }];
+    },
+    async extractPageImages() {
+      return [];
+    },
+  };
+
+  await discoverModelExtractionForMonth(1, "2026_01", {
+    driveClient,
+    pdfAccess,
+    ocr: new FakeOcr(),
+    extractor: {
+      async extract(): Promise<never> {
+        throw new Error("the model must not be asked for a MOL e-invoice");
+      },
+    },
+    now: () => "2026-01-12T10:00:00.000Z",
+  });
+
+  const row = (
+    await getDb().select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).limit(1)
+  )[0]!;
+  assert.equal(row.extractionStatus, "complete");
+  const extracted = parseExtractedPayload(row.extractedPayloadJson);
+  assert.ok(isModelExtractedPayload(extracted));
+  assert.equal(extracted.source, "mol");
+  assert.deepEqual(extracted.parties[0], { name: "Palivá Slovensko, a.s.", ico: "31000001", dic: "2020111111", icDph: "SK7020111111" });
+  assert.equal(extracted.amountCents, 3300);
+
+  const invoice = (await buildMonthDocumentView(1, "2026_01"))!.documents.find(
+    (document) => document.driveFileId === INVOICE_ID,
+  )!;
+  assert.equal(invoice.extractionSource, "mol");
+  assert.equal(invoice.fieldEditor.fields.supplierName, "Palivá Slovensko, a.s.");
+  assert.equal(invoice.fieldEditor.fields.ico, "31000001");
+  assert.equal(invoice.fieldEditor.rolesFlagged, false);
+});

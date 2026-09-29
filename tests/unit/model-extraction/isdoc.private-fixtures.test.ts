@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createPdfAccess } from "../../../src/adapters/pdf/pdf-access.ts";
-import { readEmbeddedIsdoc } from "../../../src/lib/model-extraction/isdoc-document.ts";
+import { readEmbeddedInvoiceXml } from "../../../src/lib/model-extraction/embedded-invoice.ts";
 import { runExtractionChecks } from "../../../src/modules/extraction-checks.ts";
 import type { BenchmarkLabel } from "../../../src/modules/benchmark-label.ts";
 
@@ -29,7 +29,7 @@ test(
     const pdfAccess = createPdfAccess();
     for (const label of issuedLabels()) {
       const bytes = new Uint8Array(fs.readFileSync(path.join(FIXTURES, `${label.driveFileId}.pdf`)));
-      const isdoc = await readEmbeddedIsdoc(bytes, pdfAccess);
+      const isdoc = await readEmbeddedInvoiceXml(bytes, pdfAccess);
       assert.ok(isdoc, label.documentNumber ?? label.driveFileId);
       const { payload } = isdoc;
       const name = label.documentNumber ?? label.driveFileId;

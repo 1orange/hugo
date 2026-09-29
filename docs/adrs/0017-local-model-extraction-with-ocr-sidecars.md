@@ -400,6 +400,10 @@ text prints only as the due date is now flagged.
 - **ISDOC.** Invoicing software such as KROS Omega embeds the invoice as ISDOC data in the PDF it
   prints. It is read exactly, before any OCR or model; all six of her issued invoices carry one and
   match what she booked in Omega on every field.
+- **MOL e-invoices.** Slovnaft's and MOL Česká republika's fuel-card invoices attach their own XML
+  (`…_I_CARD.xml`, not ISDOC). It is read the same way; it has no IČO, so the seller's is taken
+  from the PDF's text — for a Czech seller, the IČO its CZ DIČ carries. On her fifteen the model
+  had given Slovnaft its VAT number for a DIČ on every one, and one total wrong.
 - **OCR pages** go upright from their EXIF, at most 2000 px, one gray channel, as PNG: a 600 dpi scan
   went from 181 MB to 0.6 MB of upload and from 3.6 to 2.1 s of OCR, reading as well or better. Pure
   black and white read worse and is not used. HEIC photos go as JPEG.

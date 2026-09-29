@@ -36,7 +36,7 @@ import { isProcessedFolderSlot } from "@/modules/document-state";
 import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
 import {
-  extractFromEmbeddedIsdoc,
+  extractFromEmbeddedInvoiceXml,
   processModelExtractionFromLines,
 } from "@/lib/model-extraction/process-model-extraction";
 import {
@@ -217,11 +217,11 @@ export async function processCashReceiptFile(
     process.env.E2E_TEST_AUTH === "true"
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
-  // An invoice filed with the receipts may carry its own ISDOC.
+  // An invoice filed with the receipts may carry its own data (ISDOC, MOL).
   if (
     e2eLines === null &&
     input.mimeType === "application/pdf" &&
-    (await extractFromEmbeddedIsdoc(input, deps, now))
+    (await extractFromEmbeddedInvoiceXml(input, deps, now))
   ) {
     return;
   }

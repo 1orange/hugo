@@ -203,6 +203,9 @@ export function summarizeEventPayload(
       if (source === "isdoc") {
         return `Spracované údaje pre ${driveFileId} (ISDOC)`;
       }
+      if (source === "mol") {
+        return `Spracované údaje pre ${driveFileId} (XML MOL)`;
+      }
       return `Spracované údaje pre ${driveFileId}`;
     }
     case "EkasaUidEntered": {

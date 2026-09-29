@@ -83,7 +83,7 @@ export type DocumentListItem = {
   derivedStatus: DerivedDocumentStatus;
   extractionFailureReason: string | null;
   hasExtractedData: boolean;
-  extractionSource: EkasaExtractionSource | "model" | "ocr" | "isdoc" | null;
+  extractionSource: EkasaExtractionSource | "model" | "ocr" | "isdoc" | "mol" | null;
   showUidBox: boolean;
   /** A receipt that is not from eKasa (a parking machine's ticket): read from the document, no UID. */
   outsideEkasa: boolean;

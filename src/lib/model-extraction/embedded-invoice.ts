@@ -1,12 +1,16 @@
 import type { PdfAccess, PdfAttachment } from "@/adapters/pdf/port";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { parseIsdocInvoice } from "@/modules/isdoc";
+import { parseMolInvoice } from "@/modules/mol-invoice";
 
-/** An embedded ISDOC is a few kilobytes; anything far larger is not one. */
-const MAX_ISDOC_BYTES = 2_000_000;
+/** An embedded invoice is a few kilobytes; anything far larger is not one. */
+const MAX_INVOICE_XML_BYTES = 2_000_000;
 
-/** The ISDOC invoice embedded in a PDF, read as data; null when there is none. */
-export async function readEmbeddedIsdoc(
+/**
+ * The invoice a PDF carries as data — an ISDOC, or a MOL e-invoice (Slovnaft's
+ * fuel cards) — read as such; null when it carries neither.
+ */
+export async function readEmbeddedInvoiceXml(
   pdfBytes: Uint8Array,
   pdfAccess: PdfAccess,
 ): Promise<{ payload: ModelExtractedPayload; xml: string } | null> {
@@ -17,11 +21,11 @@ export async function readEmbeddedIsdoc(
     return null;
   }
   for (const attachment of attachments) {
-    if (attachment.content.length > MAX_ISDOC_BYTES) {
+    if (attachment.content.length > MAX_INVOICE_XML_BYTES) {
       continue;
     }
     const xml = new TextDecoder("utf-8").decode(attachment.content);
-    const payload = parseIsdocInvoice(xml);
+    const payload = parseIsdocInvoice(xml) ?? parseMolInvoice(xml);
     if (payload) {
       return { payload, xml };
     }

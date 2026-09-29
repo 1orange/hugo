@@ -13,8 +13,9 @@ import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { runExtractionChecks } from "@/modules/extraction-checks";
 import { deriveReceiptKind } from "@/modules/document-state";
 import { printsEkasaMarks } from "@/modules/ekasa-text";
-import { modelTextForDocument, type ModelTextSource } from "./model-text";
-import { readEmbeddedIsdoc } from "./isdoc-document";
+import { molSellerIco } from "@/modules/mol-invoice";
+import { extractModelTextLines, modelTextForDocument, type ModelTextSource } from "./model-text";
+import { readEmbeddedInvoiceXml } from "./embedded-invoice";
 import { shouldExtractWithModel } from "./should-extract-with-model";
 
 export type ModelExtractionSource = ModelTextSource;
@@ -76,7 +77,7 @@ export async function processModelExtractionFile(
     process.env.E2E_TEST_AUTH === "true"
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
-  if (e2eLines === null && (await extractFromEmbeddedIsdoc(input, deps, now))) {
+  if (e2eLines === null && (await extractFromEmbeddedInvoiceXml(input, deps, now))) {
     return;
   }
   const text = await modelTextForDocument({
@@ -116,36 +117,53 @@ export async function processModelExtractionFile(
 }
 
 /**
- * An invoice that carries its own ISDOC is read from it — exact, no OCR, no
- * model. The checks still run, against the XML itself: data can be
- * inconsistent, but not a hallucination.
+ * An invoice that carries its own data — an ISDOC, a MOL e-invoice — is read
+ * from it: exact, no OCR, no model. The checks still run, against the XML
+ * itself: data can be inconsistent, but not a hallucination. A MOL e-invoice
+ * has no IČO; the seller's is taken from the PDF's text, beside the XML.
  */
-export async function extractFromEmbeddedIsdoc(
+export async function extractFromEmbeddedInvoiceXml(
   input: { companyId: number; monthKey: string; driveFileId: string; fileBytes: Uint8Array },
   deps: { pdfAccess: PdfAccess },
   now: string,
 ): Promise<boolean> {
-  const isdoc = await readEmbeddedIsdoc(input.fileBytes, deps.pdfAccess);
-  if (!isdoc) {
+  const embedded = await readEmbeddedInvoiceXml(input.fileBytes, deps.pdfAccess);
+  if (!embedded) {
     return false;
   }
   const profile = await getCompanyProfile(input.companyId);
+  let extracted = embedded.payload;
+  const sourceTextLines = [embedded.xml];
+  if (extracted.source === "mol") {
+    const text = await extractModelTextLines(input.fileBytes, deps.pdfAccess);
+    const lines = text.ok ? text.lines : [];
+    sourceTextLines.push(...lines);
+    const [seller, ...others] = extracted.parties;
+    if (seller) {
+      extracted = {
+        ...extracted,
+        parties: [{ ...seller, ico: molSellerIco(seller, lines, profile?.ico ?? null) }, ...others],
+      };
+    }
+  }
+  const source = extracted.source ?? "isdoc";
   const checked = runExtractionChecks({
-    payload: isdoc.payload,
-    sourceTextLines: [isdoc.xml],
+    payload: extracted,
+    sourceTextLines,
     monthKey: input.monthKey,
-    issuerCountry: profile?.country ?? null,
+    // The data names its seller first: a Czech one's 21% is a Czech rate.
+    issuerCountry: null,
   });
   const payload: ModelExtractedPayload = {
     ...checked.payload,
-    source: "isdoc",
+    source,
     fieldChecks: checked.flags,
   };
   await writeExtractedPayload(input.driveFileId, payload, "complete", null);
   await appendCompanySystemEvent(now, input.companyId, "Extracted", {
     monthKey: input.monthKey,
     driveFileId: input.driveFileId,
-    source: "isdoc",
+    source,
     status: "complete",
   });
   return true;

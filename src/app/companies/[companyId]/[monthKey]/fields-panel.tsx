@@ -296,7 +296,9 @@ export function FieldsPanel({
                     ? "OCR"
                     : document.extractionSource === "isdoc"
                       ? "ISDOC"
-                      : "Text PDF"}
+                      : document.extractionSource === "mol"
+                        ? "XML MOL"
+                        : "Text PDF"}
           </span>
         ) : null}
         <div className="flex-1" />
