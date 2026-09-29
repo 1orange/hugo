@@ -35,11 +35,14 @@ export function createExtractor(env: NodeJS.ProcessEnv = process.env): Extractor
 
   const timeoutMs = Number(env.EXTRACTOR_TIMEOUT_MS);
   const maxTokens = Number(env.EXTRACTOR_MAX_TOKENS);
+  // The same variable sets llama.cpp's `-c` in docker-compose.yml.
+  const contextTokens = Number(env.EXTRACTOR_CONTEXT);
   return createHttpExtractor({
     baseUrl,
     model,
     thinkingEnabled: env.EXTRACTOR_THINKING === "true",
     ...(timeoutMs > 0 ? { timeoutMs } : {}),
     ...(maxTokens > 0 ? { maxTokens } : {}),
+    ...(contextTokens > 0 ? { contextTokens } : {}),
   });
 }

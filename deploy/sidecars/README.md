@@ -37,6 +37,9 @@ EXTRACTOR_THINKING=false
 # Optional: tokens the model may generate (default 2048 without thinking, none
 # with it). An answer is ~330 tokens; the cap stops a model that loops.
 # EXTRACTOR_MAX_TOKENS=2048
+# Optional: the extractor's context size, its `-c` (default 8192). A longer
+# document's text is cut to fit — its start and end kept, the middle left out.
+# EXTRACTOR_CONTEXT=8192
 ```
 
 Do **not** set `EXTRACTOR=stub` in production.

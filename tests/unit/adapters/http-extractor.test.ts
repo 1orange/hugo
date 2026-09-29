@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createHttpExtractor,
+  documentTextCharBudget,
   EXTRACTOR_USER_AGENT,
 } from "../../../src/adapters/extractor/http-extractor.ts";
 import { isExtractorUnreachableError } from "../../../src/lib/model-extraction/process-model-extraction.ts";
@@ -274,6 +275,29 @@ test("without thinking a runaway answer is capped; with thinking, only if asked"
     bodies.map((body) => body.max_tokens),
     [2048, undefined, 6000],
   );
+});
+
+// A five-page loan contract was 9,550 tokens; llama.cpp refused it outright
+// ("exceeds the available context size (8192 tokens)").
+test("a document's text is cut to fit the context beside the answer", async () => {
+  const prompts: string[] = [];
+  const respond = async (_url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+    prompts.push(body.messages[0]!.content);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(minimalModelJson()) } }] }));
+  };
+  const textLines = [
+    "ZMLUVA O ÚVERE",
+    ...Array.from({ length: 2_000 }, (_, index) => `Článok ${index}: podmienky úveru a splátok`),
+    "Podpis dlžníka",
+  ];
+  const input = { driveFileId: "d", monthKey: "2026_05", textLines };
+  await createHttpExtractor({ baseUrl: "http://h", model: "m", fetchImpl: respond }).extract(input);
+  await createHttpExtractor({ baseUrl: "http://h", model: "m", contextTokens: 16_384, fetchImpl: respond }).extract(input);
+  const [small, large] = prompts as [string, string];
+  assert.ok(small.length <= documentTextCharBudget(8192, 2048) + 400);
+  assert.ok(small.includes("ZMLUVA O ÚVERE") && small.includes("Podpis dlžníka"));
+  assert.ok(large.length > small.length);
 });
 
 // Nanbeige 4.2 answered every request with 400. Taken for an unreachable

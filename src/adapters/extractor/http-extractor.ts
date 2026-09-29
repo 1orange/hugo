@@ -1,5 +1,5 @@
 import { parseSignedDecimalAmount } from "../../modules/money";
-import { trimLinesForModel } from "../../modules/model-input";
+import { fitLinesToCharBudget, MIN_CHARS_PER_TOKEN, trimLinesForModel } from "../../modules/model-input";
 import {
   normalizeModelAmountLiteral,
   normalizeModelCurrency,
@@ -32,6 +32,8 @@ export type HttpExtractorOptions = {
   maxTokens?: number;
   /** Drop lines that carry nothing (model-input module). On unless false; the benchmark can compare. */
   trimInput?: boolean;
+  /** The server's context size (llama.cpp `-c`); the text is cut to fit it. */
+  contextTokens?: number;
   fetchImpl?: FetchLike;
 };
 
@@ -46,6 +48,21 @@ export const DEFAULT_EXTRACTOR_TIMEOUT_MS = 10 * 60_000;
  */
 export const DEFAULT_MAX_TOKENS_WITHOUT_THINKING = 2048;
 
+/** llama.cpp's `-c` in docker-compose.yml (EXTRACTOR_CONTEXT). */
+export const DEFAULT_EXTRACTOR_CONTEXT_TOKENS = 8192;
+
+/** The instructions and the chat template around the document's text. */
+const PROMPT_OVERHEAD_TOKENS = 200;
+
+/**
+ * Characters of document text that fit the context beside the instructions
+ * and the answer. llama.cpp refuses a longer prompt outright, and one that
+ * only just fits leaves the answer no room.
+ */
+export function documentTextCharBudget(contextTokens: number, answerTokens: number): number {
+  return Math.max(0, Math.floor((contextTokens - answerTokens - PROMPT_OVERHEAD_TOKENS) * MIN_CHARS_PER_TOKEN));
+}
+
 function chatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/$/, "");
   if (trimmed.endsWith("/v1")) {
@@ -54,8 +71,11 @@ function chatCompletionsUrl(baseUrl: string): string {
   return `${trimmed}/v1/chat/completions`;
 }
 
-function buildPrompt(input: ExtractorInput, options: { trimInput: boolean }): string {
-  const lines = options.trimInput ? trimLinesForModel(input.textLines) : input.textLines;
+function buildPrompt(input: ExtractorInput, options: { trimInput: boolean; maxTextChars: number }): string {
+  const lines = fitLinesToCharBudget(
+    options.trimInput ? trimLinesForModel(input.textLines) : input.textLines,
+    options.maxTextChars,
+  );
   return [
     "Extract invoice or receipt header fields from the document text below.",
     "Return only structured JSON matching the schema.",
@@ -220,6 +240,13 @@ function isTimeout(error: unknown): boolean {
 export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = chatCompletionsUrl(options.baseUrl);
+  const maxTokens =
+    options.maxTokens ??
+    (options.thinkingEnabled === true ? undefined : DEFAULT_MAX_TOKENS_WITHOUT_THINKING);
+  const maxTextChars = documentTextCharBudget(
+    options.contextTokens ?? DEFAULT_EXTRACTOR_CONTEXT_TOKENS,
+    maxTokens ?? DEFAULT_MAX_TOKENS_WITHOUT_THINKING,
+  );
 
   return {
     async extract(input: ExtractorInput): Promise<ExtractorOutput> {
@@ -230,7 +257,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
         messages: [
           {
             role: "user",
-            content: buildPrompt(input, { trimInput: options.trimInput !== false }),
+            content: buildPrompt(input, { trimInput: options.trimInput !== false, maxTextChars }),
           },
         ],
         response_format: {
@@ -253,9 +280,6 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
         // is half the wait; other servers ignore the field.
         body.return_progress = true;
       }
-      const maxTokens =
-        options.maxTokens ??
-        (options.thinkingEnabled === true ? undefined : DEFAULT_MAX_TOKENS_WITHOUT_THINKING);
       if (maxTokens !== undefined) {
         body.max_tokens = maxTokens;
       }

@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { trimLinesForModel } from "../../../src/modules/model-input.ts";
+import {
+  fitLinesToCharBudget,
+  OMITTED_LINES_MARKER,
+  trimLinesForModel,
+} from "../../../src/modules/model-input.ts";
 
 // Omega prints the customer's block twice and its footer on every page.
 test("a repeated address or footer is read once", () => {
@@ -32,4 +36,25 @@ test("a spelled-out page number goes; a bare number stays, it may be a rate", ()
 
 test("blank lines collapse to one and none are left at the ends", () => {
   assert.deepEqual(trimLinesForModel(["", "Dodávateľ:", "", "", "Odberateľ:", ""]), ["Dodávateľ:", "", "Odberateľ:"]);
+});
+
+test("text within the budget is sent whole", () => {
+  const lines = ["Faktúra 2026001", "Spolu | 12,30"];
+  assert.deepEqual(fitLinesToCharBudget(lines, 1_000), lines);
+});
+
+// A loan contract ran 9,550 tokens against an 8,192-token context.
+test("a long text keeps its start and its end, and marks the gap", () => {
+  const lines = [
+    "Faktúra 2026001",
+    "Dátum vystavenia: 01.05.2026",
+    ...Array.from({ length: 200 }, (_, index) => `Položka ${index} | 1 ks | 10,00`),
+    "Spolu k úhrade | 2 000,00",
+  ];
+  const fitted = fitLinesToCharBudget(lines, 300);
+  assert.ok(fitted.join("\n").length <= 300);
+  assert.deepEqual(fitted.slice(0, 2), ["Faktúra 2026001", "Dátum vystavenia: 01.05.2026"]);
+  assert.equal(fitted.at(-1), "Spolu k úhrade | 2 000,00");
+  assert.equal(fitted.filter((line) => line === OMITTED_LINES_MARKER).length, 1);
+  assert.ok(fitted.indexOf(OMITTED_LINES_MARKER) > 2);
 });

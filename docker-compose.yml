@@ -32,6 +32,8 @@ x-app: &app
     REDIS_URL: redis://redis:6379
     EXTRACTOR_URL: http://extractor:8080/v1
     EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-local}
+    # The extractor's `-c`: the app cuts a document's text to fit it.
+    EXTRACTOR_CONTEXT: ${EXTRACTOR_CONTEXT:-8192}
     OCR_URL: http://ocr:8090
   depends_on:
     postgres:
