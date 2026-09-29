@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { documents, files } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
 import {
@@ -10,6 +10,7 @@ import {
   type ExtractedPayload,
 } from "@/modules/document-payload";
 import { isProcessedFolderSlot } from "@/modules/document-state";
+import { isSystemFile } from "@/modules/system-files";
 import {
   EXTRACTION_PIPELINE_VERSION,
   needsExtraction,
@@ -379,4 +380,43 @@ export async function markDocumentsExported(input: {
       exportBatch: input.exportBatch,
     })
     .where(inArray(documents.id, [...input.documentIds]));
+}
+
+/**
+ * desktop.ini and its kind never enter the app (system-files module), but
+ * sweeps before that rule recorded ten of them as documents, pending for
+ * ever: nothing reads or shows a document whose file is gone. They are
+ * forgotten with their file records — unless she decided or exported one,
+ * which is kept as she left it. Returns how many files were forgotten.
+ */
+export async function forgetSystemFiles(): Promise<number> {
+  const db = getDb();
+  const systemFileIds = (
+    await db.select({ driveFileId: files.driveFileId, name: files.name }).from(files).where(eq(files.deleted, true))
+  )
+    .filter((file) => isSystemFile(file.name))
+    .map((file) => file.driveFileId);
+  if (systemFileIds.length === 0) {
+    return 0;
+  }
+  const handled = new Set(
+    (
+      await db
+        .select({ driveFileId: documents.driveFileId })
+        .from(documents)
+        .where(
+          and(
+            inArray(documents.driveFileId, systemFileIds),
+            or(isNotNull(documents.decision), isNotNull(documents.exportedAt)),
+          ),
+        )
+    ).map((row) => row.driveFileId),
+  );
+  const forgotten = systemFileIds.filter((id) => !handled.has(id));
+  if (forgotten.length === 0) {
+    return 0;
+  }
+  await db.delete(documents).where(inArray(documents.driveFileId, forgotten));
+  await db.delete(files).where(inArray(files.driveFileId, forgotten));
+  return forgotten.length;
 }

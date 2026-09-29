@@ -1,6 +1,7 @@
 import type { DriveClient } from "@/adapters/drive/port";
 import { appendEvents } from "@/adapters/store/events";
 import { upsertCompany } from "@/adapters/store/companies";
+import { forgetSystemFiles } from "@/adapters/store/documents";
 import {
   listStoredFilesForSweep,
   upsertFiles,
@@ -101,6 +102,7 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
     .filter((row): row is PersistedFileRow => row !== null);
 
   await upsertFiles(persistedFiles);
+  await forgetSystemFiles();
 
   const companyIdByFileId = new Map(
     persistedFiles.map((file) => [file.driveFileId, file.companyId]),

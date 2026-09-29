@@ -6,7 +6,7 @@ import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts"
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { freshTestDb } from "../support/test-db.ts";
-import { companies, events, files } from "../../../src/lib/db/schema.ts";
+import { companies, documents, events, files } from "../../../src/lib/db/schema.ts";
 
 const PARENT_ID = "integration-parent";
 const COMPANY_ID = "integration-company";
@@ -87,4 +87,52 @@ test("runSweep persists tree, events and files; second run is a no-op", async ()
   const second = await runSweep(client);
   assert.equal(second.eventCount, 0);
   assert.equal((await db.select().from(events).orderBy(events.id)).length, 2);
+});
+
+// Sweeps before the system-files rule recorded desktop.ini as a document,
+// pending for ever. The next sweep forgets it, unless she decided on it.
+test("a sweep forgets the system files an older sweep recorded", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  const withSystemFiles = [
+    ...fixture,
+    { id: "old-desktop-ini", name: "desktop.ini", parents: [SLOT_ID], createdTime: "2026-02-01T00:00:00.000Z", mimeType: "text/plain" },
+  ];
+  await runSweep(new FakeDriveClient(withSystemFiles));
+
+  const db = getDb();
+  const companyId = (await db.select().from(companies))[0]!.id;
+  const stored = (driveFileId: string, name: string) => ({
+    driveFileId,
+    companyId,
+    monthKey: "2026_02",
+    folderSlot: "02 Prijaté faktúry",
+    parentId: SLOT_ID,
+    name,
+    mimeType: "text/plain",
+    driveCreatedTime: "2026-02-01T00:00:00.000Z",
+    firstSeenAt: "2026-02-01T00:00:00.000Z",
+    lastSeenAt: "2026-02-01T00:00:00.000Z",
+    deleted: false,
+  });
+  const pending = (driveFileId: string, decision: string | null = null) => ({
+    id: driveFileId,
+    driveFileId,
+    companyId,
+    monthKey: "2026_02",
+    folderSlot: "02 Prijaté faktúry",
+    decision,
+    createdAt: "2026-02-01T00:00:00.000Z",
+  });
+  // As a sweep before the rule left them: the files, and documents for them.
+  await db.insert(files).values([stored("old-desktop-ini", "desktop.ini"), stored("decided-thumbs", "Thumbs.db")]);
+  await db.insert(documents).values([pending("old-desktop-ini"), pending("decided-thumbs", "not_relevant")]);
+
+  await runSweep(new FakeDriveClient(withSystemFiles));
+
+  const fileIds = (await db.select().from(files)).map((row) => row.driveFileId).sort();
+  assert.deepEqual(fileIds, ["decided-thumbs", "integration-doc", "integration-vat"]);
+  const documentIds = (await db.select().from(documents)).map((row) => row.id);
+  assert.equal(documentIds.includes("old-desktop-ini"), false);
+  assert.equal(documentIds.includes("decided-thumbs"), true);
 });
