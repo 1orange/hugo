@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { FakeOcr, unreachableFakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
 import type { PdfAccess, PdfPageImage } from "../../../src/adapters/pdf/port.ts";
 import {
+  GARBLED_TEXT_LAYER_REASON,
   MODEL_MAX_PDF_PAGES,
   modelTextForDocument,
 } from "../../../src/lib/model-extraction/model-text.ts";
@@ -65,6 +66,28 @@ test("a scan without a text layer is read by OCR, a column at a time", async () 
     "Odberateľ:",
     "IČO: 51998688",
   ]);
+});
+
+// A PDF saved again from Safari: "Autoservis" became "$XWRVHUYLV".
+test("a text layer that does not read as text is read by OCR, if OCR finds the document", async () => {
+  const garbled = Array.from({ length: 12 }, () => ")$.7½5$'2'¤9$7(Ġ2'%(5$7(Ġ$XWRVHUYLV1RYÄNVUR'XNHOVNÄ3LHńňDQ\\'ÄWXPGRGDQLD6SODWQRVň");
+  const read = (texts: string[]) =>
+    modelTextForDocument({
+      mimeType: "application/pdf",
+      fileBytes: new Uint8Array([1]),
+      pdfAccess: pdfAccess(garbled),
+      ocr: new FakeOcr({ boxes: texts.map((text, index) => ({ text, x: 0, y: index * 50, width: 400, height: 40 })) }),
+    });
+
+  // A scanned page under a bad text layer: OCR reads it all.
+  const scan = await read(["Autoservis Novák s. r. o.", "Spolu k úhrade | 120,00 EUR"]);
+  assert.equal(scan.ok && scan.source, "ocr");
+  assert.deepEqual(scan.ok && scan.lines, ["Autoservis Novák s. r. o.", "Spolu k úhrade | 120,00 EUR"]);
+
+  // Drawn text: OCR sees only the logo, and the model would make up the rest.
+  const drawn = await read(["novak", "Autoservis Novák s. r. o."]);
+  assert.deepEqual(drawn.ok && drawn.lines, []);
+  assert.equal(drawn.ok && drawn.textLayerFailure, GARBLED_TEXT_LAYER_REASON);
 });
 
 test("a scan waits while OCR is unreachable", async () => {

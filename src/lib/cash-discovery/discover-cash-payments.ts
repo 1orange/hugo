@@ -39,7 +39,12 @@ import {
   extractFromEmbeddedIsdoc,
   processModelExtractionFromLines,
 } from "@/lib/model-extraction/process-model-extraction";
-import { extractModelTextLines } from "@/lib/model-extraction/model-text";
+import {
+  extractModelTextLines,
+  GARBLED_TEXT_LAYER_REASON,
+  ocrLinesStandInForGarbledText,
+} from "@/lib/model-extraction/model-text";
+import { textLayerLooksGarbled } from "@/modules/text-layer-quality";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 
 /**
@@ -227,8 +232,10 @@ export async function processCashReceiptFile(
         ? await extractReceiptTextLines(input.fileBytes, deps.pdfAccess)
         : { ok: true as const, lines: [] as string[] };
 
-  let lines = extracted.ok ? extracted.lines : [];
-  const hadTextLayer = extracted.ok && lines.length > 0;
+  // A text layer that does not read as text is no text layer: OCR reads the page.
+  const garbledTextLayer = extracted.ok && textLayerLooksGarbled(extracted.lines);
+  let lines = extracted.ok && !garbledTextLayer ? extracted.lines : [];
+  const hadTextLayer = lines.length > 0;
 
   let ekasa = await extractEkasaForReceipt({
     lines,
@@ -278,6 +285,11 @@ export async function processCashReceiptFile(
         cachedOpdResponse,
       });
     }
+  }
+
+  if (!ekasa.ok && garbledTextLayer && !ocrLinesStandInForGarbledText(ocrReadingLines ?? lines)) {
+    await markManualEntry({ driveFileId: input.driveFileId, reason: GARBLED_TEXT_LAYER_REASON });
+    return;
   }
 
   if (!ekasa.ok) {
