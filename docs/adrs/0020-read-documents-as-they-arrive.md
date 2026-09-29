@@ -2,7 +2,8 @@
 
 Date: 2026-09-29
 Status: Accepted. Supersedes ADR 0003's "no scheduler" and its dashboard-load channel renewal; the
-sweep stays the one ingestion path.
+sweep stays the one ingestion path. Amended by ADR 0021: the queue, the poll and the notification
+debounce live in Redis (BullMQ), shared by every replica, instead of in process memory.
 
 ## Context
 

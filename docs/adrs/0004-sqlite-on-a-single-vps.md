@@ -1,7 +1,7 @@
 # ADR 0004 — SQLite on a single EU VPS
 
 Date: 2026-08-28
-Status: Accepted
+Status: Superseded by ADR 0021 (Postgres and Redis, for replicas on k3s).
 
 ## Context
 
