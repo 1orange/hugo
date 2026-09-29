@@ -42,3 +42,33 @@ test("an image sharp cannot read is sent as it came", async () => {
   const unknown = { kind: "encoded" as const, bytes: new Uint8Array([0xff, 0xd8, 0xff]) };
   assert.equal(await prepareImageForOcr(unknown), unknown);
 });
+
+// A receipt scanned on an A4 page: a strip of print in a white page.
+test("a receipt on a scanned page is cut to its print before scaling", async () => {
+  const width = 2480;
+  const height = 3508;
+  const receipt = await sharp({ create: { width: 500, height: 1500, channels: 3, background: "#fff" } })
+    .composite([
+      {
+        input: await sharp({ create: { width: 460, height: 1460, channels: 3, background: "#000" } }).png().toBuffer(),
+        left: 20,
+        top: 20,
+      },
+    ])
+    .png()
+    .toBuffer();
+  const page = await sharp({ create: { width, height, channels: 3, background: "#fff" } })
+    .composite([{ input: receipt, left: 1000, top: 800 }])
+    .jpeg()
+    .toBuffer();
+  const metadata = await metadataOf(await prepareImageForOcr({ kind: "encoded", bytes: new Uint8Array(page) }));
+  // The print and a little margin — not the page scaled to 2000 px.
+  assert.ok(metadata.width! < 600 && metadata.height! < 1600, `${metadata.width} × ${metadata.height}`);
+  assert.ok(metadata.height! > 1400);
+});
+
+test("print that fills the page is not cut", async () => {
+  const photo = await sharp({ create: { width: 1200, height: 1600, channels: 3, background: "#333" } }).jpeg().toBuffer();
+  const metadata = await metadataOf(await prepareImageForOcr({ kind: "encoded", bytes: new Uint8Array(photo) }));
+  assert.deepEqual([metadata.width, metadata.height], [1200, 1600]);
+});
