@@ -3,7 +3,11 @@
 # and OCR sidecars (ADR 0017). CPU-only in Docker (no Apple GPU on macOS).
 #
 #   docker compose --env-file .env.docker up -d            # infrastructure + sidecars, for `npm run dev`
-#   docker compose --env-file .env.docker --profile app up -d --build   # + web ×2 and the worker
+#   docker compose --env-file .env.docker --profile app up -d --build   # + Traefik, web ×2, the worker
+#
+# With the app profile, http://localhost:${PROXY_PORT:-3000} is Traefik in
+# front of both web replicas, as on k3s — the same address `npm run dev`
+# uses, so Google sign-in works unchanged. Stop `npm run dev` first.
 #
 # Configure via .env.docker (copy from .env.docker.example). The app containers
 # also read .env for their secrets (Auth.js, Google), with the service URLs
@@ -68,6 +72,23 @@ services:
 
   # Stateless: any number of replicas behind a load balancer. Pages, server
   # actions and the event stream to browsers; documents are only queued here.
+  # The load balancer, as k3s has it: each request to either replica, the
+  # event stream passed through as it comes.
+  proxy:
+    image: traefik:v3.6
+    profiles: ["app"]
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      # A replica that just stopped cannot be dialled: give up on it in a
+      # second and let the retry below take the other one, not after 30 s.
+      - --serverstransport.forwardingtimeouts.dialtimeout=1s
+    ports:
+      - "127.0.0.1:${PROXY_PORT:-3000}:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   web:
     <<: *app
     profiles: ["app"]
@@ -77,8 +98,17 @@ services:
       HUGO_ROLE: web
     deploy:
       replicas: 2
-    ports:
-      - "${WEB_PORT_RANGE:-3000-3001}:3000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hugo.entrypoints=web
+      - traefik.http.routers.hugo.rule=PathPrefix(`/`)
+      # A replica that just stopped is tried on the other one: Traefik
+      # retries only a request it could not deliver.
+      - traefik.http.routers.hugo.middlewares=hugo-retry
+      - traefik.http.middlewares.hugo-retry.retry.attempts=2
+      - traefik.http.services.hugo.loadbalancer.server.port=3000
+      - traefik.http.services.hugo.loadbalancer.healthcheck.path=/api/health
+      - traefik.http.services.hugo.loadbalancer.healthcheck.interval=10s
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 10s
