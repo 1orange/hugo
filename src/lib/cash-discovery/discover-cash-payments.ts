@@ -271,6 +271,7 @@ export async function processCashReceiptFile(
       fileBytes: input.fileBytes,
       pdfAccess: deps.pdfAccess,
       ocr: deps.ocr,
+      drawPages: garbledTextLayer,
     });
     if (ocrResult.ok === false && ocrResult.unreachable) {
       return;

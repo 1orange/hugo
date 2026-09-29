@@ -420,11 +420,14 @@ found the causes behind the failures she saw:
   `-c`): the start and the end kept, the middle marked `[…]`, at 1.5 characters a token — every
   real text layer of hers runs at 1.6 or more. The next-longest document is 3,940 tokens.
 - **Garbled text layers.** Two invoices saved again from Safari wrote glyph numbers for letters
-  (a car service's name came out as "$XWRVHUYLV"), losing the supplier's ISDOC too; the model returned no
-  JSON. A text layer whose letters are under a third vowels and under two fifths lowercase — real
-  ones: at least 36% and 55% — goes to OCR. OCR reads a PDF's images, not its drawn text, so when
-  it finds no amount the document fails with that reason: the model, given the letterhead alone,
-  made up an invoice for 1,000.00 EUR.
+  (a car service's name came out as "$XWRVHUYLV"), losing the supplier's ISDOC too; the model
+  returned no JSON. A text layer whose letters are under a third vowels and under two fifths
+  lowercase — real ones: at least 36% and 55% — goes to OCR. Its text is drawn, not scanned, so
+  OCR reads the page drawn by pdf.js (`@napi-rs/canvas`, 4000 px on the long side, five pages at
+  most); so does a PDF with no image at all. Scans keep their own full-resolution images. Both
+  invoices then read right on every field. Should drawing fail and OCR find no amount, the
+  document fails saying to upload the original — the model, given a letterhead alone, had made
+  up an invoice for 1,000.00 EUR.
 - **Tax numbers** are checked for their form: a DIČ is digits (a Czech one is its VAT number), an
   IČ DPH a country's prefix and at least six digits. The model had filed a Polish waste-register
   number, a phone number, a car plate and an IBAN as tax numbers. An `SK` number given as the DIČ

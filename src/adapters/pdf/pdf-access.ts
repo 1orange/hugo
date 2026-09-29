@@ -1,3 +1,4 @@
+import path from "node:path";
 import { readingOrderPages, type PositionedText } from "../../modules/reading-order";
 import type { PdfAccess, PdfAttachment, PdfPageImage, PdfTextLine } from "./port";
 
@@ -15,9 +16,17 @@ function loadPdfJs(): Promise<PdfJsModule> {
   return pdfjsPromise;
 }
 
+// pdf.js's own data, from its package: the fourteen standard fonts a PDF may
+// use without embedding them, character maps, and the image decoders' wasm.
+// Only drawing a page needs them; the text layer reads without.
+function pdfJsDataDirectory(name: string): string {
+  return path.join(process.cwd(), "node_modules", "pdfjs-dist", name) + path.sep;
+}
+
 async function openDocument(
   pdfBytes: Uint8Array,
   password?: string,
+  options: { forDrawing?: boolean } = {},
 ): Promise<import("pdfjs-dist/types/src/display/api").PDFDocumentProxy> {
   const pdfjs = await loadPdfJs();
   return pdfjs.getDocument({
@@ -26,9 +35,28 @@ async function openDocument(
     // then again for its page images.
     data: pdfBytes.slice(),
     password,
-    useSystemFonts: true,
+    ...(options.forDrawing
+      ? {
+          // No system fonts in a container: a font the PDF does not embed is
+          // drawn from pdf.js's own.
+          useSystemFonts: false,
+          standardFontDataUrl: pdfJsDataDirectory("standard_fonts"),
+          cMapUrl: pdfJsDataDirectory("cmaps"),
+          cMapPacked: true,
+          wasmUrl: pdfJsDataDirectory("wasm"),
+        }
+      : { useSystemFonts: true }),
   }).promise;
 }
+
+type DrawingCanvas = {
+  canvas: { width: number; height: number; encode(format: "png"): Promise<Uint8Array> };
+  context: unknown;
+};
+type CanvasFactory = {
+  create(width: number, height: number): DrawingCanvas;
+  destroy(canvasAndContext: DrawingCanvas): void;
+};
 
 function groupTextItemsIntoLines(
   items: Array<{ str: string; transform: number[] }>,
@@ -211,6 +239,32 @@ export function createPdfAccess(): PdfAccess {
         }
       }
       return attachments;
+    },
+    async renderPages(pdfBytes, options) {
+      const doc = await openDocument(pdfBytes, undefined, { forDrawing: true });
+      // In Node pdf.js draws on @napi-rs/canvas, through its own factory.
+      const canvases = doc.canvasFactory as CanvasFactory;
+      const images: PdfPageImage[] = [];
+      try {
+        for (let pageNumber = 1; pageNumber <= Math.min(doc.numPages, options.maxPages); pageNumber++) {
+          const page = await doc.getPage(pageNumber);
+          const natural = page.getViewport({ scale: 1 });
+          const viewport = page.getViewport({ scale: options.longSidePx / Math.max(natural.width, natural.height) });
+          const target = canvases.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
+          await page.render({
+            canvas: target.canvas as unknown as HTMLCanvasElement,
+            viewport,
+            // Paper white: a canvas starts transparent.
+            background: "#ffffff",
+          }).promise;
+          images.push({ kind: "encoded", bytes: new Uint8Array(await target.canvas.encode("png")) });
+          canvases.destroy(target);
+          page.cleanup();
+        }
+      } finally {
+        await doc.loadingTask.destroy();
+      }
+      return images;
     },
     async extractPageImages(pdfBytes) {
       const pdfjs = await loadPdfJs();

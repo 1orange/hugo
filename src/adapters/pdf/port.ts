@@ -27,6 +27,12 @@ export type PdfAccess = {
     },
   ): Promise<PdfTextLine[]>;
   extractPageImages(pdfBytes: Uint8Array): Promise<PdfPageImage[]>;
+  /**
+   * Pages 1…maxPages drawn as a reader sees them, their long side
+   * `longSidePx` — drawn text included, which extractPageImages misses. A
+   * fake may leave it out; OCR then reads the page images only.
+   */
+  renderPages?(pdfBytes: Uint8Array, options: { maxPages: number; longSidePx: number }): Promise<PdfPageImage[]>;
   /** Files embedded in the PDF, such as the ISDOC invoice Omega attaches. */
   extractAttachments(pdfBytes: Uint8Array): Promise<PdfAttachment[]>;
 };

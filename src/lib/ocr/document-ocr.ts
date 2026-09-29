@@ -3,7 +3,7 @@ import type { PdfAccess, PdfPageImage } from "@/adapters/pdf/port";
 import { isReceiptImageMimeType } from "@/lib/cash-discovery/ekasa-qr-extraction";
 import { groupOcrBoxesIntoLines, ocrReadingLines } from "@/modules/ocr-lines";
 import { heicToJpeg } from "@/adapters/image/heic-to-jpeg";
-import { prepareImageForOcr } from "@/adapters/image/ocr-image";
+import { OCR_MAX_SIDE_PX, prepareImageForOcr } from "@/adapters/image/ocr-image";
 import { isHeicMimeType } from "@/modules/file-preview";
 
 export function isOcrUnreachableError(error: unknown): boolean {
@@ -22,13 +22,37 @@ export function isOcrUnreachableError(error: unknown): boolean {
   );
 }
 
+/** Pages drawn for OCR: as many as the model reads (MODEL_MAX_PDF_PAGES). */
+const RENDERED_MAX_PAGES = 5;
+/** Twice what the OCR reads, so a small receipt cut to its print keeps its detail. */
+const RENDERED_LONG_SIDE_PX = 2 * OCR_MAX_SIDE_PX;
+
+/**
+ * What OCR reads of a document. A PDF's page images, as the scanner stored
+ * them — full resolution, which drawing the page would lose. The page drawn
+ * instead when its text is drawn rather than scanned: a text layer that does
+ * not read as text (`drawPages`), or a PDF with no image at all.
+ */
 export async function pageImagesForDocument(input: {
   mimeType: string;
   fileBytes: Uint8Array;
   pdfAccess: PdfAccess;
+  drawPages?: boolean;
 }): Promise<PdfPageImage[]> {
   if (input.mimeType === "application/pdf") {
-    return input.pdfAccess.extractPageImages(input.fileBytes);
+    const draw = () =>
+      input.pdfAccess.renderPages?.(input.fileBytes, {
+        maxPages: RENDERED_MAX_PAGES,
+        longSidePx: RENDERED_LONG_SIDE_PX,
+      }) ?? Promise.resolve([]);
+    if (input.drawPages) {
+      const drawn = await draw().catch(() => []);
+      if (drawn.length > 0) {
+        return drawn;
+      }
+    }
+    const images = await input.pdfAccess.extractPageImages(input.fileBytes);
+    return images.length > 0 ? images : draw().catch(() => []);
   }
   if (isReceiptImageMimeType(input.mimeType)) {
     // The OCR sidecar has no HEIC decoder; an iPhone photo goes as JPEG.
@@ -43,6 +67,8 @@ export async function ocrDocumentToLines(input: {
   fileBytes: Uint8Array;
   pdfAccess: PdfAccess;
   ocr: Ocr;
+  /** Draw the pages rather than read their images (pageImagesForDocument). */
+  drawPages?: boolean;
 }): Promise<
   /** `lines` are rows, for the eKasa parser; `readingLines` are for the model. */
   | { ok: true; lines: string[]; readingLines: string[]; durationMs: number }

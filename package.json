@@ -24,6 +24,7 @@
     "benchmark:download-models": "bash scripts/benchmark-download-models.sh"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "@types/heic-convert": "^2.1.1",
     "bullmq": "^6.3.10",
     "class-variance-authority": "^0.7.1",

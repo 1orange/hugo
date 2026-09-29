@@ -90,6 +90,21 @@ test("a text layer that does not read as text is read by OCR, if OCR finds the d
   assert.equal(drawn.ok && drawn.textLayerFailure, GARBLED_TEXT_LAYER_REASON);
 });
 
+// Its text is drawn, not scanned: OCR reads the drawn page, not the logo.
+test("a garbled text layer's page is drawn for OCR", async () => {
+  const garbled = pdfAccess(Array.from({ length: 12 }, () => ")$.7½5$'2'¤9$7(Ġ2'%(5$7(Ġ$XWRVHUYLV1RYÄNVUR'XNHOVNÄ3LHńňDQ\\'ÄWXPGRGDQLD6SODWQRVň"));
+  const drawn = { kind: "encoded" as const, bytes: new Uint8Array([7, 7, 7]) };
+  const ocr = new FakeOcr({ boxes: [{ text: "Spolu k úhrade | 215,72 EUR", x: 0, y: 0, width: 400, height: 40 }] });
+  const text = await modelTextForDocument({
+    mimeType: "application/pdf",
+    fileBytes: new Uint8Array([1]),
+    pdfAccess: { ...garbled, renderPages: async () => [drawn] },
+    ocr,
+  });
+  assert.deepEqual(ocr.calls[0]?.images, [drawn]);
+  assert.deepEqual(text.ok && text.lines, ["Spolu k úhrade | 215,72 EUR"]);
+});
+
 test("a scan waits while OCR is unreachable", async () => {
   const text = await modelTextForDocument({
     mimeType: "application/pdf",
