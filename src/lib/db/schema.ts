@@ -1,13 +1,13 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { boolean, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 
-export const companies = sqliteTable("companies", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const companies = pgTable("companies", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   driveFolderId: text("drive_folder_id").notNull().unique(),
   name: text("name").notNull(),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
 });
 
-export const companyProfiles = sqliteTable("company_profiles", {
+export const companyProfiles = pgTable("company_profiles", {
   companyId: integer("company_id")
     .primaryKey()
     .references(() => companies.id),
@@ -21,7 +21,7 @@ export const companyProfiles = sqliteTable("company_profiles", {
   savedAt: text("saved_at").notNull(),
 });
 
-export const settings = sqliteTable("settings", {
+export const settings = pgTable("settings", {
   id: integer("id").primaryKey(),
   driveParentFolderId: text("drive_parent_folder_id"),
   canonicalFolderNamesJson: text("canonical_folder_names_json").notNull(),
@@ -29,9 +29,7 @@ export const settings = sqliteTable("settings", {
   lastSweepAt: text("last_sweep_at"),
   // Off by default: jumping to the next document after a decision is a real
   // speed win and a real surprise, so she opts in rather than discovers it.
-  autoAdvanceAfterDecision: integer("auto_advance_after_decision", {
-    mode: "boolean",
-  })
+  autoAdvanceAfterDecision: boolean("auto_advance_after_decision")
     .notNull()
     .default(false),
   omegaT01EvidenceCode: text("omega_t01_evidence_code").notNull().default("OF"),
@@ -57,8 +55,8 @@ export const settings = sqliteTable("settings", {
   driveWatchExpiresAt: text("drive_watch_expires_at"),
 });
 
-export const months = sqliteTable("months", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const months = pgTable("months", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   companyId: integer("company_id")
     .notNull()
     .references(() => companies.id),
@@ -68,7 +66,7 @@ export const months = sqliteTable("months", {
   openedAt: text("opened_at"),
 });
 
-export const files = sqliteTable("files", {
+export const files = pgTable("files", {
   driveFileId: text("drive_file_id").primaryKey(),
   companyId: integer("company_id")
     .notNull()
@@ -81,19 +79,19 @@ export const files = sqliteTable("files", {
   driveCreatedTime: text("drive_created_time").notNull(),
   firstSeenAt: text("first_seen_at").notNull(),
   lastSeenAt: text("last_seen_at").notNull(),
-  deleted: integer("deleted", { mode: "boolean" }).notNull().default(false),
-});
+  deleted: boolean("deleted").notNull().default(false),
+}, (table) => [index("files_company_month").on(table.companyId, table.monthKey)]);
 
-export const events = sqliteTable("events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const events = pgTable("events", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   timestamp: text("timestamp").notNull(),
   companyId: integer("company_id").references(() => companies.id),
   actor: text("actor").notNull(),
   type: text("type").notNull(),
   payloadJson: text("payload_json").notNull(),
-});
+}, (table) => [index("events_company").on(table.companyId, table.id)]);
 
-export const monthFolders = sqliteTable("month_folders", {
+export const monthFolders = pgTable("month_folders", {
   driveFolderId: text("drive_folder_id").primaryKey(),
   companyId: integer("company_id")
     .notNull()
@@ -101,10 +99,10 @@ export const monthFolders = sqliteTable("month_folders", {
   monthKey: text("month_key").notNull(),
   name: text("name").notNull(),
   parentId: text("parent_id").notNull(),
-  canRename: integer("can_rename", { mode: "boolean" }).notNull().default(true),
+  canRename: boolean("can_rename").notNull().default(true),
 });
 
-export const documents = sqliteTable("documents", {
+export const documents = pgTable("documents", {
   /**
    * The Drive file ID for a file's own document; `<file>#<eKasa UID>` for each
    * further receipt found in the same file (one document per receipt).
@@ -134,10 +132,16 @@ export const documents = sqliteTable("documents", {
   exportBatch: text("export_batch"),
   exportNumber: text("export_number"),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [
+  uniqueIndex("documents_company_export_number").on(table.companyId, table.exportNumber),
+  index("documents_drive_file_id").on(table.driveFileId),
+  // NULLs are distinct: a file's own document has no receipt UID.
+  uniqueIndex("documents_file_receipt").on(table.driveFileId, table.receiptUid),
+  index("documents_company_month").on(table.companyId, table.monthKey),
+]);
 
-export const partners = sqliteTable("partners", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const partners = pgTable("partners", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   companyId: integer("company_id")
     .notNull()
     .references(() => companies.id),
@@ -150,10 +154,10 @@ export const partners = sqliteTable("partners", {
   dic: text("dic").notNull().default(""),
   icDph: text("ic_dph").notNull().default(""),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [uniqueIndex("partners_company_country_ico").on(table.companyId, table.country, table.ico)]);
 
-export const driveMutations = sqliteTable("drive_mutations", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const driveMutations = pgTable("drive_mutations", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   kind: text("kind").notNull(),
   driveFileId: text("drive_file_id").notNull(),
   companyId: integer("company_id")

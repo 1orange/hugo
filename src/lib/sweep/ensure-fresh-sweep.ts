@@ -18,14 +18,14 @@ export async function sweepDrive(
   env: NodeJS.ProcessEnv,
   options: { onlyIfStale: boolean },
 ): Promise<void> {
-  const parentFolderId = resolveDriveParentFolderId(env);
+  const parentFolderId = await resolveDriveParentFolderId(env);
   if (!parentFolderId || !isDriveConfigured(env)) {
     return;
   }
 
-  const settings = getSettings();
+  const settings = await getSettings();
   if (!settings.driveParentFolderId && env.DRIVE_PARENT_FOLDER_ID) {
-    setDriveParentFolderId(env.DRIVE_PARENT_FOLDER_ID);
+    await setDriveParentFolderId(env.DRIVE_PARENT_FOLDER_ID);
   }
 
   const driveClient = createDriveClient(env);
@@ -41,11 +41,11 @@ export async function ensureFreshSweep(
   await sweepDrive(env, { onlyIfStale: true });
 }
 
-/** Queues every open month's unread documents, in the background. */
-export function queueOpenMonthsForExtraction(env: NodeJS.ProcessEnv = process.env): void {
-  for (const company of listCompanySummaries(null)) {
+/** Queues every open month's unread documents for the workers. */
+export async function queueOpenMonthsForExtraction(): Promise<void> {
+  for (const company of await listCompanySummaries(null)) {
     if (company.openMonth && !company.monthClosed) {
-      scheduleDocumentExtractionForMonth(company.id, company.openMonth, env);
+      await scheduleDocumentExtractionForMonth(company.id, company.openMonth);
     }
   }
 }
@@ -53,5 +53,5 @@ export function queueOpenMonthsForExtraction(env: NodeJS.ProcessEnv = process.en
 /** Sweeps Drive and queues what arrived: a notification's and the poll's work. */
 export async function syncDriveAndQueueExtraction(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   await sweepDrive(env, { onlyIfStale: false });
-  queueOpenMonthsForExtraction(env);
+  await queueOpenMonthsForExtraction();
 }

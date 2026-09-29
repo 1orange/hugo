@@ -153,30 +153,33 @@ function documentLabel(
   return name;
 }
 
-export function buildMonthDocumentView(
+export async function buildMonthDocumentView(
   companyId: number,
   monthKey: string,
   folderFilter?: string | null,
-): MonthDocumentView | null {
-  const company = getCompanyById(companyId);
+): Promise<MonthDocumentView | null> {
+  const company = await getCompanyById(companyId);
   if (!company) {
     return null;
   }
 
-  const month = getMonthByKey(companyId, monthKey);
+  const month = await getMonthByKey(companyId, monthKey);
   if (!month) {
     return null;
   }
 
   const now = new Date().toISOString();
-  ensureDocumentsForMonth(companyId, monthKey, now);
+  await ensureDocumentsForMonth(companyId, monthKey, now);
 
-  const companyProfile = getCompanyProfile(companyId);
+  const [companyProfile, files, documentRows, companyDocuments, openMonthKey] = await Promise.all([
+    getCompanyProfile(companyId),
+    listFilesForMonth(companyId, monthKey),
+    listDocumentsForMonth(companyId, monthKey),
+    listDocumentsForCompany(companyId),
+    getOpenMonthKey(companyId),
+  ]);
   const homeCurrency = homeCurrencyForCountry(companyProfile?.country ?? "SK");
-
-  const files = listFilesForMonth(companyId, monthKey);
   const fileById = new Map(files.map((file) => [file.driveFileId, file]));
-  const documentRows = listDocumentsForMonth(companyId, monthKey);
 
   // A scan of several receipts: the file's own document first, then the rest.
   const documentsByFile = new Map<string, string[]>();
@@ -188,12 +191,26 @@ export function buildMonthDocumentView(
   }
   // The same receipt anywhere in the company's documents, in any month.
   const documentsByUid = new Map<string, Array<{ id: string; driveFileId: string; monthKey: string }>>();
-  for (const document of listDocumentsForCompany(companyId)) {
+  for (const document of companyDocuments) {
     const uid = receiptUidOfDocument(document);
     if (uid) {
       documentsByUid.set(uid, [...(documentsByUid.get(uid) ?? []), document]);
     }
   }
+  // Names of the other months' files a receipt here is also in.
+  const otherFileIds = new Set<string>();
+  for (const document of documentRows) {
+    for (const other of documentsByUid.get(receiptUidOfDocument(document) ?? "") ?? []) {
+      if (other.id !== document.id && !fileById.has(other.driveFileId)) {
+        otherFileIds.add(other.driveFileId);
+      }
+    }
+  }
+  const otherFileNames = new Map(
+    (await Promise.all([...otherFileIds].map((driveFileId) => getFileByDriveId(driveFileId))))
+      .filter((file) => file !== undefined)
+      .map((file) => [file.driveFileId, file.name]),
+  );
   const monthReadOnly = month.closedAt !== null;
 
   const documentItems = documentRows
@@ -228,7 +245,7 @@ export function buildMonthDocumentView(
           .filter((other) => other.id !== document.id)
           .map((other) => ({
             id: other.id,
-            fileName: getFileByDriveId(other.driveFileId)?.name ?? other.driveFileId,
+            fileName: fileById.get(other.driveFileId)?.name ?? otherFileNames.get(other.driveFileId) ?? other.driveFileId,
             monthKey: other.monthKey,
           })),
         name: file.name,
@@ -304,8 +321,6 @@ export function buildMonthDocumentView(
       fileOrder.get(left.driveFileId)! - fileOrder.get(right.driveFileId)! ||
       (left.receiptOfFile?.index ?? 0) - (right.receiptOfFile?.index ?? 0),
   );
-
-  const openMonthKey = getOpenMonthKey(companyId);
 
   const awaitingCount = documentItems.filter(
     (item) => item.decision === null,

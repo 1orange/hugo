@@ -2,6 +2,7 @@ import Link from "next/link";
 import { signOut } from "@/lib/auth/config";
 import { formatSweepAge } from "@/modules/format-sk";
 import { RefreshButton } from "@/app/companies/refresh-button";
+import { QueueIndicator } from "./queue-indicator";
 
 export type Crumb = {
   label: string;
@@ -67,6 +68,8 @@ export function AppBar({
       </nav>
 
       <div className="flex-1" />
+
+      <QueueIndicator />
 
       <span
         className="hidden text-[11.5px] text-ink-3 sm:inline"

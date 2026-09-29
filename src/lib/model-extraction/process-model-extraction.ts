@@ -51,17 +51,17 @@ export async function processModelExtractionFile(
   },
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
-  const editable = assertMonthEditable(input.companyId, input.monthKey);
+  const editable = await assertMonthEditable(input.companyId, input.monthKey);
   if (editable) {
     return;
   }
 
-  if (extractionAlreadyAttempted(input.driveFileId)) {
+  if (await extractionAlreadyAttempted(input.driveFileId)) {
     return;
   }
 
   if (input.mimeType !== "application/pdf") {
-    writeExtractedPayload(
+    await writeExtractedPayload(
       input.driveFileId,
       {},
       "failed",
@@ -90,7 +90,7 @@ export async function processModelExtractionFile(
   const { lines, hadTextLayer, source: extractionSource } = text;
 
   if (!shouldExtractWithModel({ lines, hadTextLayer, fromOcr: extractionSource === "ocr" })) {
-    writeExtractedPayload(
+    await writeExtractedPayload(
       input.driveFileId,
       {},
       "failed",
@@ -127,7 +127,7 @@ export async function extractFromEmbeddedIsdoc(
   if (!isdoc) {
     return false;
   }
-  const profile = getCompanyProfile(input.companyId);
+  const profile = await getCompanyProfile(input.companyId);
   const checked = runExtractionChecks({
     payload: isdoc.payload,
     sourceTextLines: [isdoc.xml],
@@ -139,8 +139,8 @@ export async function extractFromEmbeddedIsdoc(
     source: "isdoc",
     fieldChecks: checked.flags,
   };
-  writeExtractedPayload(input.driveFileId, payload, "complete", null);
-  appendCompanySystemEvent(now, input.companyId, "Extracted", {
+  await writeExtractedPayload(input.driveFileId, payload, "complete", null);
+  await appendCompanySystemEvent(now, input.companyId, "Extracted", {
     monthKey: input.monthKey,
     driveFileId: input.driveFileId,
     source: "isdoc",
@@ -164,7 +164,7 @@ async function runModelExtractionOnLines(
   },
   now: string,
 ): Promise<void> {
-  const profile = getCompanyProfile(input.companyId);
+  const profile = await getCompanyProfile(input.companyId);
 
   try {
     const result = await deps.extractor.extract({
@@ -186,9 +186,9 @@ async function runModelExtractionOnLines(
       fieldChecks: checked.flags,
     };
 
-    writeExtractedPayload(input.driveFileId, payload, "complete", null);
+    await writeExtractedPayload(input.driveFileId, payload, "complete", null);
 
-    appendCompanySystemEvent(now, input.companyId, "Extracted", {
+    await appendCompanySystemEvent(now, input.companyId, "Extracted", {
       monthKey: input.monthKey,
       driveFileId: input.driveFileId,
       source: input.source,
@@ -198,13 +198,13 @@ async function runModelExtractionOnLines(
     if (isExtractorUnreachableError(error)) {
       return;
     }
-    writeExtractedPayload(
+    await writeExtractedPayload(
       input.driveFileId,
       {},
       "failed",
       error instanceof Error ? error.message : "Model extraction failed.",
     );
-    appendCompanySystemEvent(now, input.companyId, "Extracted", {
+    await appendCompanySystemEvent(now, input.companyId, "Extracted", {
       monthKey: input.monthKey,
       driveFileId: input.driveFileId,
       source: input.source,

@@ -27,16 +27,16 @@ export async function applyFolderRename(
   companyId: number,
   input: RenameMutationInput,
 ): Promise<ApplyRenameResult> {
-  const month = getMonthByDriveFolderId(input.parentId);
+  const month = await getMonthByDriveFolderId(input.parentId);
   if (month) {
-    const editable = assertMonthEditable(companyId, month.monthKey);
+    const editable = await assertMonthEditable(companyId, month.monthKey);
     if (editable) {
       return { ok: false, message: editable.message };
     }
   } else {
-    const folder = getMonthFolder(input.driveFileId);
+    const folder = await getMonthFolder(input.driveFileId);
     if (folder) {
-      const editable = assertMonthEditable(companyId, folder.monthKey);
+      const editable = await assertMonthEditable(companyId, folder.monthKey);
       if (editable) {
         return { ok: false, message: editable.message };
       }
@@ -48,7 +48,7 @@ export async function applyFolderRename(
     return { ok: false, message: capability.message };
   }
 
-  const settings = getSettings();
+  const settings = await getSettings();
   const target = checkRenameTarget({
     currentName: input.currentName,
     targetName: input.targetName,
@@ -59,7 +59,7 @@ export async function applyFolderRename(
   }
 
   const intendedAt = new Date().toISOString();
-  const mutation = insertPendingMutation({
+  const mutation = await insertPendingMutation({
     kind: "rename",
     driveFileId: input.driveFileId,
     companyId,
@@ -75,14 +75,14 @@ export async function applyFolderRename(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Drive rename failed";
-    markMutationFailed(mutation.id, message);
+    await markMutationFailed(mutation.id, message);
     return { ok: false, message: `Drive refused the rename: ${message}` };
   }
 
   const appliedAt = new Date().toISOString();
-  markMutationApplied(mutation.id, appliedAt);
+  await markMutationApplied(mutation.id, appliedAt);
 
-  appendUserEvent(appliedAt, companyId, "Renamed", {
+  await appendUserEvent(appliedAt, companyId, "Renamed", {
     driveFileId: input.driveFileId,
     previousName: input.currentName,
     newName: input.targetName,
@@ -102,7 +102,7 @@ export async function undoFolderRename(
   driveClient: DriveClient,
   mutationId: number,
 ): Promise<UndoRenameResult> {
-  const mutation = getMutationById(mutationId);
+  const mutation = await getMutationById(mutationId);
   if (!mutation || mutation.undoneAt) {
     return { ok: false, message: "Mutation not found or already undone." };
   }
@@ -119,7 +119,7 @@ export async function undoFolderRename(
 
   // Someone may have renamed the folder again since. Reverting blind would
   // silently discard that newer name.
-  const folder = getMonthFolder(mutation.driveFileId);
+  const folder = await getMonthFolder(mutation.driveFileId);
   if (folder && folder.name !== mutation.newName) {
     return {
       ok: false,
@@ -130,9 +130,9 @@ export async function undoFolderRename(
   await driveClient.rename(mutation.driveFileId, mutation.previousName);
 
   const undoneAt = new Date().toISOString();
-  markMutationUndone(mutationId, undoneAt);
+  await markMutationUndone(mutationId, undoneAt);
 
-  appendUserEvent(undoneAt, mutation.companyId, "Renamed", {
+  await appendUserEvent(undoneAt, mutation.companyId, "Renamed", {
     driveFileId: mutation.driveFileId,
     previousName: mutation.newName,
     newName: mutation.previousName,

@@ -24,10 +24,10 @@ export type EkasaUidLookupResult =
   | { ok: true; found: false; message: string }
   | { ok: false; message: string };
 
-function storeTypedUidOnly(documentId: string, uid: string): void {
-  const document = getDocument(documentId);
+async function storeTypedUidOnly(documentId: string, uid: string): Promise<void> {
+  const document = await getDocument(documentId);
   const payload = parseExtractedPayload(document?.extractedPayloadJson ?? "{}");
-  writeExtractedPayload(
+  await writeExtractedPayload(
     documentId,
     withTypedEkasaUid(payload, uid),
     document?.extractionStatus === "pending"
@@ -45,7 +45,7 @@ export async function lookupEkasaUidForDocument(input: {
   ekasaLookup: EkasaLookup;
   now?: string;
 }): Promise<EkasaUidLookupResult> {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
@@ -56,7 +56,7 @@ export async function lookupEkasaUidForDocument(input: {
   }
   const uid = validated.uid;
 
-  const document = getDocument(input.documentId);
+  const document = await getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -88,8 +88,8 @@ export async function lookupEkasaUidForDocument(input: {
   } else {
     const lookup = await input.ekasaLookup.findReceipt(uid);
     if (!lookup.ok) {
-      storeTypedUidOnly(input.documentId, uid);
-      appendUserEvent(now, input.companyId, "EkasaUidEntered", {
+      await storeTypedUidOnly(input.documentId, uid);
+      await appendUserEvent(now, input.companyId, "EkasaUidEntered", {
         monthKey: input.monthKey,
         driveFileId: document.driveFileId,
       documentId: document.id,
@@ -106,8 +106,8 @@ export async function lookupEkasaUidForDocument(input: {
     raw: lookupRaw,
   });
   if (!mapped.ok) {
-    storeTypedUidOnly(input.documentId, uid);
-    appendUserEvent(now, input.companyId, "EkasaUidEntered", {
+    await storeTypedUidOnly(input.documentId, uid);
+    await appendUserEvent(now, input.companyId, "EkasaUidEntered", {
       monthKey: input.monthKey,
       driveFileId: document.driveFileId,
       documentId: document.id,
@@ -120,13 +120,13 @@ export async function lookupEkasaUidForDocument(input: {
   const payload = mapped.payload;
 
   if (payload.currency !== "EUR") {
-    writeExtractedPayload(
+    await writeExtractedPayload(
       input.documentId,
       { ...payload, typedEkasaUid: uid },
       "failed",
       `Receipt is in ${payload.currency} — enter the EUR amount manually.`,
     );
-    appendUserEvent(now, input.companyId, "EkasaUidEntered", {
+    await appendUserEvent(now, input.companyId, "EkasaUidEntered", {
       monthKey: input.monthKey,
       driveFileId: document.driveFileId,
       documentId: document.id,
@@ -141,7 +141,7 @@ export async function lookupEkasaUidForDocument(input: {
     };
   }
 
-  writeExtractedPayload(
+  await writeExtractedPayload(
     input.documentId,
     { ...payload, typedEkasaUid: uid },
     "complete",
@@ -149,13 +149,13 @@ export async function lookupEkasaUidForDocument(input: {
   );
 
   const confirmedAfter = parseConfirmedPayload(
-    getDocument(input.documentId)?.confirmedPayloadJson ?? "{}",
+    (await getDocument(input.documentId))?.confirmedPayloadJson ?? "{}",
   );
   if (JSON.stringify(confirmedBefore) !== JSON.stringify(confirmedAfter)) {
     throw new Error("Confirmed payload changed during eKasa UID lookup.");
   }
 
-  appendUserEvent(now, input.companyId, "EkasaUidEntered", {
+  await appendUserEvent(now, input.companyId, "EkasaUidEntered", {
     monthKey: input.monthKey,
     driveFileId: document.driveFileId,
     documentId: document.id,

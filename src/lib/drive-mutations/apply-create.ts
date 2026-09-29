@@ -22,7 +22,7 @@ export async function applyFolderCreate(
   input: CreateFolderMutationInput,
   options?: { runSweepAfter?: boolean },
 ): Promise<ApplyCreateResult> {
-  const settings = getSettings();
+  const settings = await getSettings();
   const target = checkCreateFolderTarget({
     folderName: input.folderName,
     canonicalFolderNames: settings.canonicalFolderNames,
@@ -33,7 +33,7 @@ export async function applyFolderCreate(
   }
 
   const intendedAt = new Date().toISOString();
-  const mutation = insertPendingMutation({
+  const mutation = await insertPendingMutation({
     kind: "create",
     driveFileId: `pending-create:${intendedAt}:${input.folderName}`,
     companyId,
@@ -53,14 +53,14 @@ export async function applyFolderCreate(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Drive create failed";
-    markMutationFailed(mutation.id, message);
+    await markMutationFailed(mutation.id, message);
     return { ok: false, message: `Drive refused the create: ${message}` };
   }
 
   const appliedAt = new Date().toISOString();
-  markMutationApplied(mutation.id, appliedAt);
+  await markMutationApplied(mutation.id, appliedAt);
 
-  appendUserEvent(appliedAt, companyId, "FolderCreated", {
+  await appendUserEvent(appliedAt, companyId, "FolderCreated", {
     driveFileId,
     parentId: input.parentId,
     name: input.folderName,

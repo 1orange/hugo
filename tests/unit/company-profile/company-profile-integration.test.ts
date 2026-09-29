@@ -1,13 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { FakeCompanyRegister } from "../../../src/adapters/company-register/fake-company-register.ts";
 import { getCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
 import { events, companies } from "../../../src/lib/db/schema.ts";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import {
   lookupCompanyRegister,
   saveCompanyProfileForUser,
@@ -15,21 +12,14 @@ import {
 } from "../../../src/lib/company-profile/service.ts";
 import { listCompanySummaries, summariseChaseList } from "../../../src/lib/sweep/views.ts";
 import { formatActivityEntry } from "../../../src/modules/activity-log.ts";
-
-function tempDbPath(): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "hugo-profile-")), "test.db");
-}
+import { freshTestDb } from "../support/test-db.ts";
 
 test("profile save emits CompanyProfileSaved and clears chase marker", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: "co-1", name: "Beta s.r.o.", active: true })
-    .run();
+  await db.insert(companies)
+    .values({ id: 1, driveFolderId: "co-1", name: "Beta s.r.o.", active: true });
 
   const register = new FakeCompanyRegister();
   const search = await searchCompanyRegister(1, "Beta", "SK", { register });
@@ -45,7 +35,7 @@ test("profile save emits CompanyProfileSaved and clears chase marker", async () 
     return;
   }
 
-  const saved = saveCompanyProfileForUser(
+  const saved = await saveCompanyProfileForUser(
     1,
     {
       country: "SK",
@@ -60,12 +50,12 @@ test("profile save emits CompanyProfileSaved and clears chase marker", async () 
   );
   assert.equal(saved.ok, true);
 
-  const profile = getCompanyProfile(1);
+  const profile = await getCompanyProfile(1);
   assert.ok(profile);
   assert.equal(profile.icDph, "SK1234567890");
   assert.equal(profile.registerSource, "rpo+ruz");
 
-  const event = db.select().from(events).where(eq(events.type, "CompanyProfileSaved")).get();
+  const event = (await db.select().from(events).where(eq(events.type, "CompanyProfileSaved")).limit(1))[0];
   assert.ok(event);
   const formatted = formatActivityEntry({
     id: event!.id,
@@ -77,21 +67,17 @@ test("profile save emits CompanyProfileSaved and clears chase marker", async () 
   });
   assert.match(formatted.summary, /Beta s\.r\.o\./);
 
-  const rows = listCompanySummaries();
+  const rows = await listCompanySummaries();
   assert.equal(rows[0]?.profileMissing, false);
   assert.equal(summariseChaseList(rows).withoutProfile, 0);
 });
 
 test("czech profile saves without IČ DPH and uses ARES source", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 2, driveFolderId: "co-2", name: "Gamma s.r.o.", active: true })
-    .run();
+  await db.insert(companies)
+    .values({ id: 2, driveFolderId: "co-2", name: "Gamma s.r.o.", active: true });
 
   const register = new FakeCompanyRegister();
   const lookup = await lookupCompanyRegister("87654321", "CZ", { register });
@@ -100,7 +86,7 @@ test("czech profile saves without IČ DPH and uses ARES source", async () => {
     return;
   }
 
-  const saved = saveCompanyProfileForUser(
+  const saved = await saveCompanyProfileForUser(
     2,
     {
       country: "CZ",
@@ -115,9 +101,10 @@ test("czech profile saves without IČ DPH and uses ARES source", async () => {
   );
   assert.equal(saved.ok, true);
 
-  const profile = getCompanyProfile(2);
+  const profile = await getCompanyProfile(2);
   assert.ok(profile);
   assert.equal(profile.country, "CZ");
   assert.equal(profile.icDph, "");
   assert.equal(profile.registerSource, "ares");
 });
+

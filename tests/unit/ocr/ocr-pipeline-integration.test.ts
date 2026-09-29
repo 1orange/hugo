@@ -1,15 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { FakeOcr, unreachableFakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
 import { FakeEkasaLookup } from "../../../src/adapters/ekasa-lookup/fake-ekasa-lookup.ts";
 import { createStubExtractor } from "../../../src/adapters/extractor/stub-extractor.ts";
 import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
 import { processCashReceiptFile } from "../../../src/lib/cash-discovery/discover-cash-payments.ts";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, documents, files, months } from "../../../src/lib/db/schema.ts";
 import type { PdfAccess, PdfPageImage } from "../../../src/adapters/pdf/port.ts";
 import {
@@ -19,15 +16,9 @@ import {
 } from "../../../src/modules/document-payload.ts";
 import { syntheticEkasaOpdResponse } from "../cash-discovery/synthetic-ekasa-opd.ts";
 import { SYNTHETIC_FIXTURE } from "../cash-discovery/synthetic-ekasa-lines.ts";
+import { freshTestDb, syncIdSequences } from "../support/test-db.ts";
 
 const RECEIPT_ID = "ocr-photo-receipt";
-
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-ocr-")),
-    "test.db",
-  );
-}
 
 function imageOnlyPdfAccess(pageImages: PdfPageImage[]): PdfAccess {
   return {
@@ -43,11 +34,12 @@ function imageOnlyPdfAccess(pageImages: PdfPageImage[]): PdfAccess {
   };
 }
 
-function seedReceiptRow(db: ReturnType<typeof getDb>): void {
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: "c", name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+async function seedReceiptRow(db: ReturnType<typeof getDb>): Promise<void> {
+  await db
+    .insert(companies)
+    .values({ id: 1, driveFolderId: "c", name: "Delta s.r.o.", active: true });
+  await db
+    .insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -55,9 +47,10 @@ function seedReceiptRow(db: ReturnType<typeof getDb>): void {
       driveFolderId: "m",
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await syncIdSequences();
+  await db
+    .insert(files)
     .values({
       driveFileId: RECEIPT_ID,
       companyId: 1,
@@ -70,16 +63,11 @@ function seedReceiptRow(db: ReturnType<typeof getDb>): void {
       firstSeenAt: "2026-01-12T00:00:00.000Z",
       lastSeenAt: "2026-01-12T00:00:00.000Z",
       deleted: false,
-    })
-    .run();
+    });
 }
 
 test("OCR text with UID resolves through lookup", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  seedReceiptRow(getDb());
+  await seedReceiptRow(await freshTestDb());
 
   const uid = SYNTHETIC_FIXTURE.uid;
   const lookup = new FakeEkasaLookup({
@@ -109,7 +97,7 @@ test("OCR text with UID resolves through lookup", async () => {
     },
   );
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   assert.equal(row.extractionStatus, "complete");
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
@@ -122,11 +110,7 @@ test("OCR text with UID resolves through lookup", async () => {
 });
 
 test("OCR text without UID runs model checks with source ocr", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  seedReceiptRow(getDb());
+  await seedReceiptRow(await freshTestDb());
 
   const ocr = new FakeOcr({
     boxes: [
@@ -155,7 +139,7 @@ test("OCR text without UID runs model checks with source ocr", async () => {
     },
   );
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   assert.equal(row.extractionStatus, "complete");
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isModelExtractedPayload(payload), true);
@@ -166,11 +150,7 @@ test("OCR text without UID runs model checks with source ocr", async () => {
 });
 
 test("unreachable OCR leaves document pending", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  seedReceiptRow(getDb());
+  await seedReceiptRow(await freshTestDb());
 
   await processCashReceiptFile(
     {
@@ -190,6 +170,6 @@ test("unreachable OCR leaves document pending", async () => {
     },
   );
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   assert.equal(row.extractionStatus, "pending");
 });

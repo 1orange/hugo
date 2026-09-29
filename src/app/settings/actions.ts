@@ -39,7 +39,7 @@ export async function previewCanonicalImpactAction(
     return denied;
   }
 
-  const preview = previewCanonicalFolderNamesChange(proposedNames);
+  const preview = await previewCanonicalFolderNamesChange(proposedNames);
   if (!preview.ok) {
     return { ok: false, message: preview.message };
   }
@@ -52,13 +52,13 @@ export async function saveSettingsAction(input: {
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   autoAdvanceAfterDecision: boolean;
-}): Promise<ActionResult<{ settings: ReturnType<typeof loadSettingsFormData> }>> {
+}): Promise<ActionResult<{ settings: Awaited<ReturnType<typeof loadSettingsFormData>> }>> {
   const denied = await assertAllowedSettingsAccess();
   if (denied) {
     return denied;
   }
 
-  const result = saveGlobalSettings(input);
+  const result = await saveGlobalSettings(input);
   if (!result.ok) {
     return { ok: false, message: result.message };
   }
@@ -69,6 +69,6 @@ export async function saveSettingsAction(input: {
 
   return {
     ok: true,
-    data: { settings: loadSettingsFormData() },
+    data: { settings: await loadSettingsFormData() },
   };
 }

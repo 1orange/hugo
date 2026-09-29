@@ -1,7 +1,9 @@
-import path from "node:path";
-import { runMigrations } from "../src/lib/db/migrate";
+import { runMigrations } from "../src/lib/db/client";
 
-const databasePath = process.argv[2];
-
-runMigrations(databasePath ? path.resolve(databasePath) : undefined);
-console.log("Migrations complete");
+// DATABASE_URL, as the app reads it; every replica also migrates on start.
+runMigrations()
+  .then(() => console.log("Migrations complete"))
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });

@@ -2,12 +2,14 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { canWatchChanges, type DriveClient } from "@/adapters/drive/port";
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
 import { getDriveWatchChannel, saveDriveWatchChannel } from "@/adapters/store/settings";
-import { isDriveConfigured, syncDriveAndQueueExtraction } from "@/lib/sweep/ensure-fresh-sweep";
+import { sweepQueue } from "@/adapters/job-queue/bullmq-queues";
+import { isDriveConfigured } from "@/lib/sweep/ensure-fresh-sweep";
 
 /**
  * Documents are read as they arrive in Drive, not when she opens the app
  * (ADR 0020): Drive notifies the webhook, and a slow poll catches what a
- * notification missed and keeps the channel alive.
+ * notification missed and keeps the channel alive. Both are jobs on the sweep
+ * queue (ADR 0021), so however many replicas there are, one sweep runs.
  */
 
 /** The longest Google grants a changes channel. */
@@ -17,15 +19,7 @@ const RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
 /** A client dropping twelve files causes one sweep (ADR 0003). */
 export const NOTIFICATION_DEBOUNCE_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000;
-
-type WatchState = { debounce?: ReturnType<typeof setTimeout>; poll?: ReturnType<typeof setInterval>; ticking?: boolean };
-const STATE_KEY = Symbol.for("hugo.driveWatch");
-
-function state(): WatchState {
-  const holder = globalThis as unknown as Record<symbol, WatchState | undefined>;
-  holder[STATE_KEY] ??= {};
-  return holder[STATE_KEY];
-}
+const POLL_SCHEDULER_ID = "drive-poll";
 
 export type ChannelOutcome = "disabled" | "watching" | "renewed";
 
@@ -43,7 +37,7 @@ export async function ensureDriveWatchChannel(
   if (!canWatchChanges(driveClient)) {
     return "disabled";
   }
-  const current = getDriveWatchChannel();
+  const current = await getDriveWatchChannel();
   if (current && Date.parse(current.expiresAt) - now.getTime() > RENEW_BEFORE_MS) {
     return "watching";
   }
@@ -55,7 +49,7 @@ export async function ensureDriveWatchChannel(
     address,
     expiresAt: new Date(now.getTime() + CHANNEL_LIFETIME_MS),
   });
-  saveDriveWatchChannel({ id: channelId, resourceId: created.resourceId, token, expiresAt: created.expiresAt });
+  await saveDriveWatchChannel({ id: channelId, resourceId: created.resourceId, token, expiresAt: created.expiresAt });
   // Until stopped the old channel overlaps the new one; its notifications carry
   // the old token and are turned away, which costs nothing.
   if (current) {
@@ -75,28 +69,39 @@ export type NotificationOutcome = "accepted" | "ignored" | "rejected";
 /**
  * A notification from Google, by its headers. Only the channel this app made,
  * with its token, is trusted; `sync` is the ping a new channel sends once.
+ * An accepted one asks for a sweep (`requestDriveSync`).
  */
-export function acceptDriveNotification(
+export async function acceptDriveNotification(
   headers: { channelId: string | null; token: string | null; resourceState: string | null },
-  run: () => Promise<void> = () => syncDriveAndQueueExtraction(),
-  debounceMs: number = NOTIFICATION_DEBOUNCE_MS,
-): NotificationOutcome {
-  const channel = getDriveWatchChannel();
+  requestSync: () => Promise<void> = requestDriveSync,
+): Promise<NotificationOutcome> {
+  const channel = await getDriveWatchChannel();
   if (!channel || headers.channelId !== channel.id || !sameToken(headers.token ?? "", channel.token)) {
     return "rejected";
   }
   if (headers.resourceState === "sync") {
     return "ignored";
   }
-  const watch = state();
-  if (!watch.debounce) {
-    watch.debounce = setTimeout(() => {
-      watch.debounce = undefined;
-      void run().catch((error) => console.warn("[drive-watch] sync after notification failed", error));
-    }, debounceMs);
-    watch.debounce.unref?.();
-  }
+  await requestSync();
   return "accepted";
+}
+
+/**
+ * One sweep, 30 s after the first notification of a burst: a client dropping
+ * twelve files causes one sweep (ADR 0003). The queue drops the others, on
+ * whichever replica Google reached.
+ */
+export async function requestDriveSync(): Promise<void> {
+  await sweepQueue().add(
+    "notified",
+    {},
+    {
+      delay: NOTIFICATION_DEBOUNCE_MS,
+      deduplication: { id: "drive-notified", ttl: NOTIFICATION_DEBOUNCE_MS },
+      removeOnComplete: true,
+      removeOnFail: true,
+    },
+  );
 }
 
 export function pollIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -108,42 +113,42 @@ export function pollIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isFinite(value) && value >= 0 ? value : DEFAULT_POLL_INTERVAL_MS;
 }
 
+/** Off in tests and e2e, without Drive, or with DRIVE_POLL_INTERVAL_MS=0. */
+export function drivePollEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    pollIntervalMs(env) > 0 &&
+    env.NODE_ENV !== "test" &&
+    env.E2E_TEST_AUTH !== "true" &&
+    env.DRIVE_CLIENT !== "fake" &&
+    isDriveConfigured(env)
+  );
+}
+
 /**
- * One background loop per process: keep the channel alive, sweep, queue.
- * Off in tests and e2e, without Drive, or with DRIVE_POLL_INTERVAL_MS=0.
+ * The poll as a job scheduler: every worker sets the same one, and BullMQ
+ * runs it once per interval for all of them. A first sweep follows start-up,
+ * for what arrived while nothing was running.
  */
-export function startDriveWatcher(env: NodeJS.ProcessEnv = process.env): boolean {
-  const watch = state();
-  const interval = pollIntervalMs(env);
-  if (
-    watch.poll ||
-    interval === 0 ||
-    env.NODE_ENV === "test" ||
-    env.E2E_TEST_AUTH === "true" ||
-    env.DRIVE_CLIENT === "fake" ||
-    !isDriveConfigured(env)
-  ) {
+export async function scheduleDrivePoll(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  const queue = sweepQueue();
+  if (!drivePollEnabled(env)) {
+    await queue.removeJobScheduler(POLL_SCHEDULER_ID);
     return false;
   }
-  const tick = async () => {
-    if (watch.ticking) {
-      return;
-    }
-    watch.ticking = true;
-    try {
-      await ensureDriveWatchChannel(env).catch((error) =>
-        console.warn("[drive-watch] could not watch Drive changes", error),
-      );
-      await syncDriveAndQueueExtraction(env).catch((error) =>
-        console.warn("[drive-watch] poll sync failed", error),
-      );
-    } finally {
-      watch.ticking = false;
-    }
-  };
-  const first = setTimeout(() => void tick(), 10_000);
-  first.unref?.();
-  watch.poll = setInterval(() => void tick(), interval);
-  watch.poll.unref?.();
+  await queue.upsertJobScheduler(
+    POLL_SCHEDULER_ID,
+    { every: pollIntervalMs(env) },
+    { name: "poll", opts: { removeOnComplete: true, removeOnFail: true } },
+  );
+  await queue.add(
+    "poll",
+    {},
+    {
+      delay: 10_000,
+      deduplication: { id: "startup-poll", ttl: 60_000 },
+      removeOnComplete: true,
+      removeOnFail: true,
+    },
+  );
   return true;
 }

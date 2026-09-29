@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { monthFolders } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 
 export type MonthFolderRow = {
   driveFolderId: string;
@@ -11,60 +11,54 @@ export type MonthFolderRow = {
   canRename: boolean;
 };
 
-export function replaceMonthFoldersForCompany(
+export async function replaceMonthFoldersForCompany(
   companyId: number,
   rows: MonthFolderRow[],
-): void {
+): Promise<void> {
   const db = getDb();
-  db.delete(monthFolders)
-    .where(eq(monthFolders.companyId, companyId))
-    .run();
-
-  for (const row of rows) {
-    db.insert(monthFolders)
-      .values(row)
-      .onConflictDoUpdate({
-        target: monthFolders.driveFolderId,
-        set: {
-          companyId: row.companyId,
-          monthKey: row.monthKey,
-          name: row.name,
-          parentId: row.parentId,
-          canRename: row.canRename,
-        },
-      })
-      .run();
-  }
+  // Delete and insert together: a page reading in between saw no folders.
+  await db.transaction(async (tx) => {
+    await tx.delete(monthFolders).where(eq(monthFolders.companyId, companyId));
+    for (const row of rows) {
+      await tx
+        .insert(monthFolders)
+        .values(row)
+        .onConflictDoUpdate({
+          target: monthFolders.driveFolderId,
+          set: {
+            companyId: row.companyId,
+            monthKey: row.monthKey,
+            name: row.name,
+            parentId: row.parentId,
+            canRename: row.canRename,
+          },
+        });
+    }
+  });
 }
 
-export function getMonthFolder(driveFolderId: string): MonthFolderRow | null {
+export async function getMonthFolder(driveFolderId: string): Promise<MonthFolderRow | null> {
   const db = getDb();
-  const row = db
+  const [row] = await db
     .select()
     .from(monthFolders)
     .where(eq(monthFolders.driveFolderId, driveFolderId))
-    .get();
+    .limit(1);
   return row ?? null;
 }
 
-export function listMonthFolders(
+export async function listMonthFolders(
   companyId: number,
   monthKey: string,
-): MonthFolderRow[] {
+): Promise<MonthFolderRow[]> {
   const db = getDb();
   return db
     .select()
     .from(monthFolders)
-    .where(
-      and(
-        eq(monthFolders.companyId, companyId),
-        eq(monthFolders.monthKey, monthKey),
-      ),
-    )
-    .all();
+    .where(and(eq(monthFolders.companyId, companyId), eq(monthFolders.monthKey, monthKey)));
 }
 
-export function listAllMonthFolders(): MonthFolderRow[] {
+export async function listAllMonthFolders(): Promise<MonthFolderRow[]> {
   const db = getDb();
-  return db.select().from(monthFolders).all();
+  return db.select().from(monthFolders);
 }

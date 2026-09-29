@@ -85,31 +85,31 @@ function buildView(
   };
 }
 
-export function buildCompanyActivityView(
+export async function buildCompanyActivityView(
   companyId: number,
   filters: ActivityLogView["filters"] = {},
   beforeId?: number,
-): ActivityLogView | null {
-  const company = getCompanyById(companyId);
+): Promise<ActivityLogView | null> {
+  const company = await getCompanyById(companyId);
   if (!company) {
     return null;
   }
 
-  const result = listCompanyActivity(companyId, toQuery(filters, beforeId));
+  const result = await listCompanyActivity(companyId, toQuery(filters, beforeId));
   return buildView("company", result, {
     companyId,
     companyName: company.name,
     eventTypeOptions: buildTypeOptions(COMPANY_SCOPED_EVENT_TYPES),
-    monthOptions: buildMonthOptions(listDistinctMonthKeysForCompany(companyId)),
+    monthOptions: buildMonthOptions(await listDistinctMonthKeysForCompany(companyId)),
     filters,
   });
 }
 
-export function buildGlobalActivityView(
+export async function buildGlobalActivityView(
   filters: ActivityLogView["filters"] = {},
   beforeId?: number,
-): ActivityLogView {
-  const result = listGlobalActivity(toQuery(filters, beforeId));
+): Promise<ActivityLogView> {
+  const result = await listGlobalActivity(toQuery(filters, beforeId));
   return buildView("global", result, {
     companyId: null,
     companyName: null,

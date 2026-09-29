@@ -37,16 +37,16 @@ function isModelExtractionFolder(folderSlot: string): boolean {
   );
 }
 
-export function listModelExtractionCandidates(
+export async function listModelExtractionCandidates(
   companyId: number,
   monthKey: string,
-): Array<{
+): Promise<Array<{
   driveFileId: string;
   name: string;
   mimeType: string;
   folderSlot: string;
-}> {
-  return listFilesForMonth(companyId, monthKey)
+}>> {
+  return (await listFilesForMonth(companyId, monthKey))
     .filter(
       (file) =>
         !file.deleted &&
@@ -85,21 +85,24 @@ export async function discoverModelExtractionForMonth(
   monthKey: string,
   deps: ModelExtractionDeps,
 ): Promise<void> {
-  const editable = assertMonthEditable(companyId, monthKey);
+  const editable = await assertMonthEditable(companyId, monthKey);
   if (editable) {
     return;
   }
 
   const now = deps.now?.() ?? new Date().toISOString();
-  ensureDocumentsForMonth(companyId, monthKey, now);
-  const candidates = listModelExtractionCandidates(companyId, monthKey);
+  await ensureDocumentsForMonth(companyId, monthKey, now);
+  const candidates = await listModelExtractionCandidates(companyId, monthKey);
 
-  const pending = candidates.filter((file) =>
-    needsExtraction(getDocument(file.driveFileId)),
-  );
+  const pending = [];
+  for (const file of candidates) {
+    if (needsExtraction(await getDocument(file.driveFileId))) {
+      pending.push(file);
+    }
+  }
 
   for (const file of pending) {
-    beginExtractionAttempt(file.driveFileId);
+    await beginExtractionAttempt(file.driveFileId);
   }
 
   const concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
@@ -124,7 +127,7 @@ export async function discoverModelExtractionForMonth(
         },
       );
     } catch (error) {
-      recordExtractionCrash(file.driveFileId, error);
+      await recordExtractionCrash(file.driveFileId, error);
     }
   });
 }

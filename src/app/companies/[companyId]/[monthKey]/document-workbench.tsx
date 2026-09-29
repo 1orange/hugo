@@ -15,6 +15,7 @@ import { DecisionBar } from "./decision-bar";
 import { DocumentRail } from "./document-rail";
 import { DocumentStage } from "./document-stage";
 import { FieldsPanel, type DocumentFieldsInput } from "./fields-panel";
+import { useMonthExtraction } from "./use-month-extraction";
 
 type DocumentWorkbenchProps = {
   companyId: number;
@@ -65,35 +66,9 @@ export function DocumentWorkbench({
   const selectedDocument =
     selectedIndex >= 0 ? documents[selectedIndex]! : documents[0] ?? null;
 
-  /*
-   * Parsing is kicked off in the background when the month is opened, so the
-   * first render of a fresh month shows "čaká na spracovanie" for every eKasa
-   * receipt. Nothing on the server can push the finished values down, so the
-   * screen asks again until the parsers are done. The tick budget resets every
-   * time the count moves, which stops a permanently stuck extraction (Drive
-   * down mid-parse) from polling forever.
-   */
-  const pendingExtraction = view.pendingExtractionCount;
-  const pollTicks = useRef(0);
-
-  useEffect(() => {
-    pollTicks.current = 0;
-  }, [pendingExtraction]);
-
-  useEffect(() => {
-    if (pendingExtraction === 0) {
-      return;
-    }
-    const timer = setInterval(() => {
-      if (pollTicks.current >= 40) {
-        clearInterval(timer);
-        return;
-      }
-      pollTicks.current += 1;
-      router.refresh();
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [pendingExtraction, router]);
+  // Parsing is kicked off in the background when the month is opened; the
+  // screen follows the queue and renders again when a document is read.
+  const liveExtraction = useMonthExtraction({ companyId, monthKey, documents });
 
   // The filter is a URL round-trip, so the selection has to survive a list that
   // no longer contains it.
@@ -329,6 +304,7 @@ export function DocumentWorkbench({
             totalCount={view.totalCount}
             readOnlyFiles={view.readOnlyFiles}
             selectedDocumentId={selectedDocument?.id ?? null}
+            liveExtraction={liveExtraction}
             onSelect={(documentId) => {
               setDismissOpen(false);
               setSelectedDocumentId(documentId);

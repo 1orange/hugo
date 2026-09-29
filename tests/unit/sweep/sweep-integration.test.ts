@@ -1,14 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
-import { runMigrations, resetDbForTests } from "../../../src/lib/db/migrate.ts";
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
-import { getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
+import { freshTestDb } from "../support/test-db.ts";
 import { companies, events, files } from "../../../src/lib/db/schema.ts";
 
 const PARENT_ID = "integration-parent";
@@ -61,20 +58,10 @@ const fixture = [
   },
 ];
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-sweep-")),
-    "test.db",
-  );
-}
-
 test("runSweep persists tree, events and files; second run is a no-op", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   const client = new FakeDriveClient(fixture);
 
   const first = await runSweep(client);
@@ -82,22 +69,22 @@ test("runSweep persists tree, events and files; second run is a no-op", async ()
   assert.equal(first.eventCount, 2);
 
   const db = getDb();
-  const companyRows = db.select().from(companies).all();
+  const companyRows = await db.select().from(companies);
   assert.equal(companyRows.length, 1);
   assert.equal(companyRows[0]?.name, "Gamma s.r.o.");
 
-  const fileRows = db.select().from(files).all();
+  const fileRows = await db.select().from(files);
   assert.equal(fileRows.length, 2);
   assert.deepEqual(
     fileRows.map((row) => row.name).sort(),
     ["supplier-a.pdf", "vat-summary.pdf"],
   );
 
-  const eventRows = db.select().from(events).all();
+  const eventRows = await db.select().from(events).orderBy(events.id);
   assert.equal(eventRows.length, 2);
   assert.ok(eventRows.every((row) => row.type === "FileDiscovered"));
 
   const second = await runSweep(client);
   assert.equal(second.eventCount, 0);
-  assert.equal(db.select().from(events).all().length, 2);
+  assert.equal((await db.select().from(events).orderBy(events.id)).length, 2);
 });

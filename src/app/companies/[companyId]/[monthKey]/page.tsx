@@ -37,18 +37,18 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
     notFound();
   }
 
-  const view = buildMonthView(companyIdNum, monthKey);
-  const documentView = buildMonthDocumentView(companyIdNum, monthKey, folder ?? null);
+  const view = await buildMonthView(companyIdNum, monthKey);
+  const documentView = await buildMonthDocumentView(companyIdNum, monthKey, folder ?? null);
   if (!view || !documentView) {
     notFound();
   }
 
   if (!view.readOnly) {
-    scheduleDocumentExtractionForMonth(companyIdNum, monthKey);
+    await scheduleDocumentExtractionForMonth(companyIdNum, monthKey);
   }
 
-  const settings = getSettings();
-  const months = listMonthsForCompany(companyIdNum).map((month) => ({
+  const settings = await getSettings();
+  const months = (await listMonthsForCompany(companyIdNum)).map((month) => ({
     monthKey: month.monthKey,
     closed: month.closedAt !== null,
   }));

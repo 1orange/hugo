@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { events } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import {
   eventMonthKey,
   type StoredActivityEvent,
@@ -53,10 +53,10 @@ function applyMonthFilter(
   return rows.filter((row) => matchesMonthFilter(row, monthKey));
 }
 
-function queryRows(
+async function queryRows(
   whereClause: ReturnType<typeof and> | ReturnType<typeof eq> | ReturnType<typeof isNull>,
   query: ActivityQuery,
-): ActivityQueryResult {
+): Promise<ActivityQueryResult> {
   const db = getDb();
   const limit = query.limit ?? DEFAULT_PAGE_SIZE;
   const scanLimit =
@@ -72,14 +72,14 @@ function queryRows(
     conditions.push(lt(events.id, query.beforeId));
   }
 
-  const fetched = db
-    .select()
-    .from(events)
-    .where(and(...conditions))
-    .orderBy(desc(events.id))
-    .limit(scanLimit)
-    .all()
-    .map(hydrate);
+  const fetched = (
+    await db
+      .select()
+      .from(events)
+      .where(and(...conditions))
+      .orderBy(desc(events.id))
+      .limit(scanLimit)
+  ).map(hydrate);
 
   const filtered = applyMonthFilter(fetched, query.monthKey);
   const entries = filtered.slice(0, limit);
@@ -90,24 +90,23 @@ function queryRows(
   return { entries, hasMore };
 }
 
-export function listCompanyActivity(
+export async function listCompanyActivity(
   companyId: number,
   query: ActivityQuery,
-): ActivityQueryResult {
+): Promise<ActivityQueryResult> {
   return queryRows(eq(events.companyId, companyId), query);
 }
 
-export function listGlobalActivity(query: ActivityQuery): ActivityQueryResult {
+export async function listGlobalActivity(query: ActivityQuery): Promise<ActivityQueryResult> {
   return queryRows(isNull(events.companyId), query);
 }
 
-export function listDistinctMonthKeysForCompany(companyId: number): string[] {
+export async function listDistinctMonthKeysForCompany(companyId: number): Promise<string[]> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .select({ payloadJson: events.payloadJson, type: events.type })
     .from(events)
-    .where(eq(events.companyId, companyId))
-    .all();
+    .where(eq(events.companyId, companyId));
 
   const keys = new Set<string>();
   for (const row of rows) {

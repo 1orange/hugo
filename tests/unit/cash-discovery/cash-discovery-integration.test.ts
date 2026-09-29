@@ -1,10 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import {
   companies,
   documents,
@@ -34,6 +31,7 @@ import { syntheticEkasaOpdResponse } from "./synthetic-ekasa-opd.ts";
 import { events } from "../../../src/lib/db/schema.ts";
 import { ensureDocumentsForMonth } from "../../../src/adapters/store/documents.ts";
 import { EXTRACTION_PIPELINE_VERSION } from "../../../src/modules/extraction-pipeline.ts";
+import { freshTestDb, syncIdSequences } from "../support/test-db.ts";
 
 const PARENT_ID = "cash-parent";
 const COMPANY_ID = "cash-company";
@@ -79,13 +77,6 @@ const fixtureTree = [
   },
 ];
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-cash-")),
-    "test.db",
-  );
-}
-
 function syntheticPdfAccess(
   lines: string[],
   pageImages: PdfPageImage[] = [],
@@ -104,17 +95,14 @@ function syntheticPdfAccess(
 }
 
 test("fixture eBloček produces one document with expected ekasa payload", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
   const driveClient = new FakeDriveClient(fixtureTree, {
     [RECEIPT_ID]: pdfBytes,
   });
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   const deps = {
@@ -131,7 +119,7 @@ test("fixture eBloček produces one document with expected ekasa payload", async
   await discoverCashPaymentsForMonth(1, "2026_01", deps);
 
   const db = getDb();
-  const documentRows = db.select().from(documents).all();
+  const documentRows = await db.select().from(documents);
   assert.equal(documentRows.length, 1);
   const row = documentRows[0]!;
   assert.equal(row.driveFileId, RECEIPT_ID);
@@ -156,10 +144,7 @@ test("a receipt in the card folder is extracted, not only the cash folder", asyn
   // Every eBloček in the real corpus sits in `05 Bločky_firemná karta`; `04` holds
   // none. Scoping extraction to the cash folder matched nothing on real data, and
   // the original fixtures all used `04`, so they agreed with the bug.
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const SLOT_05_ID = "card-slot-05";
   const CARD_RECEIPT_ID = "card-receipt-doc";
@@ -185,7 +170,7 @@ test("a receipt in the card folder is extracted, not only the cash folder", asyn
     { [CARD_RECEIPT_ID]: pdfBytes },
   );
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   await discoverCashPaymentsForMonth(1, "2026_01", {
@@ -198,11 +183,11 @@ test("a receipt in the card folder is extracted, not only the cash folder", asyn
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = getDb()
+  const [row] = await getDb()
     .select()
     .from(documents)
     .where(eq(documents.driveFileId, CARD_RECEIPT_ID))
-    .get();
+    .limit(1);
   assert.ok(row, "no document row for the card-folder receipt");
   assert.equal(row.extractionStatus, "complete");
   const payload = parseExtractedPayload(row.extractedPayloadJson);
@@ -210,16 +195,14 @@ test("a receipt in the card folder is extracted, not only the cash folder", asyn
 });
 
 test("non-eBloček PDF leaves empty payload with failure reason", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db
+    .insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true });
+  await db
+    .insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -227,9 +210,10 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await syncIdSequences();
+  await db
+    .insert(files)
     .values({
       driveFileId: "manual-entry-doc",
       companyId: 1,
@@ -242,8 +226,7 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
       firstSeenAt: "2026-01-12T00:00:00.000Z",
       lastSeenAt: "2026-01-12T00:00:00.000Z",
       deleted: false,
-    })
-    .run();
+    });
 
   await processCashReceiptFile(
     {
@@ -264,11 +247,11 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
     },
   );
 
-  const row = db
+  const [row] = await db
     .select()
     .from(documents)
     .where(eq(documents.driveFileId, "manual-entry-doc"))
-    .get();
+    .limit(1);
   assert.ok(row);
   assert.equal(row.extractionStatus, "complete");
   const payload = parseExtractedPayload(row.extractedPayloadJson);
@@ -279,16 +262,14 @@ test("non-eBloček PDF leaves empty payload with failure reason", async () => {
 });
 
 test("arithmetic mismatch leaves empty payload with failure reason", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db
+    .insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true });
+  await db
+    .insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -296,9 +277,10 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await syncIdSequences();
+  await db
+    .insert(files)
     .values({
       driveFileId: "bad-arithmetic-doc",
       companyId: 1,
@@ -311,8 +293,7 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
       firstSeenAt: "2026-01-12T10:00:00.000Z",
       lastSeenAt: "2026-01-12T10:00:00.000Z",
       deleted: false,
-    })
-    .run();
+    });
 
   const brokenLines = syntheticEkasaLines();
   const totalIndex = brokenLines.findIndex((line) => line.startsWith("NA ÚHRADU"));
@@ -337,11 +318,11 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
     },
   );
 
-  const row = db
+  const [row] = await db
     .select()
     .from(documents)
     .where(eq(documents.driveFileId, "bad-arithmetic-doc"))
-    .get();
+    .limit(1);
   assert.ok(row);
   assert.equal(row.extractionStatus, "failed");
   assert.match(row.extractionFailureReason ?? "", /Item line totals sum/);
@@ -349,10 +330,7 @@ test("arithmetic mismatch leaves empty payload with failure reason", async () =>
 });
 
 test("fake lookup produces lookup source and stores raw OPD response", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
   const uid = "O-11111111111111111111111111111111";
@@ -365,7 +343,7 @@ test("fake lookup produces lookup source and stores raw OPD response", async () 
     [RECEIPT_ID]: pdfBytes,
   });
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   await discoverCashPaymentsForMonth(1, "2026_01", {
@@ -378,7 +356,7 @@ test("fake lookup produces lookup source and stores raw OPD response", async () 
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = getDb().select().from(documents).get()!;
+  const row = (await getDb().select().from(documents).limit(1))[0]!;
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
   if (isEkasaPayload(payload)) {
@@ -387,11 +365,10 @@ test("fake lookup produces lookup source and stores raw OPD response", async () 
   }
   assert.equal(lookup.calls.length, 1);
 
-  const extractedEvents = getDb()
+  const extractedEvents = await getDb()
     .select()
     .from(events)
-    .where(eq(events.type, "Extracted"))
-    .all();
+    .where(eq(events.type, "Extracted"));
   assert.equal(extractedEvents.length, 1);
   const eventPayload = JSON.parse(extractedEvents[0]!.payloadJson) as {
     source?: string;
@@ -400,17 +377,14 @@ test("fake lookup produces lookup source and stores raw OPD response", async () 
 });
 
 test("failing fake lookup falls back to text-layer source", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const pdfBytes = new Uint8Array(Buffer.from("fixture-pdf"));
   const driveClient = new FakeDriveClient(fixtureTree, {
     [RECEIPT_ID]: pdfBytes,
   });
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   const lookup = failingEkasaLookup("OPD down");
@@ -424,7 +398,7 @@ test("failing fake lookup falls back to text-layer source", async () => {
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = getDb().select().from(documents).get()!;
+  const row = (await getDb().select().from(documents).limit(1))[0]!;
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
   if (isEkasaPayload(payload)) {
@@ -434,16 +408,14 @@ test("failing fake lookup falls back to text-layer source", async () => {
 });
 
 test("cached OPD response skips a second lookup call", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db
+    .insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true });
+  await db
+    .insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -451,9 +423,10 @@ test("cached OPD response skips a second lookup call", async () => {
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await syncIdSequences();
+  await db
+    .insert(files)
     .values({
       driveFileId: RECEIPT_ID,
       companyId: 1,
@@ -466,11 +439,11 @@ test("cached OPD response skips a second lookup call", async () => {
       firstSeenAt: "2026-01-12T00:00:00.000Z",
       lastSeenAt: "2026-01-12T00:00:00.000Z",
       deleted: false,
-    })
-    .run();
+    });
 
   const opdRaw = syntheticEkasaOpdResponse();
-  db.insert(documents)
+  await db
+    .insert(documents)
     .values({
       id: RECEIPT_ID,
       driveFileId: RECEIPT_ID,
@@ -486,8 +459,7 @@ test("cached OPD response skips a second lookup call", async () => {
       }),
       confirmedPayloadJson: "{}",
       createdAt: "2026-01-12T09:00:00.000Z",
-    })
-    .run();
+    });
 
   const lookup = new FakeEkasaLookup({
     defaultResult: { ok: false, reason: "should not be called" },
@@ -513,7 +485,7 @@ test("cached OPD response skips a second lookup call", async () => {
   );
 
   assert.equal(lookup.calls.length, 0);
-  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
   if (isEkasaPayload(payload)) {
@@ -522,10 +494,7 @@ test("cached OPD response skips a second lookup call", async () => {
 });
 
 test("image-only PDF with QR resolves through fake lookup", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const uid = SYNTHETIC_FIXTURE.uid;
   const lookup = new FakeEkasaLookup({
@@ -550,7 +519,7 @@ test("image-only PDF with QR resolves through fake lookup", async () => {
     [RECEIPT_ID]: pdfBytes,
   });
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   await discoverCashPaymentsForMonth(1, "2026_01", {
@@ -563,7 +532,7 @@ test("image-only PDF with QR resolves through fake lookup", async () => {
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = getDb().select().from(documents).get()!;
+  const row = (await getDb().select().from(documents).limit(1))[0]!;
   assert.equal(row.extractionStatus, "complete");
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
@@ -578,25 +547,21 @@ test("image-only PDF with QR resolves through fake lookup", async () => {
 // A scan attempted before QR decoding existed kept its old failure forever,
 // because discovery skipped anything already attempted.
 async function seedFailedScan(pipelineVersion: number | null) {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const driveClient = new FakeDriveClient(fixtureTree, {
     [RECEIPT_ID]: new Uint8Array(Buffer.from("scanned-pdf")),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
-  ensureDocumentsForMonth(1, "2026_01", "2026-01-12T09:00:00.000Z");
-  getDb()
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T09:00:00.000Z");
+  await getDb()
     .update(documents)
     .set({
       extractionStatus: "failed",
       extractionFailureReason: "The PDF has no extractable text layer.",
       extractionPipelineVersion: pipelineVersion,
     })
-    .where(eq(documents.driveFileId, RECEIPT_ID))
-    .run();
+    .where(eq(documents.driveFileId, RECEIPT_ID));
   return driveClient;
 }
 
@@ -630,7 +595,7 @@ test("a scan that failed under an older pipeline is read again", async () => {
 
   await discoverCashPaymentsForMonth(1, "2026_01", deps);
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   assert.equal(row.extractionStatus, "complete");
   assert.equal(row.extractionPipelineVersion, EXTRACTION_PIPELINE_VERSION);
   assert.equal(lookup.calls.length, 1);
@@ -642,17 +607,14 @@ test("a failure under the current pipeline is not read again", async () => {
 
   await discoverCashPaymentsForMonth(1, "2026_01", deps);
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (await getDb().select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1))[0]!;
   assert.equal(row.extractionStatus, "failed");
   assert.equal(qrReader.calls.length, 0);
   assert.equal(lookup.calls.length, 0);
 });
 
 test("a photo outside the processed folders is never read", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const payrollTree = [
     ...fixtureTree.filter((entry) => entry.id !== RECEIPT_ID),
     { id: "payroll-slot", name: "07 Mzdy", parents: [MONTH_ID], createdTime: "2026-01-01T00:00:00.000Z", mimeType: FOLDER_MIME },
@@ -661,7 +623,7 @@ test("a photo outside the processed folders is never read", async () => {
   const driveClient = new FakeDriveClient(payrollTree, {
     "payroll-photo": new Uint8Array([0xff, 0xd8, 0xff]),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
   const { qrReader, deps } = scanDeps(driveClient);
 
@@ -671,10 +633,7 @@ test("a photo outside the processed folders is never read", async () => {
 });
 
 test("a document that crashes is recorded, and the rest of the month is still read", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const BROKEN_ID = "cash-broken-scan";
   const tree = [
     ...fixtureTree,
@@ -684,7 +643,7 @@ test("a document that crashes is recorded, and the rest of the month is still re
     [BROKEN_ID]: new Uint8Array(Buffer.from("broken")),
     [RECEIPT_ID]: new Uint8Array(Buffer.from("scanned-pdf")),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
   const { lookup, deps } = scanDeps(driveClient);
   const pageImage: PdfPageImage = { kind: "rgba", data: new Uint8ClampedArray([0, 0, 0, 255]), width: 1, height: 1 };
@@ -705,11 +664,11 @@ test("a document that crashes is recorded, and the rest of the month is still re
 
   await discoverCashPaymentsForMonth(1, "2026_01", deps);
 
-  const byId = (id: string) =>
-    getDb().select().from(documents).where(eq(documents.driveFileId, id)).get()!;
-  assert.equal(byId(BROKEN_ID).extractionStatus, "failed");
-  assert.match(byId(BROKEN_ID).extractionFailureReason ?? "", /Reading the document failed/);
-  assert.equal(byId(RECEIPT_ID).extractionStatus, "complete");
+  const byId = async (id: string) =>
+    (await getDb().select().from(documents).where(eq(documents.driveFileId, id)).limit(1))[0]!;
+  assert.equal((await byId(BROKEN_ID)).extractionStatus, "failed");
+  assert.match((await byId(BROKEN_ID)).extractionFailureReason ?? "", /Reading the document failed/);
+  assert.equal((await byId(RECEIPT_ID)).extractionStatus, "complete");
   assert.equal(lookup.calls.length, 1);
 });
 
@@ -725,10 +684,7 @@ function opdResponseFor(uid: string, totalPrice: number): unknown {
 
 // Scan 2026-5-10 18.25.50: Stabilit and a Slovnaft fuel receipt side by side.
 test("a scan of several receipts becomes one document per receipt", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const first = SYNTHETIC_FIXTURE.uid;
   const second = "O-22222222222222222222222222222222";
   const third = "V-33333333333333333333333333333333";
@@ -743,18 +699,18 @@ test("a scan of several receipts becomes one document per receipt", async () => 
   const driveClient = new FakeDriveClient(fixtureTree, {
     [RECEIPT_ID]: new Uint8Array(Buffer.from("scanned-pdf")),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
   const { deps } = scanDeps(driveClient);
 
   await discoverCashPaymentsForMonth(1, "2026_01", { ...deps, qrReader, ekasaLookup: lookup });
 
-  const rows = getDb()
-    .select()
-    .from(documents)
-    .where(eq(documents.driveFileId, RECEIPT_ID))
-    .all()
-    .sort((left, right) => left.id.localeCompare(right.id));
+  const rows = (
+    await getDb()
+      .select()
+      .from(documents)
+      .where(eq(documents.driveFileId, RECEIPT_ID))
+  ).sort((left, right) => left.id.localeCompare(right.id));
   assert.deepEqual(
     rows.map((row) => row.id),
     [RECEIPT_ID, `${RECEIPT_ID}#${second}`, `${RECEIPT_ID}#${third}`],

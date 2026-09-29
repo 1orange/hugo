@@ -58,3 +58,6 @@ scripts/benchmark-models.env
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# The worker bundle (npm run build:worker)
+/dist

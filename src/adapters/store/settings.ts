@@ -6,7 +6,7 @@ import {
   validateMovableFolderNames,
 } from "@/modules/folder-settings";
 import { settings } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
 
 const SETTINGS_ID = 1;
@@ -38,39 +38,30 @@ function parseMovableFolderNames(raw: string | null | undefined): string[] {
   return JSON.parse(raw) as string[];
 }
 
-export function getSettings(): SettingsRow {
+/**
+ * The one settings row, created on first read. Two replicas creating it at
+ * once both succeed: the loser's insert does nothing.
+ */
+async function settingsRow(): Promise<typeof settings.$inferSelect> {
   const db = getDb();
-  const row = db
-    .select()
-    .from(settings)
-    .where(eq(settings.id, SETTINGS_ID))
-    .get();
-
-  if (!row) {
-    db.insert(settings)
-      .values({
-        id: SETTINGS_ID,
-        canonicalFolderNamesJson: JSON.stringify(CANONICAL_FOLDER_NAMES),
-        movableFolderNamesJson: JSON.stringify(defaultMovableFolderNames()),
-      })
-      .run();
-    return {
-      driveParentFolderId: null,
-      canonicalFolderNames: [...CANONICAL_FOLDER_NAMES],
-      movableFolderNames: defaultMovableFolderNames(),
-      lastSweepAt: null,
-      autoAdvanceAfterDecision: false,
-      omegaT01EvidenceCode: "OF",
-      omegaT01SeriesCode: "OF",
-      omegaT01ReceivedEvidenceCode: "DF",
-      omegaT01ReceivedSeriesCode: "DF",
-      omegaT00EvidenceCode: "IDk",
-      omegaT00SeriesCode: "IDk",
-      omegaT00DocumentTypeCode: "180",
-      omegaT00ForeignDocumentTypeCode: "380",
-    };
+  const [row] = await db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1);
+  if (row) {
+    return row;
   }
+  await db
+    .insert(settings)
+    .values({
+      id: SETTINGS_ID,
+      canonicalFolderNamesJson: JSON.stringify(CANONICAL_FOLDER_NAMES),
+      movableFolderNamesJson: JSON.stringify(defaultMovableFolderNames()),
+    })
+    .onConflictDoNothing();
+  const [created] = await db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1);
+  return created!;
+}
 
+export async function getSettings(): Promise<SettingsRow> {
+  const row = await settingsRow();
   return {
     driveParentFolderId: row.driveParentFolderId,
     canonicalFolderNames: JSON.parse(row.canonicalFolderNamesJson) as string[],
@@ -88,7 +79,13 @@ export function getSettings(): SettingsRow {
   };
 }
 
-export function setOmegaExportDefaults(input: {
+/** Writes some settings, creating the row first if this is the first write. */
+async function updateSettings(values: Partial<typeof settings.$inferInsert>): Promise<void> {
+  await settingsRow();
+  await getDb().update(settings).set(values).where(eq(settings.id, SETTINGS_ID));
+}
+
+export async function setOmegaExportDefaults(input: {
   t01EvidenceCode: string;
   t01SeriesCode: string;
   t01ReceivedEvidenceCode: string;
@@ -97,76 +94,56 @@ export function setOmegaExportDefaults(input: {
   t00SeriesCode: string;
   t00DocumentTypeCode: string;
   t00ForeignDocumentTypeCode: string;
-}): void {
-  const db = getDb();
-  getSettings();
-  db.update(settings)
-    .set({
-      omegaT01EvidenceCode: input.t01EvidenceCode.trim() || "OF",
-      omegaT01SeriesCode: input.t01SeriesCode.trim() || "OF",
-      omegaT01ReceivedEvidenceCode: input.t01ReceivedEvidenceCode.trim() || "DF",
-      omegaT01ReceivedSeriesCode: input.t01ReceivedSeriesCode.trim() || "DF",
-      omegaT00EvidenceCode: input.t00EvidenceCode.trim() || "IDk",
-      omegaT00SeriesCode: input.t00SeriesCode.trim() || "IDk",
-      omegaT00DocumentTypeCode: input.t00DocumentTypeCode.trim() || "180",
-      omegaT00ForeignDocumentTypeCode:
-        input.t00ForeignDocumentTypeCode.trim() || "380",
-    })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+}): Promise<void> {
+  await updateSettings({
+    omegaT01EvidenceCode: input.t01EvidenceCode.trim() || "OF",
+    omegaT01SeriesCode: input.t01SeriesCode.trim() || "OF",
+    omegaT01ReceivedEvidenceCode: input.t01ReceivedEvidenceCode.trim() || "DF",
+    omegaT01ReceivedSeriesCode: input.t01ReceivedSeriesCode.trim() || "DF",
+    omegaT00EvidenceCode: input.t00EvidenceCode.trim() || "IDk",
+    omegaT00SeriesCode: input.t00SeriesCode.trim() || "IDk",
+    omegaT00DocumentTypeCode: input.t00DocumentTypeCode.trim() || "180",
+    omegaT00ForeignDocumentTypeCode:
+      input.t00ForeignDocumentTypeCode.trim() || "380",
+  });
 }
 
-export function setAutoAdvanceAfterDecision(enabled: boolean): void {
-  const db = getDb();
-  getSettings();
-  db.update(settings)
-    .set({ autoAdvanceAfterDecision: enabled })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+export async function setAutoAdvanceAfterDecision(enabled: boolean): Promise<void> {
+  await updateSettings({ autoAdvanceAfterDecision: enabled });
 }
 
-export function resolveDriveParentFolderId(
+export async function resolveDriveParentFolderId(
   env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  const stored = getSettings().driveParentFolderId;
+): Promise<string | null> {
+  const stored = (await getSettings()).driveParentFolderId;
   return stored ?? env.DRIVE_PARENT_FOLDER_ID ?? null;
 }
 
-export function requireDriveParentFolderId(
+export async function requireDriveParentFolderId(
   env: NodeJS.ProcessEnv = process.env,
-): string {
-  const parentFolderId = resolveDriveParentFolderId(env);
+): Promise<string> {
+  const parentFolderId = await resolveDriveParentFolderId(env);
   if (!parentFolderId) {
     throw new Error("DRIVE_PARENT_FOLDER_ID is not configured");
   }
   return parentFolderId;
 }
 
-export function updateLastSweepAt(timestamp: string): void {
-  const db = getDb();
-  getSettings();
-  db.update(settings)
-    .set({ lastSweepAt: timestamp })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+export async function updateLastSweepAt(timestamp: string): Promise<void> {
+  await updateSettings({ lastSweepAt: timestamp });
 }
 
-export function setDriveParentFolderId(driveParentFolderId: string): void {
-  const db = getDb();
-  getSettings();
-  db.update(settings)
-    .set({ driveParentFolderId: driveParentFolderId.trim() })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+export async function setDriveParentFolderId(driveParentFolderId: string): Promise<void> {
+  await updateSettings({ driveParentFolderId: driveParentFolderId.trim() });
 }
 
 export type SettingsUpdateResult =
   | { ok: true; settings: SettingsRow }
   | { ok: false; message: string; errors?: Array<{ index: number; message: string }> };
 
-export function updateCanonicalFolderNames(
+export async function updateCanonicalFolderNames(
   names: readonly string[],
-): SettingsUpdateResult {
+): Promise<SettingsUpdateResult> {
   const validation = validateCanonicalFolderNames(names);
   if (!validation.ok) {
     return {
@@ -176,22 +153,17 @@ export function updateCanonicalFolderNames(
     };
   }
 
-  const db = getDb();
-  getSettings();
-  db.update(settings)
-    .set({
-      canonicalFolderNamesJson: JSON.stringify(validation.normalized),
-    })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+  await updateSettings({
+    canonicalFolderNamesJson: JSON.stringify(validation.normalized),
+  });
 
-  return { ok: true, settings: getSettings() };
+  return { ok: true, settings: await getSettings() };
 }
 
-export function updateMovableFolderNames(
+export async function updateMovableFolderNames(
   names: readonly string[],
-): SettingsUpdateResult {
-  const current = getSettings();
+): Promise<SettingsUpdateResult> {
+  const current = await getSettings();
   const validation = validateMovableFolderNames(
     names,
     current.canonicalFolderNames,
@@ -204,15 +176,11 @@ export function updateMovableFolderNames(
     };
   }
 
-  const db = getDb();
-  db.update(settings)
-    .set({
-      movableFolderNamesJson: JSON.stringify(validation.normalized),
-    })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+  await updateSettings({
+    movableFolderNamesJson: JSON.stringify(validation.normalized),
+  });
 
-  return { ok: true, settings: getSettings() };
+  return { ok: true, settings: await getSettings() };
 }
 
 export function normalizeSettingsFolderNames(names: readonly string[]): string[] {
@@ -227,9 +195,8 @@ export type DriveWatchChannel = {
   expiresAt: string;
 };
 
-export function getDriveWatchChannel(): DriveWatchChannel | null {
-  getSettings();
-  const row = getDb().select().from(settings).where(eq(settings.id, SETTINGS_ID)).get();
+export async function getDriveWatchChannel(): Promise<DriveWatchChannel | null> {
+  const row = await settingsRow();
   if (!row?.driveWatchChannelId || !row.driveWatchResourceId || !row.driveWatchToken || !row.driveWatchExpiresAt) {
     return null;
   }
@@ -241,16 +208,11 @@ export function getDriveWatchChannel(): DriveWatchChannel | null {
   };
 }
 
-export function saveDriveWatchChannel(channel: DriveWatchChannel | null): void {
-  getSettings();
-  getDb()
-    .update(settings)
-    .set({
-      driveWatchChannelId: channel?.id ?? null,
-      driveWatchResourceId: channel?.resourceId ?? null,
-      driveWatchToken: channel?.token ?? null,
-      driveWatchExpiresAt: channel?.expiresAt ?? null,
-    })
-    .where(eq(settings.id, SETTINGS_ID))
-    .run();
+export async function saveDriveWatchChannel(channel: DriveWatchChannel | null): Promise<void> {
+  await updateSettings({
+    driveWatchChannelId: channel?.id ?? null,
+    driveWatchResourceId: channel?.resourceId ?? null,
+    driveWatchToken: channel?.token ?? null,
+    driveWatchExpiresAt: channel?.expiresAt ?? null,
+  });
 }

@@ -1,12 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts";
@@ -20,6 +17,7 @@ import {
 } from "../../../src/lib/drive-mutations/apply-rename.ts";
 import { getOpenMonthKey } from "../../../src/adapters/store/months.ts";
 import { companies, driveMutations, events, files, months } from "../../../src/lib/db/schema.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
 const PARENT_ID = "close-parent";
 const COMPANY_ID = "close-company";
@@ -63,28 +61,18 @@ function buildFixture(includeTypoSlot = false) {
   ];
 }
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-close-")),
-    "test.db",
-  );
-}
-
-function setup() {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  setDriveParentFolderId(PARENT_ID);
+async function setup() {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
   const fixture = buildFixture();
   const client = new FakeDriveClient(fixture);
-  return { client, fixture, dbPath };
+  return { client, fixture };
 }
 
 test("an older month can be closed after a newer one is already open", async () => {
-  const { client } = setup();
+  const { client } = await setup();
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   // Closing March opens April, which is now the newest month without a
@@ -92,28 +80,28 @@ test("an older month can be closed after a newer one is already open", async () 
   // she is in when a late month is finished after a newer one was started.
   assert.equal((await closeCompanyMonth(client, company.id, "2026_03")).ok, true);
   assert.equal((await reopenCompanyMonth(company.id, "2026_03")).ok, true);
-  assert.equal(getOpenMonthKey(company.id), "2026_04");
+  assert.equal(await getOpenMonthKey(company.id), "2026_04");
 
   const closedOlder = await closeCompanyMonth(client, company.id, "2026_03");
   assert.equal(closedOlder.ok, true);
 
   assert.ok(
-    getDb().select().from(months).where(eq(months.monthKey, "2026_03")).get()
+    (await getDb().select().from(months).where(eq(months.monthKey, "2026_03")).limit(1))[0]
       ?.closedAt,
   );
   // April is untouched by closing a month behind it.
   assert.equal(
-    getDb().select().from(months).where(eq(months.monthKey, "2026_04")).get()
+    (await getDb().select().from(months).where(eq(months.monthKey, "2026_04")).limit(1))[0]
       ?.closedAt,
     null,
   );
-  assert.equal(getOpenMonthKey(company.id), "2026_04");
+  assert.equal(await getOpenMonthKey(company.id), "2026_04");
 });
 
 test("a month that is already closed still cannot be closed again", async () => {
-  const { client } = setup();
+  const { client } = await setup();
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   assert.equal((await closeCompanyMonth(client, company.id, "2026_03")).ok, true);
@@ -125,9 +113,9 @@ test("a month that is already closed still cannot be closed again", async () => 
 });
 
 test("close month writes closedAt, scaffolds next month, leaves VAT PDF untouched", async () => {
-  const { client, fixture } = setup();
+  const { client, fixture } = await setup();
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   const vatBefore = fixture.find((entry) => entry.id === VAT_PDF_ID);
@@ -136,26 +124,26 @@ test("close month writes closedAt, scaffolds next month, leaves VAT PDF untouche
   const result = await closeCompanyMonth(client, company.id, "2026_03");
   assert.equal(result.ok, true);
 
-  const closed = getDb()
-    .select()
-    .from(months)
-    .where(eq(months.monthKey, "2026_03"))
-    .get();
+  const closed = (
+    await getDb()
+      .select()
+      .from(months)
+      .where(eq(months.monthKey, "2026_03"))
+      .limit(1)
+  )[0];
   assert.ok(closed?.closedAt);
 
-  const closedEvents = getDb()
-    .select()
-    .from(events)
-    .all()
-    .filter((row) => row.type === "MonthClosed");
+  const closedEvents = (await getDb().select().from(events).orderBy(events.id)).filter((row) => row.type === "MonthClosed");
   assert.equal(closedEvents.length, 1);
   assert.equal(closedEvents[0]?.actor, "user");
 
-  const aprilMonth = getDb()
-    .select()
-    .from(months)
-    .where(eq(months.monthKey, "2026_04"))
-    .get();
+  const aprilMonth = (
+    await getDb()
+      .select()
+      .from(months)
+      .where(eq(months.monthKey, "2026_04"))
+      .limit(1)
+  )[0];
   assert.ok(aprilMonth);
 
   const aprilFolders = fixture.filter(
@@ -170,31 +158,29 @@ test("close month writes closedAt, scaffolds next month, leaves VAT PDF untouche
   assert.equal(vatAfter?.name, vatBefore.name);
   assert.equal(vatAfter?.parents[0], MONTH_MAR);
   assert.equal(
-    getDb().select().from(files).where(eq(files.driveFileId, VAT_PDF_ID)).get()?.name,
+    (await getDb().select().from(files).where(eq(files.driveFileId, VAT_PDF_ID)).limit(1))[0]?.name,
     "Daňové priznanie DPH.pdf",
   );
 
-  const createMutations = getDb()
-    .select()
-    .from(driveMutations)
-    .all()
-    .filter((row) => row.kind === "create");
+  const createMutations = (await getDb().select().from(driveMutations).orderBy(driveMutations.id)).filter((row) => row.kind === "create");
   assert.ok(createMutations.length >= CANONICAL_FOLDER_NAMES.length);
   assert.ok(createMutations.every((row) => row.status === "applied"));
 });
 
 test("scaffolding is idempotent on second close safety-net run", async () => {
-  const { client, fixture } = setup();
+  const { client, fixture } = await setup();
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   await closeCompanyMonth(client, company.id, "2026_03");
-  const aprilMonth = getDb()
-    .select()
-    .from(months)
-    .where(eq(months.monthKey, "2026_04"))
-    .get();
+  const aprilMonth = (
+    await getDb()
+      .select()
+      .from(months)
+      .where(eq(months.monthKey, "2026_04"))
+      .limit(1)
+  )[0];
   assert.ok(aprilMonth);
 
   const countBefore = fixture.filter(
@@ -209,36 +195,31 @@ test("scaffolding is idempotent on second close safety-net run", async () => {
 });
 
 test("reopen clears closedAt and emits MonthReopened", async () => {
-  const { client } = setup();
+  const { client } = await setup();
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   await closeCompanyMonth(client, company.id, "2026_03");
   const reopen = await reopenCompanyMonth(company.id, "2026_03");
   assert.equal(reopen.ok, true);
 
-  const month = getDb()
-    .select()
-    .from(months)
-    .where(eq(months.monthKey, "2026_03"))
-    .get();
+  const month = (
+    await getDb()
+      .select()
+      .from(months)
+      .where(eq(months.monthKey, "2026_03"))
+      .limit(1)
+  )[0];
   assert.equal(month?.closedAt, null);
 
-  const reopenedEvents = getDb()
-    .select()
-    .from(events)
-    .all()
-    .filter((row) => row.type === "MonthReopened");
+  const reopenedEvents = (await getDb().select().from(events).orderBy(events.id)).filter((row) => row.type === "MonthReopened");
   assert.equal(reopenedEvents.length, 1);
 });
 
 test("dashboard safety net scaffolds missing open-month folders", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  setDriveParentFolderId(PARENT_ID);
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
 
   const slots = CANONICAL_FOLDER_NAMES.slice(0, 2).map((name, index) =>
     folder(`partial-slot-${index}`, name, [MONTH_MAR]),
@@ -251,7 +232,7 @@ test("dashboard safety net scaffolds missing open-month folders", async () => {
   ];
   const client = new FakeDriveClient(fixture);
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   await scaffoldOpenMonthIfNeeded(client, company.id);
@@ -261,14 +242,11 @@ test("dashboard safety net scaffolds missing open-month folders", async () => {
 });
 
 test("closed month rejects folder rename server-side", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  setDriveParentFolderId(PARENT_ID);
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
   const client = new FakeDriveClient(buildFixture(true));
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   await closeCompanyMonth(client, company.id, "2026_03");

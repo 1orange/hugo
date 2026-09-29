@@ -51,7 +51,7 @@ export async function searchCompanyRegister(
   | { ok: true; hits: RegisterSearchHit[]; folderName: string }
   | { ok: false; message: string }
 > {
-  const company = getCompanyById(companyId);
+  const company = await getCompanyById(companyId);
   if (!company) {
     return { ok: false, message: "Firma sa nenašla." };
   }
@@ -78,26 +78,26 @@ export async function lookupCompanyRegister(
   return { ok: true, lookup, registerSource: registerSourceForLookup(country) };
 }
 
-export function loadCompanyProfileView(companyId: number): {
+export async function loadCompanyProfileView(companyId: number): Promise<{
   companyName: string;
   profile: CompanyProfileRow | null;
-} | null {
-  const company = getCompanyById(companyId);
+} | null> {
+  const company = await getCompanyById(companyId);
   if (!company) {
     return null;
   }
   return {
     companyName: company.name,
-    profile: getCompanyProfile(companyId),
+    profile: await getCompanyProfile(companyId),
   };
 }
 
-export function saveCompanyProfileForUser(
+export async function saveCompanyProfileForUser(
   companyId: number,
   input: ProfileSaveInput,
   timestamp: string,
-): { ok: true; profile: CompanyProfileRow } | { ok: false; message: string } {
-  const company = getCompanyById(companyId);
+): Promise<{ ok: true; profile: CompanyProfileRow } | { ok: false; message: string }> {
+  const company = await getCompanyById(companyId);
   if (!company) {
     return { ok: false, message: "Firma sa nenašla." };
   }
@@ -127,7 +127,7 @@ export function saveCompanyProfileForUser(
     icDph = normalizeSkIcDph(input.icDph);
   }
 
-  const profile = saveCompanyProfile(companyId, {
+  const profile = await saveCompanyProfile(companyId, {
     country,
     legalName,
     address,
@@ -138,7 +138,7 @@ export function saveCompanyProfileForUser(
     savedAt: timestamp,
   });
 
-  appendUserEvent(timestamp, companyId, "CompanyProfileSaved", {
+  await appendUserEvent(timestamp, companyId, "CompanyProfileSaved", {
     country: profile.country,
     legalName: profile.legalName,
     ico: profile.ico,

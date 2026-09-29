@@ -7,6 +7,7 @@ import type {
   ReadOnlyFile,
 } from "@/lib/documents/view";
 import { driveFileViewUrl } from "@/modules/file-preview";
+import type { LiveExtraction } from "@/modules/month-extraction-watch";
 
 type DocumentRailProps = {
   documents: DocumentListItem[];
@@ -15,6 +16,8 @@ type DocumentRailProps = {
   totalCount: number;
   readOnlyFiles: ReadOnlyFile[];
   selectedDocumentId: string | null;
+  /** From the extraction queue, by Drive file id; empty when nothing is pending. */
+  liveExtraction: Map<string, LiveExtraction>;
   onSelect: (documentId: string) => void;
   basePath: string;
 };
@@ -31,6 +34,7 @@ export function DocumentRail({
   totalCount,
   readOnlyFiles,
   selectedDocumentId,
+  liveExtraction,
   onSelect,
   basePath,
 }: DocumentRailProps) {
@@ -117,14 +121,16 @@ export function DocumentRail({
                         </span>
                       ) : null}
                       {document.decision === null &&
-                      document.derivedStatus.kind !== "awaiting-decision" ? (
+                      document.derivedStatus.kind === "pending-extraction" ? (
+                        <PendingHint
+                          live={liveExtraction.get(document.driveFileId)}
+                          fallback={document.derivedStatus.hint}
+                        />
+                      ) : document.decision === null &&
+                        document.derivedStatus.kind !== "awaiting-decision" ? (
                         <span
                           className={`block truncate text-[11px] ${
-                            document.derivedStatus.kind === "manual-entry"
-                              ? "text-warn"
-                              : document.derivedStatus.kind === "pending-extraction"
-                                ? "text-accent"
-                                : "text-ink-3"
+                            document.derivedStatus.kind === "manual-entry" ? "text-warn" : "text-ink-3"
                           }`}
                         >
                           {document.derivedStatus.hint}
@@ -269,4 +275,30 @@ function FilterChip({
       <span className="ml-1 opacity-60">{count}</span>
     </Link>
   );
+}
+
+/** A document being read: its stage and share from the queue, its place in it, or what it waits for. */
+function PendingHint({ live, fallback }: { live: LiveExtraction | undefined; fallback: string }) {
+  if (live?.state === "running") {
+    return (
+      <span className="block" data-testid="document-extraction-progress">
+        <span className="block truncate text-[11px] text-accent" title={live.stageLabel}>
+          {live.percent} % · {live.stageLabel}
+        </span>
+        <span className="mt-1 block h-[3px] overflow-hidden rounded-full bg-surface-3" aria-hidden>
+          <span
+            className="block h-full rounded-full bg-accent transition-[width] duration-700"
+            style={{ width: `${live.percent}%` }}
+          />
+        </span>
+      </span>
+    );
+  }
+  if (live?.state === "waiting") {
+    return <span className="block truncate text-[11px] text-accent">V rade · {live.position}.</span>;
+  }
+  if (live?.state === "blocked") {
+    return <span className="block truncate text-[11px] text-warn">{live.label}</span>;
+  }
+  return <span className="block truncate text-[11px] text-accent">{fallback}</span>;
 }

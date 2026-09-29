@@ -30,10 +30,10 @@ import type { DocumentFieldFormInput } from "@/modules/document-fields";
 import { revalidatePath } from "next/cache";
 
 export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
-  const parentFolderId = requireDriveParentFolderId();
-  const stored = resolveDriveParentFolderId();
+  const parentFolderId = await requireDriveParentFolderId();
+  const stored = await resolveDriveParentFolderId();
   if (!stored) {
-    setDriveParentFolderId(parentFolderId);
+    await setDriveParentFolderId(parentFolderId);
   }
 
   const driveClient = createDriveClient();
@@ -58,16 +58,16 @@ export async function confirmFolderRenameAction(input: {
   driveFolderId: string;
   targetName: string;
 }): Promise<MutationActionResult> {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  if (!resolveDriveParentFolderId()) {
+  if (!await resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
-  const monthFolders = listMonthFolders(input.companyId, input.monthKey);
+  const monthFolders = await listMonthFolders(input.companyId, input.monthKey);
   const folder = monthFolders.find(
     (entry) => entry.driveFolderId === input.driveFolderId,
   );
@@ -98,12 +98,12 @@ export async function undoFolderRenameAction(input: {
   monthKey: string;
   mutationId: number;
 }): Promise<MutationActionResult> {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  if (!resolveDriveParentFolderId()) {
+  if (!await resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
@@ -122,7 +122,7 @@ export async function closeMonthAction(input: {
   companyId: number;
   monthKey: string;
 }): Promise<MutationActionResult> {
-  if (!resolveDriveParentFolderId()) {
+  if (!await resolveDriveParentFolderId()) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
 
@@ -160,7 +160,7 @@ export async function confirmDocumentAction(input: {
   documentId: string;
   confirmed: boolean;
 }): Promise<MutationActionResult> {
-  const result = confirmDocument(input);
+  const result = await confirmDocument(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }
@@ -184,7 +184,7 @@ export async function dismissDocumentAction(input: {
   documentId: string;
   reason?: string;
 }): Promise<MutationActionResult> {
-  const result = dismissDocument(input);
+  const result = await dismissDocument(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }
@@ -208,7 +208,7 @@ export async function saveDocumentNoteAction(input: {
   documentId: string;
   note: string;
 }): Promise<MutationActionResult> {
-  const result = saveDocumentNote(input);
+  const result = await saveDocumentNote(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }
@@ -245,7 +245,7 @@ export async function saveDocumentFieldsAction(input: {
   documentId: string;
   fields: DocumentFieldFormInput;
 }): Promise<MutationActionResult> {
-  const result = saveDocumentFields(input);
+  const result = await saveDocumentFields(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }

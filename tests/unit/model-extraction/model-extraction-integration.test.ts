@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { createStubExtractor } from "../../../src/adapters/extractor/stub-extractor.ts";
 import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
@@ -10,7 +7,7 @@ import { stubTextLinesForDriveFile } from "../../../src/adapters/extractor/stub-
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { saveCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, documents, events, files, months } from "../../../src/lib/db/schema.ts";
 import { discoverModelExtractionForMonth } from "../../../src/lib/model-extraction/discover-model-extraction.ts";
 import { buildMonthDocumentView } from "../../../src/lib/documents/view.ts";
@@ -22,6 +19,7 @@ import {
   parseConfirmedPayload,
   parseExtractedPayload,
 } from "../../../src/modules/document-payload.ts";
+import { freshTestDb } from "../support/test-db.ts";
 const PARENT_ID = "model-parent";
 const COMPANY_ID = "model-company";
 const MONTH_ID = "model-month";
@@ -66,13 +64,6 @@ const fixtureTree = [
   },
 ];
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-model-")),
-    "test.db",
-  );
-}
-
 function syntheticPdfAccess(lines: string[]): PdfAccess {
   return {
     async extractTextLines() {
@@ -88,20 +79,17 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
 }
 
 test("stub extractor fills a text-layer invoice with checks and derived roles", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const lines = stubTextLinesForDriveFile(INVOICE_ID)!;
   const driveClient = new FakeDriveClient(fixtureTree, {
     [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
   });
 
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
-  saveCompanyProfile(1, {
+  await saveCompanyProfile(1, {
     country: "SK",
     legalName: "Beta s.r.o.",
     address: "Bratislava",
@@ -121,7 +109,9 @@ test("stub extractor fills a text-layer invoice with checks and derived roles", 
   });
 
   const db = getDb();
-  const row = db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).limit(1)
+  )[0]!;
   assert.equal(row.extractionStatus, "complete");
 
   const extracted = parseExtractedPayload(row.extractedPayloadJson);
@@ -133,33 +123,28 @@ test("stub extractor fills a text-layer invoice with checks and derived roles", 
     assert.equal(extracted.fieldChecks?.amountCents, "correct");
   }
 
-  const view = buildMonthDocumentView(1, "2026_01")!;
+  const view = (await buildMonthDocumentView(1, "2026_01"))!;
   const invoice = view.documents.find((document) => document.driveFileId === INVOICE_ID)!;
   assert.equal(invoice.fieldEditor.fields.supplierName, "Dodávateľ s.r.o.");
   assert.equal(invoice.fieldEditor.fields.customerName, "Beta s.r.o.");
   assert.equal(invoice.fieldEditor.rolesFlagged, false);
 
-  const extractedEvents = db
+  const extractedEvents = await db
     .select()
     .from(events)
-    .where(eq(events.type, "Extracted"))
-    .all();
+    .where(eq(events.type, "Extracted"));
   assert.equal(extractedEvents.length, 1);
   const eventPayload = JSON.parse(extractedEvents[0]!.payloadJson) as { source?: string };
   assert.equal(eventPayload.source, "model");
 });
 
 test("re-extraction rewrites extracted payload but keeps confirmed fields", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db.insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true });
+  await db.insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -167,9 +152,8 @@ test("re-extraction rewrites extracted payload but keeps confirmed fields", asyn
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await db.insert(files)
     .values({
       driveFileId: INVOICE_ID,
       companyId: 1,
@@ -182,9 +166,8 @@ test("re-extraction rewrites extracted payload but keeps confirmed fields", asyn
       firstSeenAt: "2026-01-12T10:00:00.000Z",
       lastSeenAt: "2026-01-12T10:00:00.000Z",
       deleted: false,
-    })
-    .run();
-  db.insert(documents)
+    });
+  await db.insert(documents)
     .values({
       id: INVOICE_ID,
       driveFileId: INVOICE_ID,
@@ -196,8 +179,7 @@ test("re-extraction rewrites extracted payload but keeps confirmed fields", asyn
       extractedPayloadJson: "{}",
       confirmedPayloadJson: JSON.stringify({ supplierName: "Her hand-typed name" }),
       createdAt: "2026-01-12T09:00:00.000Z",
-    })
-    .run();
+    });
 
   const lines = stubTextLinesForDriveFile(INVOICE_ID)!;
   const driveClient = new FakeDriveClient(fixtureTree, {
@@ -212,27 +194,25 @@ test("re-extraction rewrites extracted payload but keeps confirmed fields", asyn
     now: () => "2026-01-12T11:00:00.000Z",
   });
 
-  const row = db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).limit(1)
+  )[0]!;
   const confirmed = parseConfirmedPayload(row.confirmedPayloadJson);
   assert.equal(confirmed.supplierName, "Her hand-typed name");
 
-  const view = buildMonthDocumentView(1, "2026_01")!;
+  const view = (await buildMonthDocumentView(1, "2026_01"))!;
   const invoice = view.documents.find((document) => document.driveFileId === INVOICE_ID)!;
   assert.equal(invoice.fieldEditor.fields.supplierName, "Her hand-typed name");
   assert.equal(invoice.fieldEditor.provenance.supplierName, "confirmed");
 });
 
 test("unreachable extractor leaves document pending", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db.insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_ID, name: "Delta s.r.o.", active: true });
+  await db.insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -240,9 +220,8 @@ test("unreachable extractor leaves document pending", async () => {
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await db.insert(files)
     .values({
       driveFileId: INVOICE_ID,
       companyId: 1,
@@ -255,9 +234,8 @@ test("unreachable extractor leaves document pending", async () => {
       firstSeenAt: "2026-01-12T10:00:00.000Z",
       lastSeenAt: "2026-01-12T10:00:00.000Z",
       deleted: false,
-    })
-    .run();
-  db.insert(documents)
+    });
+  await db.insert(documents)
     .values({
       id: INVOICE_ID,
       driveFileId: INVOICE_ID,
@@ -269,8 +247,7 @@ test("unreachable extractor leaves document pending", async () => {
       extractedPayloadJson: "{}",
       confirmedPayloadJson: "{}",
       createdAt: "2026-01-12T09:00:00.000Z",
-    })
-    .run();
+    });
 
   const lines = stubTextLinesForDriveFile(INVOICE_ID)!;
   const driveClient = new FakeDriveClient(fixtureTree, {
@@ -289,17 +266,16 @@ test("unreachable extractor leaves document pending", async () => {
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).limit(1)
+  )[0]!;
   assert.equal(row.extractionStatus, "pending");
 });
 
 // Until 2026-09-27 the model saw only page 1; an invoice whose VAT summary
 // sits on a later page lost it.
 test("the model reads every page of a multi-page invoice, up to the cap", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const pageOne = stubTextLinesForDriveFile(INVOICE_ID)!;
   const pageTwo = ["Rekapitulácia DPH | 23 % | 100,00 | 23,00"];
@@ -328,7 +304,7 @@ test("the model reads every page of a multi-page invoice, up to the cap", async 
   const driveClient = new FakeDriveClient(fixtureTree, {
     [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
 
   await discoverModelExtractionForMonth(1, "2026_01", {
@@ -347,17 +323,14 @@ test("the model reads every page of a multi-page invoice, up to the cap", async 
 // Her Omega invoices embed the invoice as ISDOC data; it is read exactly and
 // the model is never asked.
 test("an invoice that carries its ISDOC is read from it, without the model", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const driveClient = new FakeDriveClient(fixtureTree, {
     [INVOICE_ID]: new Uint8Array(Buffer.from("pdf")),
   });
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
-  saveCompanyProfile(1, {
+  await saveCompanyProfile(1, {
     country: "SK",
     legalName: "Beta s.r.o.",
     address: "Bratislava",
@@ -409,12 +382,14 @@ test("an invoice that carries its ISDOC is read from it, without the model", asy
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = getDb().select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).get()!;
+  const row = (
+    await getDb().select().from(documents).where(eq(documents.driveFileId, INVOICE_ID)).limit(1)
+  )[0]!;
   assert.equal(row.extractionStatus, "complete");
   const extracted = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isModelExtractedPayload(extracted) && extracted.source, "isdoc");
 
-  const invoice = buildMonthDocumentView(1, "2026_01")!.documents.find(
+  const invoice = (await buildMonthDocumentView(1, "2026_01"))!.documents.find(
     (document) => document.driveFileId === INVOICE_ID,
   )!;
   assert.equal(invoice.extractionSource, "isdoc");

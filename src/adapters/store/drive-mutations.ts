@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { driveMutations } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import type { MutationKind } from "@/modules/drive-mutation";
 
 export type MutationStatus = "pending" | "applied" | "failed";
@@ -34,7 +34,7 @@ function hydrate(row: typeof driveMutations.$inferSelect): DriveMutationRow {
  * interrupted mutation is still reversible; the row is only marked applied once
  * Drive has confirmed.
  */
-export function insertPendingMutation(row: {
+export async function insertPendingMutation(row: {
   kind: MutationKind;
   driveFileId: string;
   companyId: number;
@@ -43,65 +43,53 @@ export function insertPendingMutation(row: {
   newParent: string;
   newName: string;
   intendedAt: string;
-}): DriveMutationRow {
+}): Promise<DriveMutationRow> {
   const db = getDb();
-  return hydrate(
-    db
-      .insert(driveMutations)
-      .values({ ...row, status: "pending" })
-      .returning()
-      .get(),
-  );
+  const [inserted] = await db
+    .insert(driveMutations)
+    .values({ ...row, status: "pending" })
+    .returning();
+  return hydrate(inserted!);
 }
 
-export function markMutationApplied(
+export async function markMutationApplied(
   mutationId: number,
   appliedAt: string,
-): DriveMutationRow | null {
+): Promise<DriveMutationRow | null> {
   const db = getDb();
-  const updated = db
+  const [updated] = await db
     .update(driveMutations)
     .set({ status: "applied", appliedAt })
     .where(eq(driveMutations.id, mutationId))
-    .returning()
-    .get();
+    .returning();
   return updated ? hydrate(updated) : null;
 }
 
-export function markMutationFailed(
+export async function markMutationFailed(
   mutationId: number,
   failureMessage: string,
-): DriveMutationRow | null {
+): Promise<DriveMutationRow | null> {
   const db = getDb();
-  const updated = db
+  const [updated] = await db
     .update(driveMutations)
     .set({ status: "failed", failureMessage })
     .where(eq(driveMutations.id, mutationId))
-    .returning()
-    .get();
+    .returning();
   return updated ? hydrate(updated) : null;
 }
 
-export function markMutationUndone(
+export async function markMutationUndone(
   mutationId: number,
   undoneAt: string,
-): DriveMutationRow | null {
+): Promise<DriveMutationRow | null> {
   const db = getDb();
-  const existing = db
-    .select()
-    .from(driveMutations)
-    .where(eq(driveMutations.id, mutationId))
-    .get();
-  if (!existing || existing.undoneAt) {
-    return null;
-  }
-
-  db.update(driveMutations)
+  // Only a row not yet undone: two replicas undoing at once, one wins.
+  const [updated] = await db
+    .update(driveMutations)
     .set({ undoneAt })
-    .where(eq(driveMutations.id, mutationId))
-    .run();
-
-  return hydrate({ ...existing, undoneAt });
+    .where(and(eq(driveMutations.id, mutationId), isNull(driveMutations.undoneAt)))
+    .returning();
+  return updated ? hydrate(updated) : null;
 }
 
 /**
@@ -109,11 +97,11 @@ export function markMutationUndone(
  * are excluded: their effect on Drive is unconfirmed, so offering undo would be
  * a guess.
  */
-export function getActiveMutationForFolder(
+export async function getActiveMutationForFolder(
   driveFileId: string,
-): DriveMutationRow | null {
+): Promise<DriveMutationRow | null> {
   const db = getDb();
-  const row = db
+  const [row] = await db
     .select()
     .from(driveMutations)
     .where(
@@ -123,26 +111,22 @@ export function getActiveMutationForFolder(
         isNull(driveMutations.undoneAt),
       ),
     )
-    .get();
+    .limit(1);
   return row ? hydrate(row) : null;
 }
 
-export function listUnresolvedMutations(): DriveMutationRow[] {
+export async function listUnresolvedMutations(): Promise<DriveMutationRow[]> {
   const db = getDb();
-  return db
-    .select()
-    .from(driveMutations)
-    .where(eq(driveMutations.status, "pending"))
-    .all()
-    .map(hydrate);
+  const rows = await db.select().from(driveMutations).where(eq(driveMutations.status, "pending"));
+  return rows.map(hydrate);
 }
 
-export function getMutationById(mutationId: number): DriveMutationRow | null {
+export async function getMutationById(mutationId: number): Promise<DriveMutationRow | null> {
   const db = getDb();
-  const row = db
+  const [row] = await db
     .select()
     .from(driveMutations)
     .where(eq(driveMutations.id, mutationId))
-    .get();
+    .limit(1);
   return row ? hydrate(row) : null;
 }

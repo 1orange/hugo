@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { companies, files } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import type { StoredFileState } from "@/modules/drive-tree";
 
 export type PersistedFileRow = {
@@ -17,9 +17,9 @@ export type PersistedFileRow = {
   deleted: boolean;
 };
 
-export function listStoredFilesForSweep(): StoredFileState[] {
+export async function listStoredFilesForSweep(): Promise<StoredFileState[]> {
   const db = getDb();
-  const rows = db
+  return db
     .select({
       driveFileId: files.driveFileId,
       companyDriveFolderId: companies.driveFolderId,
@@ -34,16 +34,14 @@ export function listStoredFilesForSweep(): StoredFileState[] {
       deleted: files.deleted,
     })
     .from(files)
-    .innerJoin(companies, eq(files.companyId, companies.id))
-    .all();
-
-  return rows;
+    .innerJoin(companies, eq(files.companyId, companies.id));
 }
 
-export function upsertFiles(rows: PersistedFileRow[]): void {
+export async function upsertFiles(rows: PersistedFileRow[]): Promise<void> {
   const db = getDb();
   for (const row of rows) {
-    db.insert(files)
+    await db
+      .insert(files)
       .values(row)
       .onConflictDoUpdate({
         target: files.driveFileId,
@@ -59,24 +57,23 @@ export function upsertFiles(rows: PersistedFileRow[]): void {
           lastSeenAt: row.lastSeenAt,
           deleted: row.deleted,
         },
-      })
-      .run();
+      });
   }
 }
 
-export function listFilesForMonth(
+export async function listFilesForMonth(
   companyId: number,
   monthKey: string,
-): PersistedFileRow[] {
+): Promise<PersistedFileRow[]> {
   const db = getDb();
   return db
     .select()
     .from(files)
-    .where(and(eq(files.companyId, companyId), eq(files.monthKey, monthKey)))
-    .all();
+    .where(and(eq(files.companyId, companyId), eq(files.monthKey, monthKey)));
 }
 
-export function getFileByDriveId(driveFileId: string): PersistedFileRow | undefined {
+export async function getFileByDriveId(driveFileId: string): Promise<PersistedFileRow | undefined> {
   const db = getDb();
-  return db.select().from(files).where(eq(files.driveFileId, driveFileId)).get();
+  const [row] = await db.select().from(files).where(eq(files.driveFileId, driveFileId)).limit(1);
+  return row;
 }

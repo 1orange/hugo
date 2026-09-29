@@ -1,5 +1,5 @@
 import { companies } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import { eq } from "drizzle-orm";
 
 export type CompanyRow = {
@@ -9,59 +9,39 @@ export type CompanyRow = {
   active: boolean;
 };
 
-export function listCompanies(): CompanyRow[] {
+export async function listCompanies(): Promise<CompanyRow[]> {
   const db = getDb();
-  return db
-    .select()
-    .from(companies)
-    .where(eq(companies.active, true))
-    .all();
+  return db.select().from(companies).where(eq(companies.active, true));
 }
 
-export function upsertCompany(
+export async function upsertCompany(
   driveFolderId: string,
   name: string,
-): CompanyRow {
+): Promise<CompanyRow> {
   const db = getDb();
-  const existing = db
+  // One statement, so two sweeps racing on a new folder get the same row.
+  const [row] = await db
+    .insert(companies)
+    .values({ driveFolderId, name, active: true })
+    .onConflictDoUpdate({ target: companies.driveFolderId, set: { name } })
+    .returning();
+  return row!;
+}
+
+export async function getCompanyById(id: number): Promise<CompanyRow | null> {
+  const db = getDb();
+  const [row] = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function getCompanyByDriveFolderId(
+  driveFolderId: string,
+): Promise<CompanyRow | null> {
+  const db = getDb();
+  const [row] = await db
     .select()
     .from(companies)
     .where(eq(companies.driveFolderId, driveFolderId))
-    .get();
-
-  if (existing) {
-    if (existing.name !== name) {
-      db.update(companies)
-        .set({ name })
-        .where(eq(companies.id, existing.id))
-        .run();
-    }
-    return { ...existing, name };
-  }
-
-  const inserted = db
-    .insert(companies)
-    .values({ driveFolderId, name, active: true })
-    .returning()
-    .get();
-
-  return inserted;
-}
-
-export function getCompanyById(id: number): CompanyRow | null {
-  const db = getDb();
-  return db.select().from(companies).where(eq(companies.id, id)).get() ?? null;
-}
-
-export function getCompanyByDriveFolderId(
-  driveFolderId: string,
-): CompanyRow | null {
-  const db = getDb();
-  return (
-    db
-      .select()
-      .from(companies)
-      .where(eq(companies.driveFolderId, driveFolderId))
-      .get() ?? null
-  );
+    .limit(1);
+  return row ?? null;
 }

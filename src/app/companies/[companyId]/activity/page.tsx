@@ -62,7 +62,7 @@ export default async function CompanyActivityPage({
   const query = await searchParams;
   const beforeId = query.before ? Number(query.before) : undefined;
   const filters = parseFilters(query);
-  const view = buildCompanyActivityView(
+  const view = await buildCompanyActivityView(
     companyIdNum,
     filters,
     Number.isInteger(beforeId) ? beforeId : undefined,
@@ -71,7 +71,7 @@ export default async function CompanyActivityPage({
     notFound();
   }
 
-  const openMonth = getOpenMonthKey(companyIdNum);
+  const openMonth = await getOpenMonthKey(companyIdNum);
   const basePath = `/companies/${companyId}/activity`;
   const companyName = view.companyName ?? "Firma";
 
@@ -89,7 +89,7 @@ export default async function CompanyActivityPage({
           { label: "Denník aktivity" },
         ]}
         email={session.user.email}
-        lastSweepAt={getSettings().lastSweepAt}
+        lastSweepAt={(await getSettings()).lastSweepAt}
       />
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">

@@ -1,28 +1,30 @@
 import { events } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import type { DomainEvent } from "@/modules/drive-tree";
 import type {
   GlobalEventType,
   UserCompanyEventType,
 } from "@/modules/activity-log";
 
-export function appendEvents(
+export async function appendEvents(
   timestamp: string,
   domainEvents: DomainEvent[],
   resolveCompanyId: (event: DomainEvent) => number | null,
-): void {
-  const db = getDb();
-  for (const event of domainEvents) {
-    db.insert(events)
-      .values({
-        timestamp,
-        companyId: resolveCompanyId(event),
-        actor: "system",
-        type: event.type,
-        payloadJson: JSON.stringify(event),
-      })
-      .run();
+): Promise<void> {
+  if (domainEvents.length === 0) {
+    return;
   }
+  const db = getDb();
+  // One statement keeps the sweep's events in their order, with no gap for another writer.
+  await db.insert(events).values(
+    domainEvents.map((event) => ({
+      timestamp,
+      companyId: resolveCompanyId(event),
+      actor: "system",
+      type: event.type,
+      payloadJson: JSON.stringify(event),
+    })),
+  );
 }
 
 /**
@@ -30,55 +32,49 @@ export function appendEvents(
  * activity log has no label for — that renders as a bare identifier in history,
  * which the label test alone cannot catch.
  */
-export function appendUserEvent(
+export async function appendUserEvent(
   timestamp: string,
   companyId: number,
   type: UserCompanyEventType,
   payload: Record<string, unknown>,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.insert(events)
-    .values({
-      timestamp,
-      companyId,
-      actor: "user",
-      type,
-      payloadJson: JSON.stringify(payload),
-    })
-    .run();
+  await db.insert(events).values({
+    timestamp,
+    companyId,
+    actor: "user",
+    type,
+    payloadJson: JSON.stringify(payload),
+  });
 }
 
-export function appendGlobalUserEvent(
+export async function appendGlobalUserEvent(
   timestamp: string,
   type: GlobalEventType,
   payload: Record<string, unknown>,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.insert(events)
-    .values({
-      timestamp,
-      companyId: null,
-      actor: "user",
-      type,
-      payloadJson: JSON.stringify(payload),
-    })
-    .run();
+  await db.insert(events).values({
+    timestamp,
+    companyId: null,
+    actor: "user",
+    type,
+    payloadJson: JSON.stringify(payload),
+  });
 }
 
-export function appendCompanySystemEvent(
+export async function appendCompanySystemEvent(
   timestamp: string,
   companyId: number,
   type: UserCompanyEventType,
   payload: Record<string, unknown>,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.insert(events)
-    .values({
-      timestamp,
-      companyId,
-      actor: "system",
-      type,
-      payloadJson: JSON.stringify(payload),
-    })
-    .run();
+  await db.insert(events).values({
+    timestamp,
+    companyId,
+    actor: "system",
+    type,
+    payloadJson: JSON.stringify(payload),
+  });
 }

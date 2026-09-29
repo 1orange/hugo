@@ -30,7 +30,7 @@ export default async function GlobalActivityPage({
   const query = await searchParams;
   const beforeId = query.before ? Number(query.before) : undefined;
   const filters = query.type ? { eventType: query.type } : {};
-  const view = buildGlobalActivityView(
+  const view = await buildGlobalActivityView(
     filters,
     Number.isInteger(beforeId) ? beforeId : undefined,
   );
@@ -44,7 +44,7 @@ export default async function GlobalActivityPage({
           { label: "Celý denník" },
         ]}
         email={session.user.email}
-        lastSweepAt={getSettings().lastSweepAt}
+        lastSweepAt={(await getSettings()).lastSweepAt}
       />
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">

@@ -22,7 +22,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 
   const { driveFileId } = await context.params;
-  const file = getFileByDriveId(driveFileId);
+  const file = await getFileByDriveId(driveFileId);
   if (!file || file.deleted) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

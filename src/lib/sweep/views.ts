@@ -80,16 +80,16 @@ export type MonthDocumentGroup = {
  * month the aggregate is trivial, and a cached count that drifts is worse than
  * no count (slice 21, ADR 0004).
  */
-function monthPresence(companyId: number, monthKey: string): {
+async function monthPresence(companyId: number, monthKey: string): Promise<{
   proofsArrived: number;
   statementArrivedAt: string | null;
   lastUploadAt: string | null;
-} {
+}> {
   let proofsArrived = 0;
   let statementArrivedAt: string | null = null;
   let lastUploadAt: string | null = null;
 
-  for (const file of listFilesForMonth(companyId, monthKey)) {
+  for (const file of await listFilesForMonth(companyId, monthKey)) {
     if (file.deleted) {
       continue;
     }
@@ -121,34 +121,34 @@ function monthPresence(companyId: number, monthKey: string): {
  * open month, which is the daily chase view; pass one and every row reports the
  * same calendar month instead, so a past month can be reviewed the same way.
  */
-export function listCompanySummaries(
+export async function listCompanySummaries(
   monthKey?: string | null,
-): CompanyListItem[] {
+): Promise<CompanyListItem[]> {
   const requested = monthKey ?? null;
 
-  const companiesList = listCompanies();
-  const missingProfiles = listCompanyIdsWithoutProfile(companiesList.map((c) => c.id));
+  const companiesList = await listCompanies();
+  const missingProfiles = await listCompanyIdsWithoutProfile(companiesList.map((c) => c.id));
 
-  const rows = companiesList.map((company) => {
-    const openMonth = getOpenMonthKey(company.id);
+  const rows = await Promise.all(companiesList.map(async (company) => {
+    const openMonth = await getOpenMonthKey(company.id);
     const viewMonth = requested ?? openMonth;
-    const month = viewMonth ? getMonthByKey(company.id, viewMonth) : null;
+    const month = viewMonth ? await getMonthByKey(company.id, viewMonth) : null;
     // A month key she picked may simply not exist for this client.
     const resolvedMonth = month ? viewMonth : null;
 
     const awaitingCount =
       resolvedMonth === null
         ? null
-        : countAwaitingDecision(company.id, resolvedMonth);
+        : await countAwaitingDecision(company.id, resolvedMonth);
     const stageView = deriveCompanyStage({
       openMonthKey: openMonth,
       awaitingCount,
-      hasDocuments: companyHasDocuments(company.id),
+      hasDocuments: await companyHasDocuments(company.id),
     });
     const presence =
       resolvedMonth === null
         ? { proofsArrived: 0, statementArrivedAt: null, lastUploadAt: null }
-        : monthPresence(company.id, resolvedMonth);
+        : await monthPresence(company.id, resolvedMonth);
 
     return {
       id: company.id,
@@ -169,7 +169,7 @@ export function listCompanySummaries(
       }),
       profileMissing: missingProfiles.has(company.id),
     };
-  });
+  }));
 
   return sortChaseRows(rows);
 }
@@ -178,10 +178,10 @@ export function listCompanySummaries(
  * Every month key any company has, newest first. Drives the month picker on the
  * chase list — she can only look at months that exist somewhere in Drive.
  */
-export function listAllMonthKeys(): string[] {
+export async function listAllMonthKeys(): Promise<string[]> {
   const keys = new Set<string>();
-  for (const company of listCompanies()) {
-    for (const month of listMonthsForCompany(company.id)) {
+  for (const company of await listCompanies()) {
+    for (const month of await listMonthsForCompany(company.id)) {
       keys.add(month.monthKey);
     }
   }
@@ -217,10 +217,10 @@ function renameBlockedReason(canRename: boolean): string | null {
   return null;
 }
 
-export function buildMonthView(
+export async function buildMonthView(
   companyId: number,
   monthKey: string,
-): {
+): Promise<{
   companyName: string;
   monthKey: string;
   canonicalFolderNames: string[];
@@ -229,21 +229,23 @@ export function buildMonthView(
   closedAt: string | null;
   missingSlots: MissingSlot[];
   groups: MonthDocumentGroup[];
-} | null {
-  const company = getCompanyById(companyId);
+} | null> {
+  const company = await getCompanyById(companyId);
   if (!company) {
     return null;
   }
 
-  const month = getMonthByKey(companyId, monthKey);
+  const month = await getMonthByKey(companyId, monthKey);
   if (!month) {
     return null;
   }
 
-  const openMonthKey = getOpenMonthKey(companyId);
-  const settings = getSettings();
-  const files = listFilesForMonth(companyId, monthKey);
-  const monthFolders = listMonthFolders(companyId, monthKey);
+  const [openMonthKey, settings, files, monthFolders] = await Promise.all([
+    getOpenMonthKey(companyId),
+    getSettings(),
+    listFilesForMonth(companyId, monthKey),
+    listMonthFolders(companyId, monthKey),
+  ]);
   const groups = new Map<string, MonthDocumentGroup>();
 
   for (const folder of monthFolders) {
@@ -264,7 +266,7 @@ export function buildMonthView(
         : classification.kind === "repair-candidate"
           ? `${classification.observedName} → repair to ${classification.targetName}`
           : classification.name;
-    const activeMutation = getActiveMutationForFolder(folder.driveFolderId);
+    const activeMutation = await getActiveMutationForFolder(folder.driveFolderId);
 
     groups.set(folder.driveFolderId, {
       driveFolderId: folder.driveFolderId,
@@ -327,7 +329,7 @@ export function buildMonthView(
           ? `${classification.observedName} → repair to ${classification.targetName}`
           : classification.name;
     const kind = classification.kind;
-    const activeMutation = getActiveMutationForFolder(folderId);
+    const activeMutation = await getActiveMutationForFolder(folderId);
     const existingFolder = monthFolders.find(
       (folder) => folder.driveFolderId === folderId,
     );

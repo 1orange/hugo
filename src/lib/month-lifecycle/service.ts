@@ -20,11 +20,11 @@ export type MonthActionResult =
 
 export type MonthReadOnlyBlock = { ok: false; message: string };
 
-export function assertMonthEditable(
+export async function assertMonthEditable(
   companyId: number,
   monthKey: string,
-): MonthReadOnlyBlock | null {
-  const month = getMonthByKey(companyId, monthKey);
+): Promise<MonthReadOnlyBlock | null> {
+  const month = await getMonthByKey(companyId, monthKey);
   if (!month) {
     return { ok: false, message: "Mesiac sa nenašiel." };
   }
@@ -44,8 +44,8 @@ export async function scaffoldMonthSubfolders(
   monthKey: string,
   options?: { runSweepAfter?: boolean },
 ): Promise<number> {
-  const settings = getSettings();
-  const existing = listMonthFolders(companyId, monthKey);
+  const settings = await getSettings();
+  const existing = await listMonthFolders(companyId, monthKey);
   const existingWithClassification = existing.map((folder) => ({
     name: folder.name,
     classification: classifyFolder(folder.name, {
@@ -86,7 +86,7 @@ async function ensureMonthFolderInDrive(
   companyDriveFolderId: string,
   monthKey: string,
 ): Promise<string> {
-  const existing = getMonthByKey(companyId, monthKey);
+  const existing = await getMonthByKey(companyId, monthKey);
   if (existing) {
     return existing.driveFolderId;
   }
@@ -112,12 +112,12 @@ export async function scaffoldOpenMonthIfNeeded(
   driveClient: DriveClient,
   companyId: number,
 ): Promise<void> {
-  const openMonthKey = getOpenMonthKey(companyId);
+  const openMonthKey = await getOpenMonthKey(companyId);
   if (!openMonthKey) {
     return;
   }
 
-  const month = getMonthByKey(companyId, openMonthKey);
+  const month = await getMonthByKey(companyId, openMonthKey);
   if (!month) {
     return;
   }
@@ -133,7 +133,7 @@ export async function scaffoldOpenMonthIfNeeded(
 export async function ensureAllOpenMonthsScaffolded(
   driveClient: DriveClient,
 ): Promise<void> {
-  for (const company of listCompanies()) {
+  for (const company of await listCompanies()) {
     await scaffoldOpenMonthIfNeeded(driveClient, company.id);
   }
 }
@@ -143,7 +143,7 @@ export async function closeCompanyMonth(
   companyId: number,
   monthKey: string,
 ): Promise<MonthActionResult & { nextMonthKey?: string }> {
-  const editable = assertMonthEditable(companyId, monthKey);
+  const editable = await assertMonthEditable(companyId, monthKey);
   if (editable) {
     return editable;
   }
@@ -156,12 +156,12 @@ export async function closeCompanyMonth(
    * happens whenever a late month is finished after a newer one was started.
    * `assertMonthEditable` above already rejects an already-closed month.
    */
-  const month = getMonthByKey(companyId, monthKey);
+  const month = await getMonthByKey(companyId, monthKey);
   if (!month) {
     return { ok: false, message: "Mesiac sa nenašiel." };
   }
 
-  const company = getCompanyById(companyId);
+  const company = await getCompanyById(companyId);
   if (!company) {
     return { ok: false, message: "Firma sa nenašla." };
   }
@@ -172,8 +172,8 @@ export async function closeCompanyMonth(
   }
 
   const closedAt = new Date().toISOString();
-  closeMonthRecord(companyId, monthKey, closedAt);
-  appendUserEvent(closedAt, companyId, "MonthClosed", { monthKey });
+  await closeMonthRecord(companyId, monthKey, closedAt);
+  await appendUserEvent(closedAt, companyId, "MonthClosed", { monthKey });
 
   const nextMonthFolderId = await ensureMonthFolderInDrive(
     driveClient,
@@ -198,7 +198,7 @@ export async function reopenCompanyMonth(
   companyId: number,
   monthKey: string,
 ): Promise<MonthActionResult> {
-  const month = getMonthByKey(companyId, monthKey);
+  const month = await getMonthByKey(companyId, monthKey);
   if (!month) {
     return { ok: false, message: "Mesiac sa nenašiel." };
   }
@@ -207,8 +207,8 @@ export async function reopenCompanyMonth(
   }
 
   const reopenedAt = new Date().toISOString();
-  reopenMonthRecord(companyId, monthKey);
-  appendUserEvent(reopenedAt, companyId, "MonthReopened", { monthKey });
+  await reopenMonthRecord(companyId, monthKey);
+  await appendUserEvent(reopenedAt, companyId, "MonthReopened", { monthKey });
 
   return { ok: true };
 }

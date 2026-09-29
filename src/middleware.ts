@@ -10,6 +10,8 @@ const PUBLIC_PATHS = new Set([
   "/api/auth",
   // Google calls it with the channel's token, not a session; the route checks it.
   "/api/drive/notifications",
+  // Probes from Kubernetes and Docker; the route reveals only up or down.
+  "/api/health",
 ]);
 
 function isPublicPath(pathname: string): boolean {

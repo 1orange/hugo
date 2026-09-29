@@ -1,10 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { eq } from "drizzle-orm";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import {
   companies,
   documents,
@@ -42,6 +39,7 @@ import {
   serializeExtractedPayload,
 } from "../../../src/modules/document-payload.ts";
 import { mergeDocumentFields } from "../../../src/modules/document-fields.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
 const PARENT_ID = "doc-parent";
 const COMPANY_DRIVE_ID = "doc-company";
@@ -82,13 +80,6 @@ function emptyFieldInput(
   };
 }
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-doc-")),
-    "test.db",
-  );
-}
-
 function syntheticPdfAccess(lines: string[]): PdfAccess {
   return {
     async extractTextLines() {
@@ -103,16 +94,13 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
   };
 }
 
-function seedMonth(dbPath: string): void {
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+async function seedMonth(): Promise<void> {
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
-    .values({ id: 1, driveFolderId: COMPANY_DRIVE_ID, name: "Delta s.r.o.", active: true })
-    .run();
-  db.insert(months)
+  await db.insert(companies)
+    .values({ id: 1, driveFolderId: COMPANY_DRIVE_ID, name: "Delta s.r.o.", active: true });
+  await db.insert(months)
     .values({
       id: 1,
       companyId: 1,
@@ -120,9 +108,8 @@ function seedMonth(dbPath: string): void {
       driveFolderId: MONTH_ID,
       closedAt: null,
       openedAt: "2026-01-01T00:00:00.000Z",
-    })
-    .run();
-  db.insert(files)
+    });
+  await db.insert(files)
     .values([
       {
         driveFileId: INVOICE_A,
@@ -176,26 +163,21 @@ function seedMonth(dbPath: string): void {
         lastSeenAt: "2026-01-12T00:00:00.000Z",
         deleted: false,
       },
-    ])
-    .run();
+    ]);
 
-  ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
 }
 
-test("ensureDocumentsForMonth creates rows only for processed folders", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("ensureDocumentsForMonth creates rows only for processed folders", async () => {
+  await seedMonth();
   const db = getDb();
-  const rows = db.select().from(documents).all();
+  const rows = await db.select().from(documents);
   assert.equal(rows.length, 3);
   assert.equal(rows.some((row) => row.driveFileId === "statement-only"), false);
 });
 
 test("discovery creates ekasa payload without touching confirmed payload", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const fixtureTree = [
     {
@@ -243,15 +225,14 @@ test("discovery creates ekasa payload without touching confirmed payload", async
     "../../../src/adapters/store/settings.ts"
   );
   const { runSweep } = await import("../../../src/lib/sweep/run-sweep.ts");
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
-  ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
 
   const db = getDb();
-  db.update(documents)
+  await db.update(documents)
     .set({ confirmedPayloadJson: JSON.stringify({ amountLiteral: "manual" }) })
-    .where(eq(documents.driveFileId, RECEIPT_ID))
-    .run();
+    .where(eq(documents.driveFileId, RECEIPT_ID));
 
   await discoverCashPaymentsForMonth(1, "2026_01", {
     driveClient,
@@ -263,7 +244,9 @@ test("discovery creates ekasa payload without touching confirmed payload", async
     now: () => "2026-01-12T10:00:00.000Z",
   });
 
-  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1)
+  )[0]!;
   const payload = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(payload), true);
   if (isEkasaPayload(payload)) {
@@ -273,53 +256,60 @@ test("discovery creates ekasa payload without touching confirmed payload", async
   assert.equal(row.confirmedPayloadJson, JSON.stringify({ amountLiteral: "manual" }));
 });
 
-test("two confirmed and one dismissed drives awaiting count to zero", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("two confirmed and one dismissed drives awaiting count to zero", async () => {
+  await seedMonth();
   const now = "2026-01-13T12:00:00.000Z";
 
-  assert.equal(countAwaitingDecision(1, "2026_01"), 3);
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 3);
 
   assert.equal(
-    confirmDocument({
+    (await confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
       documentId: INVOICE_A,
       confirmed: true,
       now,
-    }).ok,
+    })).ok,
     true,
   );
   assert.equal(
-    confirmDocument({
+    (await confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
       documentId: RECEIPT_ID,
       confirmed: true,
       now,
-    }).ok,
+    })).ok,
     true,
   );
   assert.equal(
-    dismissDocument({
+    (await dismissDocument({
       companyId: 1,
       monthKey: "2026_01",
       documentId: INVOICE_B,
       reason: "proforma",
       now,
-    }).ok,
+    })).ok,
     true,
   );
 
-  assert.equal(countAwaitingDecision(1, "2026_01"), 0);
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 0);
 });
 
-test("confirming emits Confirmed with driveFileId", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("a document whose file left Drive is not counted as awaiting", async () => {
+  await seedMonth();
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 3);
+
+  await getDb().update(files).set({ deleted: true }).where(eq(files.driveFileId, INVOICE_B));
+
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 2);
+});
+
+test("confirming emits Confirmed with driveFileId", async () => {
+  await seedMonth();
   const now = "2026-01-13T12:00:00.000Z";
 
-  confirmDocument({
+  await confirmDocument({
     companyId: 1,
     monthKey: "2026_01",
     documentId: RECEIPT_ID,
@@ -328,83 +318,77 @@ test("confirming emits Confirmed with driveFileId", () => {
   });
 
   const db = getDb();
-  const event = db.select().from(events).where(eq(events.type, "Confirmed")).get();
+  const event = (await db.select().from(events).where(eq(events.type, "Confirmed")).limit(1))[0];
   assert.ok(event);
   const payload = JSON.parse(event.payloadJson) as { driveFileId?: string };
   assert.equal(payload.driveFileId, RECEIPT_ID);
 });
 
-test("notes persist on documents", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("notes persist on documents", async () => {
+  await seedMonth();
 
   assert.equal(
-    saveDocumentNote({
+    (await saveDocumentNote({
       companyId: 1,
       monthKey: "2026_01",
       documentId: INVOICE_A,
       note: "  waiting for supplier reply  ",
-    }).ok,
+    })).ok,
     true,
   );
 
-  const view = buildMonthDocumentView(1, "2026_01")!;
+  const view = (await buildMonthDocumentView(1, "2026_01"))!;
   assert.equal(
     view.documents.find((document) => document.driveFileId === INVOICE_A)?.note,
     "waiting for supplier reply",
   );
 });
 
-test("closed month rejects confirming and dismissing", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("closed month rejects confirming and dismissing", async () => {
+  await seedMonth();
   const db = getDb();
-  db.update(months)
+  await db.update(months)
     .set({ closedAt: "2026-01-31T00:00:00.000Z" })
-    .where(eq(months.id, 1))
-    .run();
+    .where(eq(months.id, 1));
 
   assert.equal(
-    confirmDocument({
+    (await confirmDocument({
       companyId: 1,
       monthKey: "2026_01",
       documentId: INVOICE_A,
       confirmed: true,
-    }).ok,
+    })).ok,
     false,
   );
   assert.equal(
-    dismissDocument({
+    (await dismissDocument({
       companyId: 1,
       monthKey: "2026_01",
       documentId: INVOICE_B,
-    }).ok,
+    })).ok,
     false,
   );
 });
 
-test("moving folder slot on file updates derived receipt kind in the view", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("moving folder slot on file updates derived receipt kind in the view", async () => {
+  await seedMonth();
   const db = getDb();
 
-  db.update(files)
+  await db.update(files)
     .set({ folderSlot: "05 Bločky_firemná karta" })
-    .where(eq(files.driveFileId, RECEIPT_ID))
-    .run();
-  ensureDocumentsForMonth(1, "2026_01", "2026-01-13T10:00:00.000Z");
+    .where(eq(files.driveFileId, RECEIPT_ID));
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-13T10:00:00.000Z");
 
-  const view = buildMonthDocumentView(1, "2026_01")!;
+  const view = (await buildMonthDocumentView(1, "2026_01"))!;
   const receipt = view.documents.find((document) => document.driveFileId === RECEIPT_ID);
   assert.equal(receipt?.receiptKind, "card");
 });
 
-test("saveDocumentFields writes confirmed payload only", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("saveDocumentFields writes confirmed payload only", async () => {
+  await seedMonth();
 
   assert.equal(
-    saveDocumentFields({
+    (await saveDocumentFields({
       companyId: 1,
       monthKey: "2026_01",
       documentId: RECEIPT_ID,
@@ -419,12 +403,14 @@ test("saveDocumentFields writes confirmed payload only", () => {
         recapVatLiteral: "3.74",
         vatRecap: [{ rateLiteral: "23.0", baseLiteral: "16.26", vatLiteral: "3.74" }],
       }),
-    }).ok,
+    })).ok,
     true,
   );
 
   const db = getDb();
-  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1)
+  )[0]!;
   const confirmed = parseConfirmedPayload(row.confirmedPayloadJson);
   assert.equal(confirmed.supplierName, "Manual Shop");
   assert.equal(confirmed.amountLiteral, "20.00");
@@ -433,10 +419,7 @@ test("saveDocumentFields writes confirmed payload only", () => {
 });
 
 test("confirmed field values survive re-extraction", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
 
   const fixtureTree = [
     {
@@ -484,11 +467,11 @@ test("confirmed field values survive re-extraction", async () => {
     "../../../src/adapters/store/settings.ts"
   );
   const { runSweep } = await import("../../../src/lib/sweep/run-sweep.ts");
-  setDriveParentFolderId(PARENT_ID);
+  await setDriveParentFolderId(PARENT_ID);
   await runSweep(driveClient);
-  ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId: 1,
     monthKey: "2026_01",
     documentId: RECEIPT_ID,
@@ -509,7 +492,9 @@ test("confirmed field values survive re-extraction", async () => {
   });
 
   const db = getDb();
-  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1)
+  )[0]!;
   const extracted = parseExtractedPayload(row.extractedPayloadJson);
   assert.equal(isEkasaPayload(extracted), true);
   if (isEkasaPayload(extracted)) {
@@ -522,11 +507,10 @@ test("confirmed field values survive re-extraction", async () => {
   assert.equal(merged.provenance.supplierName, "confirmed");
 });
 
-test("arithmetic mismatch does not block saving fields", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("arithmetic mismatch does not block saving fields", async () => {
+  await seedMonth();
 
-  const result = saveDocumentFields({
+  const result = await saveDocumentFields({
     companyId: 1,
     monthKey: "2026_01",
     documentId: RECEIPT_ID,
@@ -540,14 +524,15 @@ test("arithmetic mismatch does not block saving fields", () => {
   assert.equal(result.ok, true);
 
   const db = getDb();
-  const row = db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).get()!;
+  const row = (
+    await db.select().from(documents).where(eq(documents.driveFileId, RECEIPT_ID)).limit(1)
+  )[0]!;
   const confirmed = parseConfirmedPayload(row.confirmedPayloadJson);
   assert.equal(confirmed.recapVatLiteral, "3.00");
 });
 
-test("company profile saved after extraction assigns party roles without re-extraction", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("company profile saved after extraction assigns party roles without re-extraction", async () => {
+  await seedMonth();
   const db = getDb();
 
   const modelPayload = {
@@ -568,20 +553,19 @@ test("company profile saved after extraction assigns party roles without re-extr
     docTypeHint: "invoice" as const,
   };
 
-  db.update(documents)
+  await db.update(documents)
     .set({
       extractedPayloadJson: serializeExtractedPayload(modelPayload),
       extractionStatus: "complete",
     })
-    .where(eq(documents.driveFileId, INVOICE_A))
-    .run();
+    .where(eq(documents.driveFileId, INVOICE_A));
 
-  let view = buildMonthDocumentView(1, "2026_01")!;
+  let view = (await buildMonthDocumentView(1, "2026_01"))!;
   let invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
   assert.equal(invoice.fieldEditor.missingProfile, true);
   assert.equal(invoice.fieldEditor.rolesFlagged, true);
 
-  saveCompanyProfile(1, {
+  await saveCompanyProfile(1, {
     country: "SK",
     legalName: "Delta s.r.o.",
     address: "Bratislava",
@@ -592,24 +576,22 @@ test("company profile saved after extraction assigns party roles without re-extr
     savedAt: "2026-01-12T10:00:00.000Z",
   });
 
-  view = buildMonthDocumentView(1, "2026_01")!;
+  view = (await buildMonthDocumentView(1, "2026_01"))!;
   invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
   assert.equal(invoice.fieldEditor.fields.customerName, "Beta s.r.o.");
   assert.equal(invoice.fieldEditor.fields.supplierName, "Dodávateľ s.r.o.");
   assert.equal(invoice.fieldEditor.rolesFlagged, false);
 });
 
-test("closed month rejects saving fields", () => {
-  const dbPath = tempDbPath();
-  seedMonth(dbPath);
+test("closed month rejects saving fields", async () => {
+  await seedMonth();
   const db = getDb();
-  db.update(months)
+  await db.update(months)
     .set({ closedAt: "2026-01-31T00:00:00.000Z" })
-    .where(eq(months.id, 1))
-    .run();
+    .where(eq(months.id, 1));
 
   assert.equal(
-    saveDocumentFields({
+    (await saveDocumentFields({
       companyId: 1,
       monthKey: "2026_01",
       documentId: RECEIPT_ID,
@@ -617,7 +599,7 @@ test("closed month rejects saving fields", () => {
         supplierName: "Shop",
         amountLiteral: "1.00",
       }),
-    }).ok,
+    })).ok,
     false,
   );
 });

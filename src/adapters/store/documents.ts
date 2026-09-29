@@ -1,6 +1,6 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull } from "drizzle-orm";
 import { documents, files } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import {
   emptyExtractedPayload,
   serializeExtractedPayload,
@@ -40,116 +40,120 @@ export type DocumentRow = {
 
 export type ExtractionStatus = "pending" | "complete" | "failed";
 
-export function getDocument(documentId: string): DocumentRow | undefined {
+export async function getDocument(documentId: string): Promise<DocumentRow | undefined> {
   const db = getDb();
-  return db
-    .select()
-    .from(documents)
-    .where(eq(documents.id, documentId))
-    .get();
+  const [row] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
+  return row;
 }
 
 /** Every document read out of one file: its own, then any further receipts. */
-export function listDocumentsForFile(driveFileId: string): DocumentRow[] {
+export async function listDocumentsForFile(driveFileId: string): Promise<DocumentRow[]> {
+  const db = getDb();
+  const rows = await db.select().from(documents).where(eq(documents.driveFileId, driveFileId));
+  return rows.sort((left, right) => {
+    if (left.id === driveFileId) return -1;
+    if (right.id === driveFileId) return 1;
+    return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+  });
+}
+
+export async function listDocumentsForMonth(
+  companyId: number,
+  monthKey: string,
+): Promise<DocumentRow[]> {
   const db = getDb();
   return db
     .select()
     .from(documents)
-    .where(eq(documents.driveFileId, driveFileId))
-    .all()
-    .sort((left, right) => {
-      if (left.id === driveFileId) return -1;
-      if (right.id === driveFileId) return 1;
-      return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
-    });
+    .where(and(eq(documents.companyId, companyId), eq(documents.monthKey, monthKey)));
 }
 
-export function listDocumentsForMonth(
+export async function listDocumentsForCompany(companyId: number): Promise<DocumentRow[]> {
+  const db = getDb();
+  return db.select().from(documents).where(eq(documents.companyId, companyId));
+}
+
+export async function countAwaitingDecision(
   companyId: number,
   monthKey: string,
-): DocumentRow[] {
+): Promise<number> {
   const db = getDb();
-  return db
-    .select()
+  // A document whose file is gone from Drive is not in the workbench, so it
+  // cannot be decided; counting it left the chase list waiting for ever.
+  const [row] = await db
+    .select({ count: count() })
     .from(documents)
-    .where(
-      and(eq(documents.companyId, companyId), eq(documents.monthKey, monthKey)),
-    )
-    .all();
-}
-
-export function listDocumentsForCompany(companyId: number): DocumentRow[] {
-  const db = getDb();
-  return db.select().from(documents).where(eq(documents.companyId, companyId)).all();
-}
-
-export function countAwaitingDecision(
-  companyId: number,
-  monthKey: string,
-): number {
-  const db = getDb();
-  const row = db
-    .select({ count: sql<number>`count(*)` })
-    .from(documents)
+    .innerJoin(files, eq(files.driveFileId, documents.driveFileId))
     .where(
       and(
         eq(documents.companyId, companyId),
         eq(documents.monthKey, monthKey),
         isNull(documents.decision),
+        eq(files.deleted, false),
       ),
-    )
-    .get();
+    );
   return row?.count ?? 0;
 }
 
-export function companyHasDocuments(companyId: number): boolean {
+export async function companyHasDocuments(companyId: number): Promise<boolean> {
   const db = getDb();
-  const row = db
-    .select({ count: sql<number>`count(*)` })
+  const [row] = await db
+    .select({ count: count() })
     .from(documents)
-    .where(eq(documents.companyId, companyId))
-    .get();
+    .where(eq(documents.companyId, companyId));
   return (row?.count ?? 0) > 0;
 }
 
-export function ensureDocumentsForMonth(
+export async function ensureDocumentsForMonth(
   companyId: number,
   monthKey: string,
   createdAt: string,
-): number {
+): Promise<number> {
   const db = getDb();
-  const eligible = db
-    .select({
-      driveFileId: files.driveFileId,
-      folderSlot: files.folderSlot,
-    })
-    .from(files)
-    .where(
-      and(
-        eq(files.companyId, companyId),
-        eq(files.monthKey, monthKey),
-        eq(files.deleted, false),
-      ),
-    )
-    .all()
-    .filter((file) => isProcessedFolderSlot(file.folderSlot));
+  const eligible = (
+    await db
+      .select({
+        driveFileId: files.driveFileId,
+        folderSlot: files.folderSlot,
+      })
+      .from(files)
+      .where(
+        and(
+          eq(files.companyId, companyId),
+          eq(files.monthKey, monthKey),
+          eq(files.deleted, false),
+        ),
+      )
+  ).filter((file) => isProcessedFolderSlot(file.folderSlot));
+  if (eligible.length === 0) {
+    return 0;
+  }
+
+  const existingSlots = new Map(
+    (
+      await db
+        .select({ id: documents.id, folderSlot: documents.folderSlot })
+        .from(documents)
+        .where(inArray(documents.id, eligible.map((file) => file.driveFileId)))
+    ).map((row) => [row.id, row.folderSlot]),
+  );
 
   let created = 0;
   for (const file of eligible) {
     const folderSlot = file.folderSlot!;
-    const existing = getDocument(file.driveFileId);
-    if (existing) {
-      if (existing.folderSlot !== folderSlot) {
+    const existingSlot = existingSlots.get(file.driveFileId);
+    if (existingSlot !== undefined) {
+      if (existingSlot !== folderSlot) {
         // Every receipt read out of the file moves with it.
-        db.update(documents)
+        await db
+          .update(documents)
           .set({ folderSlot })
-          .where(eq(documents.driveFileId, file.driveFileId))
-          .run();
+          .where(eq(documents.driveFileId, file.driveFileId));
       }
       continue;
     }
 
-    const result = db
+    const inserted = await db
       .insert(documents)
       .values({
         id: file.driveFileId,
@@ -163,24 +167,23 @@ export function ensureDocumentsForMonth(
         createdAt,
       })
       .onConflictDoNothing()
-      .run();
-    if (result.changes > 0) {
-      created += 1;
-    }
+      .returning({ id: documents.id });
+    created += inserted.length;
   }
   return created;
 }
 
-export function setDocumentDecision(
+export async function setDocumentDecision(
   documentId: string,
   decision: "confirmed" | "not_relevant" | null,
   input: {
     decidedAt: string | null;
     notRelevantReason?: string | null;
   },
-): DocumentRow | undefined {
+): Promise<DocumentRow | undefined> {
   const db = getDb();
-  db.update(documents)
+  const [row] = await db
+    .update(documents)
     .set({
       decision,
       decidedAt: input.decidedAt,
@@ -188,67 +191,66 @@ export function setDocumentDecision(
         decision === "not_relevant" ? (input.notRelevantReason ?? null) : null,
     })
     .where(eq(documents.id, documentId))
-    .run();
-  return getDocument(documentId);
+    .returning();
+  return row;
 }
 
-export function updateDocumentNote(
+export async function updateDocumentNote(
   documentId: string,
   note: string | null,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.update(documents)
-    .set({ note })
-    .where(eq(documents.id, documentId))
-    .run();
+  await db.update(documents).set({ note }).where(eq(documents.id, documentId));
 }
 
-export function setExtractionStatus(
+export async function setExtractionStatus(
   documentId: string,
   status: ExtractionStatus,
   failureReason: string | null,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.update(documents)
+  await db
+    .update(documents)
     .set({
       extractionStatus: status,
       extractionFailureReason: failureReason,
     })
-    .where(eq(documents.id, documentId))
-    .run();
+    .where(eq(documents.id, documentId));
 }
 
-export function writeExtractedPayload(
+export async function writeExtractedPayload(
   documentId: string,
   payload: ExtractedPayload,
   status: ExtractionStatus,
   failureReason: string | null,
-): DocumentRow | undefined {
+): Promise<DocumentRow | undefined> {
   const db = getDb();
-  db.update(documents)
+  const [row] = await db
+    .update(documents)
     .set({
       extractedPayloadJson: serializeExtractedPayload(payload),
       extractionStatus: status,
       extractionFailureReason: failureReason,
     })
     .where(eq(documents.id, documentId))
-    .run();
-  return getDocument(documentId);
+    .returning();
+  return row;
 }
 
-export function writeConfirmedPayload(
+export async function writeConfirmedPayload(
   documentId: string,
   payload: ConfirmedPayload,
-): DocumentRow | undefined {
+): Promise<DocumentRow | undefined> {
   const db = getDb();
-  db.update(documents)
+  const [row] = await db
+    .update(documents)
     .set({ confirmedPayloadJson: serializeConfirmedPayload(payload) })
     .where(eq(documents.id, documentId))
-    .run();
-  return getDocument(documentId);
+    .returning();
+  return row;
 }
 
-export function upsertEkasaExtractedPayload(input: {
+export async function upsertEkasaExtractedPayload(input: {
   /** Defaults to the file's own document. */
   documentId?: string;
   driveFileId: string;
@@ -261,11 +263,12 @@ export function upsertEkasaExtractedPayload(input: {
   extractionStatus: ExtractionStatus;
   extractionFailureReason: string | null;
   createdAt: string;
-}): DocumentRow {
+}): Promise<DocumentRow> {
   const db = getDb();
   const serialized = serializeExtractedPayload(input.payload);
   const documentId = input.documentId ?? input.driveFileId;
-  db.insert(documents)
+  const [row] = await db
+    .insert(documents)
     .values({
       id: documentId,
       driveFileId: input.driveFileId,
@@ -290,14 +293,14 @@ export function upsertEkasaExtractedPayload(input: {
         extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
       },
     })
-    .run();
-  return getDocument(documentId)!;
+    .returning();
+  return row!;
 }
 
-export function listPendingExtractionForMonth(
+export async function listPendingExtractionForMonth(
   companyId: number,
   monthKey: string,
-): Array<{ documentId: string; driveFileId: string; extractionFailureReason: string | null }> {
+): Promise<Array<{ documentId: string; driveFileId: string; extractionFailureReason: string | null }>> {
   const db = getDb();
   return db
     .select({
@@ -312,72 +315,68 @@ export function listPendingExtractionForMonth(
         eq(documents.monthKey, monthKey),
         eq(documents.extractionStatus, "pending"),
       ),
-    )
-    .all();
+    );
 }
 
-export function extractionAlreadyAttempted(documentId: string): boolean {
-  return !needsExtraction(getDocument(documentId));
+export async function extractionAlreadyAttempted(documentId: string): Promise<boolean> {
+  return !needsExtraction(await getDocument(documentId));
 }
 
 /**
  * One unreadable file must not abandon the rest of the month: the error is
  * recorded on its document, where she sees it, and discovery moves on.
  */
-export function recordExtractionCrash(documentId: string, error: unknown): void {
+export async function recordExtractionCrash(documentId: string, error: unknown): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
-  writeExtractedPayload(documentId, {}, "failed", `Reading the document failed: ${message}`);
+  await writeExtractedPayload(documentId, {}, "failed", `Reading the document failed: ${message}`);
 }
 
 /** Marks a document as being read now, by the current pipeline. */
-export function beginExtractionAttempt(documentId: string): void {
+export async function beginExtractionAttempt(documentId: string): Promise<void> {
   const db = getDb();
-  db.update(documents)
+  await db
+    .update(documents)
     .set({
       extractionStatus: "pending",
       extractionFailureReason: null,
       extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
     })
-    .where(eq(documents.id, documentId))
-    .run();
+    .where(eq(documents.id, documentId));
 }
 
-export function listExportNumbersForCompany(companyId: number): string[] {
+export async function listExportNumbersForCompany(companyId: number): Promise<string[]> {
   const db = getDb();
-  const rows = db
+  const rows = await db
     .select({ exportNumber: documents.exportNumber })
     .from(documents)
-    .where(eq(documents.companyId, companyId))
-    .all();
+    .where(eq(documents.companyId, companyId));
   return rows
     .map((row) => row.exportNumber)
     .filter((value): value is string => typeof value === "string" && value.length > 0);
 }
 
-export function setDocumentExportNumber(
+export async function setDocumentExportNumber(
   documentId: string,
   exportNumber: string,
-): void {
+): Promise<void> {
   const db = getDb();
-  db.update(documents)
-    .set({ exportNumber })
-    .where(eq(documents.id, documentId))
-    .run();
+  await db.update(documents).set({ exportNumber }).where(eq(documents.id, documentId));
 }
 
-export function markDocumentsExported(input: {
+export async function markDocumentsExported(input: {
   documentIds: readonly string[];
   exportedAt: string;
   exportBatch: string;
-}): void {
-  const db = getDb();
-  for (const documentId of input.documentIds) {
-    db.update(documents)
-      .set({
-        exportedAt: input.exportedAt,
-        exportBatch: input.exportBatch,
-      })
-      .where(eq(documents.id, documentId))
-      .run();
+}): Promise<void> {
+  if (input.documentIds.length === 0) {
+    return;
   }
+  const db = getDb();
+  await db
+    .update(documents)
+    .set({
+      exportedAt: input.exportedAt,
+      exportBatch: input.exportBatch,
+    })
+    .where(inArray(documents.id, [...input.documentIds]));
 }

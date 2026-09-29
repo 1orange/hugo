@@ -1,17 +1,17 @@
 import { companyProfiles } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import { eq, inArray } from "drizzle-orm";
 import type { CompanyProfileFields } from "@/modules/company-profile";
 
 export type CompanyProfileRow = CompanyProfileFields & { companyId: number };
 
-export function getCompanyProfile(companyId: number): CompanyProfileRow | null {
+export async function getCompanyProfile(companyId: number): Promise<CompanyProfileRow | null> {
   const db = getDb();
-  const row = db
+  const [row] = await db
     .select()
     .from(companyProfiles)
     .where(eq(companyProfiles.companyId, companyId))
-    .get();
+    .limit(1);
   if (!row) {
     return null;
   }
@@ -28,27 +28,28 @@ export function getCompanyProfile(companyId: number): CompanyProfileRow | null {
   };
 }
 
-export function listCompanyIdsWithoutProfile(companyIds: readonly number[]): Set<number> {
+export async function listCompanyIdsWithoutProfile(companyIds: readonly number[]): Promise<Set<number>> {
   if (companyIds.length === 0) {
     return new Set();
   }
   const db = getDb();
-  const withProfile = db
-    .select({ companyId: companyProfiles.companyId })
-    .from(companyProfiles)
-    .where(inArray(companyProfiles.companyId, [...companyIds]))
-    .all()
-    .map((row) => row.companyId);
+  const withProfile = (
+    await db
+      .select({ companyId: companyProfiles.companyId })
+      .from(companyProfiles)
+      .where(inArray(companyProfiles.companyId, [...companyIds]))
+  ).map((row) => row.companyId);
   const have = new Set(withProfile);
   return new Set(companyIds.filter((id) => !have.has(id)));
 }
 
-export function saveCompanyProfile(
+export async function saveCompanyProfile(
   companyId: number,
   profile: CompanyProfileFields,
-): CompanyProfileRow {
+): Promise<CompanyProfileRow> {
   const db = getDb();
-  db.insert(companyProfiles)
+  await db
+    .insert(companyProfiles)
     .values({
       companyId,
       country: profile.country,
@@ -72,8 +73,7 @@ export function saveCompanyProfile(
         registerSource: profile.registerSource,
         savedAt: profile.savedAt,
       },
-    })
-    .run();
+    });
 
   return { companyId, ...profile };
 }

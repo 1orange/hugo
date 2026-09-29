@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
+import { LiveRefresh } from "@/components/app/live-refresh";
 import { ensureFreshSweep } from "@/lib/sweep/ensure-fresh-sweep";
 import {
   listAllMonthKeys,
@@ -81,12 +82,12 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
   await ensureFreshSweep();
 
   const { month } = await searchParams;
-  const monthKeys = listAllMonthKeys();
+  const monthKeys = await listAllMonthKeys();
   const selectedMonth = month && monthKeys.includes(month) ? month : null;
 
-  const companies = listCompanySummaries(selectedMonth);
+  const companies = await listCompanySummaries(selectedMonth);
   const summary = summariseChaseList(companies);
-  const settings = getSettings();
+  const settings = await getSettings();
 
   // Warm the parsers here rather than waiting for her to open a month: by the
   // time she clicks into a client, the eKasa receipts that arrived since the
@@ -94,7 +95,7 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
   // so a repeat visit costs nothing.
   for (const company of companies) {
     if (company.openMonth && !company.monthClosed) {
-      scheduleDocumentExtractionForMonth(company.id, company.openMonth);
+      await scheduleDocumentExtractionForMonth(company.id, company.openMonth);
     }
   }
 
@@ -108,6 +109,7 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
 
   return (
     <div className="flex min-h-screen flex-col bg-surface">
+      <LiveRefresh />
       <AppBar
         crumbs={
           selectedMonth

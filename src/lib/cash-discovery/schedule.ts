@@ -4,11 +4,8 @@ import { createOcr } from "@/adapters/ocr/create-ocr";
 import { createPdfAccess } from "@/adapters/pdf/pdf-access";
 import { createZxingQrReader } from "@/adapters/qr-reader/zxing-qr-reader";
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
-import {
-  createDocumentExtractionQueue,
-  extractionConcurrency,
-  type DocumentExtractionQueue,
-} from "@/lib/extraction-queue/document-queue";
+import { BullmqExtractionJobQueue } from "@/adapters/job-queue/bullmq-queues";
+import { enqueueMonthExtraction } from "@/lib/extraction-queue/enqueue";
 import type { CashDiscoveryDeps } from "./discover-cash-payments";
 
 export function createCashDiscoveryDeps(
@@ -24,20 +21,14 @@ export function createCashDiscoveryDeps(
   };
 }
 
-// One queue per process, kept across Next's module reloads in development.
-const QUEUE_KEY = Symbol.for("hugo.documentExtractionQueue");
-
-export function documentExtractionQueue(env: NodeJS.ProcessEnv = process.env): DocumentExtractionQueue {
-  const holder = globalThis as unknown as Record<symbol, DocumentExtractionQueue | undefined>;
-  holder[QUEUE_KEY] ??= createDocumentExtractionQueue(createCashDiscoveryDeps(env), extractionConcurrency(env));
-  return holder[QUEUE_KEY];
-}
-
-/** Queues the month's unread documents in the background; never awaited by a page. */
-export function scheduleDocumentExtractionForMonth(
-  companyId: number,
-  monthKey: string,
-  env: NodeJS.ProcessEnv = process.env,
-): void {
-  documentExtractionQueue(env).enqueueMonth(companyId, monthKey);
+/**
+ * Queues the month's unread documents for the workers. A page render must not
+ * fail because Redis hiccuped: the sweep and the next render queue them again.
+ */
+export async function scheduleDocumentExtractionForMonth(companyId: number, monthKey: string): Promise<void> {
+  try {
+    await enqueueMonthExtraction(new BullmqExtractionJobQueue(), companyId, monthKey);
+  } catch (error) {
+    console.warn(`[queue] could not queue ${companyId}/${monthKey}`, error);
+  }
 }

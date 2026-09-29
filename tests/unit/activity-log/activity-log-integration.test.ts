@@ -1,12 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { eq } from "drizzle-orm";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import {
@@ -20,6 +16,7 @@ import {
 } from "../../../src/adapters/store/activity-log.ts";
 import { formatActivityEntry } from "../../../src/modules/activity-log.ts";
 import { saveGlobalSettings } from "../../../src/lib/settings/service.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
 const PARENT_ID = "activity-parent";
 const COMPANY_ID = "activity-company";
@@ -52,23 +49,13 @@ function buildFixture() {
   ];
 }
 
-function tempDbPath(): string {
-  return path.join(
-    fs.mkdtempSync(path.join(os.tmpdir(), "hugo-activity-")),
-    "test.db",
-  );
-}
-
 test("activity log returns reverse-chronological stream with filters", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  setDriveParentFolderId(PARENT_ID);
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
 
   const client = new FakeDriveClient(buildFixture());
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
   await applyFolderRename(client, company.id, {
@@ -80,7 +67,7 @@ test("activity log returns reverse-chronological stream with filters", async () 
 
   await closeCompanyMonth(client, company.id, "2026_03");
 
-  const all = listCompanyActivity(company.id, {});
+  const all = await listCompanyActivity(company.id, {});
   const formatted = all.entries.map(formatActivityEntry);
   assert.ok(formatted.length >= 3);
 
@@ -93,10 +80,10 @@ test("activity log returns reverse-chronological stream with filters", async () 
     assert.ok(all.entries[index - 1]!.id > all.entries[index]!.id);
   }
 
-  const discoveries = listCompanyActivity(company.id, { eventType: "FileDiscovered" });
+  const discoveries = await listCompanyActivity(company.id, { eventType: "FileDiscovered" });
   assert.ok(discoveries.entries.every((row) => row.type === "FileDiscovered"));
 
-  const marchOnly = listCompanyActivity(company.id, { monthKey: "2026_03" });
+  const marchOnly = await listCompanyActivity(company.id, { monthKey: "2026_03" });
   assert.ok(marchOnly.entries.length >= 1);
   assert.ok(
     marchOnly.entries.every(
@@ -104,7 +91,7 @@ test("activity log returns reverse-chronological stream with filters", async () 
     ),
   );
 
-  const noMonth = listCompanyActivity(company.id, { monthKey: null });
+  const noMonth = await listCompanyActivity(company.id, { monthKey: null });
   assert.ok(
     noMonth.entries.every((row) => formatActivityEntry(row).monthKey === null),
   );
@@ -112,24 +99,21 @@ test("activity log returns reverse-chronological stream with filters", async () 
   const secondSweep = await runSweep(client);
   assert.equal(secondSweep.eventCount, 0);
   assert.equal(
-    listCompanyActivity(company.id, {}).entries.length,
+    (await listCompanyActivity(company.id, {})).entries.length,
     all.entries.length,
   );
 });
 
 test("global settings events appear only in global activity scope", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  setDriveParentFolderId(PARENT_ID);
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
 
   const client = new FakeDriveClient(buildFixture());
   await runSweep(client);
-  const company = getDb().select().from(companies).get();
+  const company = (await getDb().select().from(companies).limit(1))[0];
   assert.ok(company);
 
-  saveGlobalSettings({
+  await saveGlobalSettings({
     driveParentFolderId: PARENT_ID,
     canonicalFolderNames: [
       "01 Vystavené faktúry",
@@ -145,12 +129,12 @@ test("global settings events appear only in global activity scope", async () => 
     autoAdvanceAfterDecision: false,
   });
 
-  const companyActivity = listCompanyActivity(company.id, {});
+  const companyActivity = await listCompanyActivity(company.id, {});
   assert.ok(
     companyActivity.entries.every((row) => row.companyId === company.id),
   );
 
-  const globalActivity = listGlobalActivity({});
+  const globalActivity = await listGlobalActivity({});
   assert.ok(globalActivity.entries.length >= 1);
   assert.ok(globalActivity.entries.every((row) => row.companyId === null));
   assert.ok(

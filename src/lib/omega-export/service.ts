@@ -10,7 +10,7 @@ import {
 } from "@/adapters/store/documents";
 import { getFileByDriveId } from "@/adapters/store/files";
 import { upsertPartner } from "@/adapters/store/partners";
-import { getSettings } from "@/adapters/store/settings";
+import { getSettings, type SettingsRow } from "@/adapters/store/settings";
 import { appendUserEvent } from "@/adapters/store/events";
 import type { CompanyCountry } from "@/modules/company-profile";
 import { homeCurrencyForCountry } from "@/modules/company-profile";
@@ -52,7 +52,8 @@ function splitAddress(address: string): { street: string; psc: string; city: str
   const match = /^(.*)\s+(\d{3}\s?\d{2})\s+(.+)$/.exec(trimmed);
   if (match) {
     return {
-      street: match[1]!.trim(),
+      // Registers write "street, PSČ city"; the comma is not the street's.
+      street: match[1]!.trim().replace(/,$/, ""),
       psc: match[2]!.trim(),
       city: match[3]!.trim(),
     };
@@ -98,7 +99,11 @@ async function resolvePartner(input: {
   let icDph = input.icDph.trim();
 
   if (normalizedIco.length > 0 && input.register) {
-    const lookup = await input.register.lookupByIco(normalizedIco, input.country);
+    // A register that is down costs the partner's address, not the export
+    // (ADR 0018): the document's own name and DIČ stand.
+    const lookup = await input.register
+      .lookupByIco(normalizedIco, input.country)
+      .catch(() => null);
     if (lookup) {
       legalName = lookup.legalName.trim() || legalName;
       dic = lookup.dic.trim() || dic;
@@ -110,7 +115,7 @@ async function resolvePartner(input: {
   }
 
   if (normalizedIco.length > 0) {
-    upsertPartner({
+    await upsertPartner({
       companyId: input.companyId,
       country: input.country,
       ico: normalizedIco,
@@ -137,13 +142,13 @@ async function resolvePartner(input: {
   };
 }
 
-function assignMissingExportNumbers(input: {
+async function assignMissingExportNumbers(input: {
   companyId: number;
   monthKey: string;
   documents: DocumentRow[];
-}): Map<string, string> {
+}): Promise<Map<string, string>> {
   const numbers = new Map<string, string>();
-  const existing = listExportNumbersForCompany(input.companyId);
+  const existing = await listExportNumbersForCompany(input.companyId);
   let sequence = nextExportSequence(existing, input.monthKey);
 
   for (const document of input.documents) {
@@ -153,7 +158,7 @@ function assignMissingExportNumbers(input: {
     }
     const exportNumber = formatExportNumber(input.monthKey, sequence);
     sequence += 1;
-    setDocumentExportNumber(document.id, exportNumber);
+    await setDocumentExportNumber(document.id, exportNumber);
     numbers.set(document.id, exportNumber);
     existing.push(exportNumber);
   }
@@ -220,7 +225,7 @@ function buildReceiptDraft(input: {
   document: DocumentRow;
   exportNumber: string;
   counterparty: OmegaPartnerRecord;
-  settings: ReturnType<typeof getSettings>;
+  settings: SettingsRow;
   homeCurrency: string;
 }): OmegaReceiptDraft | { heldBack: true; reason: string } {
   const merged = mergeDocumentFields(
@@ -304,17 +309,19 @@ export async function buildMonthOmegaExport(input: {
   bytes: Buffer;
 }> {
   const now = input.now ?? new Date().toISOString();
-  const settings = getSettings();
-  const profile = getCompanyProfile(input.companyId);
+  const [settings, profile, monthDocuments, companyDocuments] = await Promise.all([
+    getSettings(),
+    getCompanyProfile(input.companyId),
+    listDocumentsForMonth(input.companyId, input.monthKey),
+    listDocumentsForCompany(input.companyId),
+  ]);
   const profileCountry: CompanyCountry = profile?.country ?? "SK";
   const homeCurrency = homeCurrencyForCountry(profileCountry);
   const register = input.register ?? null;
 
-  const confirmed = listDocumentsForMonth(input.companyId, input.monthKey).filter(
-    (document) => document.decision === "confirmed",
-  );
+  const confirmed = monthDocuments.filter((document) => document.decision === "confirmed");
 
-  const exportNumbers = assignMissingExportNumbers({
+  const exportNumbers = await assignMissingExportNumbers({
     companyId: input.companyId,
     monthKey: input.monthKey,
     documents: confirmed,
@@ -330,7 +337,7 @@ export async function buildMonthOmegaExport(input: {
   // The same receipt must reach Omega once, even when it sits in two files
   // (2026-08-17_094259 and _094358 both carry O-5EA6…D41C).
   const exportedByUid = new Map<string, DocumentRow>();
-  for (const document of listDocumentsForCompany(input.companyId)) {
+  for (const document of companyDocuments) {
     const uid = receiptUidOfDocument(document);
     if (uid && document.exportedAt && !exportedByUid.has(uid)) {
       exportedByUid.set(uid, document);
@@ -348,7 +355,7 @@ export async function buildMonthOmegaExport(input: {
         preHeldBack.push({
           documentId: document.id,
           reason: `Rovnaký bloček (${uid}) je už v exporte ako ${
-            getFileByDriveId(earlier.driveFileId)?.name ?? earlier.driveFileId
+            (await getFileByDriveId(earlier.driveFileId))?.name ?? earlier.driveFileId
           }${earlier.exportNumber ? ` (${earlier.exportNumber})` : ""}.`,
         });
         continue;
@@ -465,9 +472,16 @@ export async function buildMonthOmegaExport(input: {
     })),
   ];
 
+  const fileNames = new Map<string, string>();
+  for (const row of [...includedRows, ...heldBack]) {
+    const driveFileId = documentsById.get(row.documentId)?.driveFileId ?? row.documentId;
+    if (!fileNames.has(driveFileId)) {
+      fileNames.set(driveFileId, (await getFileByDriveId(driveFileId))?.name ?? driveFileId);
+    }
+  }
   const fileOf = (documentId: string) => {
     const driveFileId = documentsById.get(documentId)?.driveFileId ?? documentId;
-    return { driveFileId, fileName: getFileByDriveId(driveFileId)?.name ?? driveFileId };
+    return { driveFileId, fileName: fileNames.get(driveFileId) ?? driveFileId };
   };
 
   const preview: MonthExportPreview = {
@@ -496,12 +510,12 @@ export async function buildMonthOmegaExport(input: {
   });
 
   if (input.persist !== false) {
-    markDocumentsExported({
+    await markDocumentsExported({
       documentIds: includedRows.map((row) => row.documentId),
       exportedAt: now,
       exportBatch,
     });
-    appendUserEvent(now, input.companyId, "Exported", {
+    await appendUserEvent(now, input.companyId, "Exported", {
       monthKey: input.monthKey,
       exportBatch,
       included: preview.included,

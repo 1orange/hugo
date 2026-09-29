@@ -1,22 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import iconv from "iconv-lite";
 import { eq } from "drizzle-orm";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, documents, events, files, months } from "../../../src/lib/db/schema.ts";
 import { FakeCompanyRegister } from "../../../src/adapters/company-register/fake-company-register.ts";
 import { saveDocumentFields, dismissDocument, confirmDocument } from "../../../src/lib/documents/service.ts";
 import { buildMonthOmegaExport } from "../../../src/lib/omega-export/service.ts";
 import { getDocument } from "../../../src/adapters/store/documents.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
-function tempDbPath(): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "hugo-omega-")), "test.db");
-}
-
-function seedFile(db: ReturnType<typeof getDb>, input: {
+async function seedFile(db: ReturnType<typeof getDb>, input: {
   driveFileId: string;
   companyId: number;
   monthKey: string;
@@ -24,7 +18,7 @@ function seedFile(db: ReturnType<typeof getDb>, input: {
   name: string;
 }) {
   const now = "2026-05-20T10:00:00.000Z";
-  db.insert(files)
+  await db.insert(files)
     .values({
       driveFileId: input.driveFileId,
       companyId: input.companyId,
@@ -37,9 +31,8 @@ function seedFile(db: ReturnType<typeof getDb>, input: {
       firstSeenAt: now,
       lastSeenAt: now,
       deleted: false,
-    })
-    .run();
-  db.insert(documents)
+    });
+  await db.insert(documents)
     .values({
       id: input.driveFileId,
       driveFileId: input.driveFileId,
@@ -50,8 +43,7 @@ function seedFile(db: ReturnType<typeof getDb>, input: {
       extractedPayloadJson: "{}",
       confirmedPayloadJson: "{}",
       createdAt: now,
-    })
-    .run();
+    });
 }
 
 function fieldInput(
@@ -84,40 +76,35 @@ function fieldInput(
 }
 
 test("month export includes confirmed invoices only and keeps export numbers", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const db = getDb();
-  const companyId = Number(
-    db.insert(companies).values({ driveFolderId: "c1", name: "Acme", active: true }).run()
-      .lastInsertRowid,
-  );
-  db.insert(months)
+  const companyId = (
+    await db.insert(companies).values({ driveFolderId: "c1", name: "Acme", active: true }).returning({ id: companies.id })
+  )[0]!.id;
+  await db.insert(months)
     .values({
       companyId,
       monthKey: "2026_05",
       driveFolderId: "month-2026-05",
       closedAt: null,
       openedAt: "2026-05-01T00:00:00.000Z",
-    })
-    .run();
+    });
 
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "inv-confirmed",
     companyId,
     monthKey: "2026_05",
     folderSlot: "01 Vystavené faktúry",
     name: "issued.pdf",
   });
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "inv-dismissed",
     companyId,
     monthKey: "2026_05",
     folderSlot: "01 Vystavené faktúry",
     name: "dismissed.pdf",
   });
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "inv-held",
     companyId,
     monthKey: "2026_05",
@@ -125,7 +112,7 @@ test("month export includes confirmed invoices only and keeps export numbers", a
     name: "held.pdf",
   });
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId,
     monthKey: "2026_05",
     documentId: "inv-confirmed",
@@ -141,21 +128,21 @@ test("month export includes confirmed invoices only and keeps export numbers", a
       vatRecap: [{ rateLiteral: "23", baseLiteral: "100", vatLiteral: "23" }],
     }),
   });
-  confirmDocument({
+  await confirmDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "inv-confirmed",
     confirmed: true,
   });
 
-  dismissDocument({
+  await dismissDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "inv-dismissed",
     reason: "already in Omega",
   });
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId,
     monthKey: "2026_05",
     documentId: "inv-held",
@@ -169,7 +156,7 @@ test("month export includes confirmed invoices only and keeps export numbers", a
       vatRecap: [{ rateLiteral: "23", baseLiteral: "10", vatLiteral: "2.3" }],
     }),
   });
-  confirmDocument({
+  await confirmDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "inv-held",
@@ -189,7 +176,7 @@ test("month export includes confirmed invoices only and keeps export numbers", a
   assert.match(iconv.decode(first.bytes, "win1250"), /R00\tT04/);
   assert.match(iconv.decode(first.bytes, "win1250"), /H2605-0001/);
 
-  const exportedEvent = db.select().from(events).where(eq(events.type, "Exported")).get();
+  const exportedEvent = (await db.select().from(events).where(eq(events.type, "Exported")).limit(1))[0];
   assert.ok(exportedEvent);
 
   const second = await buildMonthOmegaExport({
@@ -198,29 +185,24 @@ test("month export includes confirmed invoices only and keeps export numbers", a
     register,
     now: "2026-05-21T13:00:00.000Z",
   });
-  assert.equal(getDocument("inv-confirmed")!.exportNumber, "H2605-0001");
+  assert.equal((await getDocument("inv-confirmed"))!.exportNumber, "H2605-0001");
   assert.equal(second.preview.included[0]!.exportNumber, "H2605-0001");
 });
 
 test("month export places ekasa, receipt and misfiled invoice in correct sections", async () => {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+  await freshTestDb();
   const db = getDb();
-  const companyId = Number(
-    db.insert(companies).values({ driveFolderId: "c2", name: "Spring", active: true }).run()
-      .lastInsertRowid,
-  );
-  db.insert(months)
+  const companyId = (
+    await db.insert(companies).values({ driveFolderId: "c2", name: "Spring", active: true }).returning({ id: companies.id })
+  )[0]!.id;
+  await db.insert(months)
     .values({
       companyId,
       monthKey: "2026_05",
       driveFolderId: "month-2026-05-b",
       closedAt: null,
       openedAt: "2026-05-01T00:00:00.000Z",
-    })
-    .run();
+    });
 
   const ekasaPayload = {
     kind: "ekasa",
@@ -245,21 +227,21 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
     },
   };
 
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "ekasa-rcpt",
     companyId,
     monthKey: "2026_05",
     folderSlot: "05 Bločky_firemná karta",
     name: "ekasa.pdf",
   });
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "typed-rcpt",
     companyId,
     monthKey: "2026_05",
     folderSlot: "04 Bločky_hotovosť",
     name: "scan.pdf",
   });
-  seedFile(db, {
+  await seedFile(db, {
     driveFileId: "bolt-inv",
     companyId,
     monthKey: "2026_05",
@@ -267,11 +249,10 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
     name: "bolt.pdf",
   });
 
-  db.update(documents)
+  await db.update(documents)
     .set({ extractedPayloadJson: JSON.stringify(ekasaPayload) })
-    .where(eq(documents.driveFileId, "ekasa-rcpt"))
-    .run();
-  db.update(documents)
+    .where(eq(documents.driveFileId, "ekasa-rcpt"));
+  await db.update(documents)
     .set({
       extractedPayloadJson: JSON.stringify({
         kind: "extracted",
@@ -281,9 +262,8 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
         docTypeHint: "receipt",
       }),
     })
-    .where(eq(documents.driveFileId, "typed-rcpt"))
-    .run();
-  db.update(documents)
+    .where(eq(documents.driveFileId, "typed-rcpt"));
+  await db.update(documents)
     .set({
       extractedPayloadJson: JSON.stringify({
         kind: "extracted",
@@ -293,10 +273,9 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
         docTypeHint: "invoice",
       }),
     })
-    .where(eq(documents.driveFileId, "bolt-inv"))
-    .run();
+    .where(eq(documents.driveFileId, "bolt-inv"));
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId,
     monthKey: "2026_05",
     documentId: "ekasa-rcpt",
@@ -309,14 +288,14 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
       vatRecap: [{ rateLiteral: "23", baseLiteral: "10", vatLiteral: "2.3" }],
     }),
   });
-  confirmDocument({
+  await confirmDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "ekasa-rcpt",
     confirmed: true,
   });
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId,
     monthKey: "2026_05",
     documentId: "typed-rcpt",
@@ -329,14 +308,14 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
       vatRecap: [{ rateLiteral: "23", baseLiteral: "40.65", vatLiteral: "9.35" }],
     }),
   });
-  confirmDocument({
+  await confirmDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "typed-rcpt",
     confirmed: true,
   });
 
-  saveDocumentFields({
+  await saveDocumentFields({
     companyId,
     monthKey: "2026_05",
     documentId: "bolt-inv",
@@ -350,7 +329,7 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
       vatRecap: [{ rateLiteral: "23", baseLiteral: "10", vatLiteral: "2.3" }],
     }),
   });
-  confirmDocument({
+  await confirmDocument({
     companyId,
     monthKey: "2026_05",
     documentId: "bolt-inv",

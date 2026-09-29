@@ -1,9 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, documents, files, months } from "../../../src/lib/db/schema.ts";
 import { buildMonthDocumentView } from "../../../src/lib/documents/view.ts";
 import { confirmDocument } from "../../../src/lib/documents/service.ts";
@@ -12,6 +9,7 @@ import { mapOpdResponseToEkasaPayload } from "../../../src/modules/ekasa-lookup-
 import { serializeExtractedPayload } from "../../../src/modules/document-payload.ts";
 import { receiptDocumentId } from "../../../src/modules/receipt-identity.ts";
 import { syntheticEkasaOpdResponse } from "../cash-discovery/synthetic-ekasa-opd.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
 const MONTH = "2026_05";
 const SCAN = "scan-two-receipts";
@@ -37,22 +35,21 @@ function receiptPayloadJson(uid: string, receiptNumber: number, totalPrice: numb
   return serializeExtractedPayload(mapped.payload);
 }
 
-function seed() {
-  const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "hugo-receipts-")), "test.db");
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
-  const db = getDb();
-  const companyId = Number(
-    db.insert(companies).values({ driveFolderId: "c1", name: "Acme", active: true }).run()
-      .lastInsertRowid,
-  );
-  db.insert(months)
-    .values({ companyId, monthKey: MONTH, driveFolderId: "m1", closedAt: null, openedAt: "2026-05-01T00:00:00.000Z" })
-    .run();
+async function seed() {
+  const db = await freshTestDb();
+  const companyId = (
+    await db
+      .insert(companies)
+      .values({ driveFolderId: "c1", name: "Acme", active: true })
+      .returning({ id: companies.id })
+  )[0]!.id;
+  await db
+    .insert(months)
+    .values({ companyId, monthKey: MONTH, driveFolderId: "m1", closedAt: null, openedAt: "2026-05-01T00:00:00.000Z" });
   const now = "2026-05-20T10:00:00.000Z";
   for (const [driveFileId, name] of [[SCAN, "Scan 2026-5-10 18.25.50.pdf"], [OTHER, "2026-08-17_094358.pdf"]] as const) {
-    db.insert(files)
+    await db
+      .insert(files)
       .values({
         driveFileId,
         companyId,
@@ -65,8 +62,7 @@ function seed() {
         firstSeenAt: now,
         lastSeenAt: now,
         deleted: false,
-      })
-      .run();
+      });
   }
   const document = (id: string, driveFileId: string, receiptUid: string | null, payloadJson: string, createdAt: string) => ({
     id,
@@ -80,20 +76,20 @@ function seed() {
     confirmedPayloadJson: "{}",
     createdAt,
   });
-  db.insert(documents)
+  await db
+    .insert(documents)
     .values([
       document(SCAN, SCAN, null, receiptPayloadJson(FIRST_UID, 485, 18), "2026-05-20T10:00:00.000Z"),
       document(receiptDocumentId(SCAN, SECOND_UID), SCAN, SECOND_UID, receiptPayloadJson(SECOND_UID, 4860, 20.08), "2026-05-20T10:00:01.000Z"),
       // The first receipt scanned a second time, into another file.
       document(OTHER, OTHER, null, receiptPayloadJson(FIRST_UID, 485, 18), "2026-05-20T10:00:02.000Z"),
-    ])
-    .run();
+    ]);
   return companyId;
 }
 
-test("each receipt of a scan is its own document, and knows its place in the file", () => {
-  const companyId = seed();
-  const view = buildMonthDocumentView(companyId, MONTH)!;
+test("each receipt of a scan is its own document, and knows its place in the file", async () => {
+  const companyId = await seed();
+  const view = (await buildMonthDocumentView(companyId, MONTH))!;
   const byId = new Map(view.documents.map((item) => [item.id, item]));
 
   assert.equal(view.documents.length, 3);
@@ -105,9 +101,9 @@ test("each receipt of a scan is its own document, and knows its place in the fil
   assert.equal(byId.get(receiptDocumentId(SCAN, SECOND_UID))!.driveFileId, SCAN);
 });
 
-test("the same receipt in two files is flagged on both", () => {
-  const companyId = seed();
-  const view = buildMonthDocumentView(companyId, MONTH)!;
+test("the same receipt in two files is flagged on both", async () => {
+  const companyId = await seed();
+  const view = (await buildMonthDocumentView(companyId, MONTH))!;
   const byId = new Map(view.documents.map((item) => [item.id, item]));
 
   assert.deepEqual(byId.get(OTHER)!.sameReceiptAs.map((other) => other.id), [SCAN]);
@@ -116,10 +112,10 @@ test("the same receipt in two files is flagged on both", () => {
 });
 
 test("the export writes every receipt of a scan and holds back a receipt booked twice", async () => {
-  const companyId = seed();
+  const companyId = await seed();
   for (const documentId of [SCAN, receiptDocumentId(SCAN, SECOND_UID), OTHER]) {
     assert.deepEqual(
-      confirmDocument({ companyId, monthKey: MONTH, documentId, confirmed: true, now: "2026-05-21T10:00:00.000Z" }),
+      await confirmDocument({ companyId, monthKey: MONTH, documentId, confirmed: true, now: "2026-05-21T10:00:00.000Z" }),
       { ok: true },
     );
   }
@@ -138,10 +134,10 @@ test("the export writes every receipt of a scan and holds back a receipt booked 
   assert.equal(new Set(numbers).size, 2);
 });
 
-test("a scan's receipts stay together in the list, even when found later", () => {
-  const companyId = seed();
+test("a scan's receipts stay together in the list, even when found later", async () => {
+  const companyId = await seed();
   const THIRD_UID = "V-33333333333333333333333333333333";
-  getDb()
+  await getDb()
     .insert(documents)
     .values({
       id: receiptDocumentId(SCAN, THIRD_UID),
@@ -154,10 +150,9 @@ test("a scan's receipts stay together in the list, even when found later", () =>
       extractedPayloadJson: receiptPayloadJson(THIRD_UID, 7, 5),
       confirmedPayloadJson: "{}",
       createdAt: "2026-05-22T10:00:00.000Z",
-    })
-    .run();
+    });
 
-  const view = buildMonthDocumentView(companyId, MONTH)!;
+  const view = (await buildMonthDocumentView(companyId, MONTH))!;
 
   assert.deepEqual(
     view.documents.map((item) => item.id),

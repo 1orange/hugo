@@ -41,13 +41,13 @@ export default async function CompanyProfilePage({
     notFound();
   }
 
-  const view = loadCompanyProfileView(companyId);
+  const view = await loadCompanyProfileView(companyId);
   if (!view) {
     notFound();
   }
 
-  const settings = getSettings();
-  const openMonth = getOpenMonthKey(companyId);
+  const settings = await getSettings();
+  const openMonth = await getOpenMonthKey(companyId);
   let initialCandidates: RegisterSearchHit[] = [];
   let registerLookupError: string | null = null;
   let pickedFromRegister: {

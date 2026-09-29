@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { months } from "@/lib/db/schema";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 
 export type MonthRow = {
   id: number;
@@ -11,49 +11,38 @@ export type MonthRow = {
   openedAt: string | null;
 };
 
-export function upsertMonth(
+export async function upsertMonth(
   companyId: number,
   monthKey: string,
   driveFolderId: string,
-): MonthRow {
+): Promise<MonthRow> {
   const db = getDb();
-  const existing = db
-    .select()
-    .from(months)
-    .where(
-      and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
-    )
-    .get();
+  const existing = await getMonthByKey(companyId, monthKey);
 
   if (existing) {
     if (existing.driveFolderId !== driveFolderId) {
-      db.update(months)
-        .set({ driveFolderId })
-        .where(eq(months.id, existing.id))
-        .run();
+      await db.update(months).set({ driveFolderId }).where(eq(months.id, existing.id));
     }
     return { ...existing, driveFolderId };
   }
 
-  return db
+  // Another sweep may have added it meanwhile; its folder id is unique.
+  const [inserted] = await db
     .insert(months)
     .values({ companyId, monthKey, driveFolderId })
-    .returning()
-    .get();
+    .onConflictDoNothing({ target: months.driveFolderId })
+    .returning();
+  return inserted ?? (await getMonthByKey(companyId, monthKey))!;
 }
 
-export function listMonthsForCompany(companyId: number): MonthRow[] {
+export async function listMonthsForCompany(companyId: number): Promise<MonthRow[]> {
   const db = getDb();
-  return db
-    .select()
-    .from(months)
-    .where(eq(months.companyId, companyId))
-    .all()
-    .sort((left, right) => left.monthKey.localeCompare(right.monthKey));
+  const rows = await db.select().from(months).where(eq(months.companyId, companyId));
+  return rows.sort((left, right) => left.monthKey.localeCompare(right.monthKey));
 }
 
-export function getOpenMonthKey(companyId: number): string | null {
-  const monthRows = listMonthsForCompany(companyId).filter(
+export async function getOpenMonthKey(companyId: number): Promise<string | null> {
+  const monthRows = (await listMonthsForCompany(companyId)).filter(
     (month) => month.closedAt === null,
   );
   if (monthRows.length === 0) {
@@ -62,69 +51,59 @@ export function getOpenMonthKey(companyId: number): string | null {
   return monthRows[monthRows.length - 1]!.monthKey;
 }
 
-export function getMonthByKey(
+export async function getMonthByKey(
   companyId: number,
   monthKey: string,
-): MonthRow | null {
+): Promise<MonthRow | null> {
   const db = getDb();
-  return (
-    db
-      .select()
-      .from(months)
-      .where(
-        and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
-      )
-      .get() ?? null
-  );
+  const [row] = await db
+    .select()
+    .from(months)
+    .where(and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)))
+    .limit(1);
+  return row ?? null;
 }
 
-export function closeMonth(
+export async function closeMonth(
   companyId: number,
   monthKey: string,
   closedAt: string,
-): MonthRow | null {
+): Promise<MonthRow | null> {
   const db = getDb();
-  const updated = db
+  const [updated] = await db
     .update(months)
     .set({ closedAt })
-    .where(
-      and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
-    )
-    .returning()
-    .get();
+    .where(and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)))
+    .returning();
   return updated ?? null;
 }
 
-export function reopenMonth(
+export async function reopenMonth(
   companyId: number,
   monthKey: string,
-): MonthRow | null {
+): Promise<MonthRow | null> {
   const db = getDb();
-  const updated = db
+  const [updated] = await db
     .update(months)
     .set({ closedAt: null })
-    .where(
-      and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)),
-    )
-    .returning()
-    .get();
+    .where(and(eq(months.companyId, companyId), eq(months.monthKey, monthKey)))
+    .returning();
   return updated ?? null;
 }
 
-export function isMonthClosed(companyId: number, monthKey: string): boolean {
-  const month = getMonthByKey(companyId, monthKey);
+export async function isMonthClosed(companyId: number, monthKey: string): Promise<boolean> {
+  const month = await getMonthByKey(companyId, monthKey);
   return month?.closedAt !== null && month?.closedAt !== undefined;
 }
 
-export function getMonthByDriveFolderId(
+export async function getMonthByDriveFolderId(
   driveFolderId: string,
-): MonthRow | null {
+): Promise<MonthRow | null> {
   const db = getDb();
-  return (
-    db
-      .select()
-      .from(months)
-      .where(eq(months.driveFolderId, driveFolderId))
-      .get() ?? null
-  );
+  const [row] = await db
+    .select()
+    .from(months)
+    .where(eq(months.driveFolderId, driveFolderId))
+    .limit(1);
+  return row ?? null;
 }

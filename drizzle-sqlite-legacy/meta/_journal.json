@@ -1,0 +1,111 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1787946090514,
+      "tag": "0000_tan_wraith",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787946683103,
+      "tag": "0001_lethal_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787947466758,
+      "tag": "0002_dashing_bulldozer",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787949867859,
+      "tag": "0003_daffy_nicolaos",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787950903081,
+      "tag": "0004_ekasa_text_layer",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787951560092,
+      "tag": "0005_flashy_the_watchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787952000000,
+      "tag": "0006_reconciliation_pairings",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787952600000,
+      "tag": "0007_documents_domain",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787953200000,
+      "tag": "0008_auto_advance_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787953800000,
+      "tag": "0009_company_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787954400000,
+      "tag": "0010_omega_export",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1787955000000,
+      "tag": "0011_omega_t00_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787955600000,
+      "tag": "0012_extraction_pipeline_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1787956200000,
+      "tag": "0013_document_per_receipt",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790640000000,
+      "tag": "0014_drive_watch_channel",
+      "breakpoints": true
+    }
+  ]
+}

@@ -25,16 +25,21 @@ export type SettingsFormData = {
   autoAdvanceAfterDecision: boolean;
 };
 
-export function buildExistingFolderRefs() {
-  return listAllMonthFolders()
+export async function buildExistingFolderRefs() {
+  const folders = await listAllMonthFolders();
+  const companyNames = new Map<number, string | null>();
+  for (const companyId of new Set(folders.map((folder) => folder.companyId))) {
+    companyNames.set(companyId, (await getCompanyById(companyId))?.name ?? null);
+  }
+  return folders
     .map((folder) => {
-      const company = getCompanyById(folder.companyId);
-      if (!company) {
+      const companyName = companyNames.get(folder.companyId);
+      if (!companyName) {
         return null;
       }
       return {
         companyId: folder.companyId,
-        companyName: company.name,
+        companyName,
         monthKey: folder.monthKey,
         folderName: folder.name,
       };
@@ -42,37 +47,37 @@ export function buildExistingFolderRefs() {
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
 
-export function previewCanonicalFolderNamesChange(
+export async function previewCanonicalFolderNamesChange(
   proposedNames: readonly string[],
-): { ok: true; impact: CanonicalListImpact } | { ok: false; message: string } {
+): Promise<{ ok: true; impact: CanonicalListImpact } | { ok: false; message: string }> {
   const validation = validateCanonicalFolderNames(proposedNames);
   if (!validation.ok) {
     return { ok: false, message: validation.errors[0]!.message };
   }
 
-  const current = getSettings();
+  const current = await getSettings();
   const impact = previewCanonicalListImpact({
     currentCanonicalNames: current.canonicalFolderNames,
     proposedCanonicalNames: validation.normalized,
-    existingFolders: buildExistingFolderRefs(),
+    existingFolders: await buildExistingFolderRefs(),
   });
 
   return { ok: true, impact };
 }
 
-function recordSettingsEvent(
+async function recordSettingsEvent(
   type: GlobalEventType,
   previous: unknown,
   next: unknown,
-): void {
-  appendGlobalUserEvent(new Date().toISOString(), type, {
+): Promise<void> {
+  await appendGlobalUserEvent(new Date().toISOString(), type, {
     previous,
     next,
   });
 }
 
-export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResult {
-  const previous = getSettings();
+export async function saveGlobalSettings(input: SettingsFormData): Promise<SettingsUpdateResult> {
+  const previous = await getSettings();
   const trimmedParentId = input.driveParentFolderId.trim();
 
   if (!trimmedParentId) {
@@ -102,21 +107,21 @@ export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResul
     };
   }
 
-  const canonicalResult = updateCanonicalFolderNames(
+  const canonicalResult = await updateCanonicalFolderNames(
     canonicalValidation.normalized,
   );
   if (!canonicalResult.ok) {
     return canonicalResult;
   }
 
-  const movableResult = updateMovableFolderNames(movableValidation.normalized);
+  const movableResult = await updateMovableFolderNames(movableValidation.normalized);
   if (!movableResult.ok) {
     return movableResult;
   }
 
   if (trimmedParentId !== (previous.driveParentFolderId ?? "")) {
-    setDriveParentFolderId(trimmedParentId);
-    recordSettingsEvent("DriveParentFolderIdChanged", {
+    await setDriveParentFolderId(trimmedParentId);
+    await recordSettingsEvent("DriveParentFolderIdChanged", {
       driveParentFolderId: previous.driveParentFolderId,
     }, {
       driveParentFolderId: trimmedParentId,
@@ -125,21 +130,21 @@ export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResul
 
   const autoAdvance = input.autoAdvanceAfterDecision === true;
   if (autoAdvance !== previous.autoAdvanceAfterDecision) {
-    setAutoAdvanceAfterDecision(autoAdvance);
-    recordSettingsEvent(
+    await setAutoAdvanceAfterDecision(autoAdvance);
+    await recordSettingsEvent(
       "AutoAdvanceChanged",
       previous.autoAdvanceAfterDecision,
       autoAdvance,
     );
   }
 
-  const next = getSettings();
+  const next = await getSettings();
 
   if (
     JSON.stringify(previous.canonicalFolderNames) !==
     JSON.stringify(next.canonicalFolderNames)
   ) {
-    recordSettingsEvent("CanonicalFolderNamesChanged", {
+    await recordSettingsEvent("CanonicalFolderNamesChanged", {
       canonicalFolderNames: previous.canonicalFolderNames,
     }, {
       canonicalFolderNames: next.canonicalFolderNames,
@@ -150,7 +155,7 @@ export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResul
     JSON.stringify(previous.movableFolderNames) !==
     JSON.stringify(next.movableFolderNames)
   ) {
-    recordSettingsEvent("MovableFolderNamesChanged", {
+    await recordSettingsEvent("MovableFolderNamesChanged", {
       movableFolderNames: previous.movableFolderNames,
     }, {
       movableFolderNames: next.movableFolderNames,
@@ -160,10 +165,10 @@ export function saveGlobalSettings(input: SettingsFormData): SettingsUpdateResul
   return { ok: true, settings: next };
 }
 
-export function loadSettingsFormData(): SettingsRow & {
+export async function loadSettingsFormData(): Promise<SettingsRow & {
   effectiveDriveParentFolderId: string | null;
-} {
-  const settings = getSettings();
+}> {
+  const settings = await getSettings();
   return {
     ...settings,
     effectiveDriveParentFolderId:

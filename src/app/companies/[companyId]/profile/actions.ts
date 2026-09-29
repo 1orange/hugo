@@ -94,7 +94,7 @@ export async function saveCompanyProfileAction(
     return denied;
   }
 
-  const result = saveCompanyProfileForUser(companyId, input, new Date().toISOString());
+  const result = await saveCompanyProfileForUser(companyId, input, new Date().toISOString());
   if (!result.ok) {
     return { ok: false, message: result.message };
   }
@@ -116,7 +116,7 @@ export async function saveCompanyProfileFormAction(
 
   const country = parseCountry(String(formData.get("country") ?? "SK"));
 
-  const result = saveCompanyProfileForUser(
+  const result = await saveCompanyProfileForUser(
     companyId,
     {
       country,

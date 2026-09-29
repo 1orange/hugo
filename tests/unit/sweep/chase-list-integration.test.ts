@@ -1,22 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { runMigrations, resetDbForTests, getDb } from "../../../src/lib/db/migrate.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, documents, files, months } from "../../../src/lib/db/schema.ts";
 import {
   listAllMonthKeys,
   listCompanySummaries,
   summariseChaseList,
 } from "../../../src/lib/sweep/views.ts";
+import { freshTestDb } from "../support/test-db.ts";
 
 const COMPANY_A = 1;
 const COMPANY_B = 2;
-
-function tempDbPath(): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "hugo-chase-")), "test.db");
-}
 
 function file(
   driveFileId: string,
@@ -66,21 +60,17 @@ function document_(
  * two proofs and one document still awaiting.
  * Company B: only January, still open, and nothing has arrived at all.
  */
-function seed(): void {
-  const dbPath = tempDbPath();
-  process.env.DATABASE_PATH = dbPath;
-  resetDbForTests();
-  runMigrations(dbPath);
+async function seed(): Promise<void> {
+  await freshTestDb();
 
   const db = getDb();
-  db.insert(companies)
+  await db.insert(companies)
     .values([
       { id: COMPANY_A, driveFolderId: "co-a", name: "Alfa s.r.o.", active: true },
       { id: COMPANY_B, driveFolderId: "co-b", name: "Beta s.r.o.", active: true },
-    ])
-    .run();
+    ]);
 
-  db.insert(months)
+  await db.insert(months)
     .values([
       {
         companyId: COMPANY_A,
@@ -90,30 +80,27 @@ function seed(): void {
       },
       { companyId: COMPANY_A, monthKey: "2026_02", driveFolderId: "a-feb", closedAt: null },
       { companyId: COMPANY_B, monthKey: "2026_01", driveFolderId: "b-jan", closedAt: null },
-    ])
-    .run();
+    ]);
 
-  db.insert(files)
+  await db.insert(files)
     .values([
       file("a-jan-inv", COMPANY_A, "2026_01", "02 Prijaté faktúry", "2026-01-14T08:00:00.000Z"),
       file("a-feb-stmt", COMPANY_A, "2026_02", "03 Bankové výpisy", "2026-03-04T07:30:00.000Z"),
       file("a-feb-inv1", COMPANY_A, "2026_02", "02 Prijaté faktúry", "2026-02-11T09:00:00.000Z"),
       file("a-feb-inv2", COMPANY_A, "2026_02", "02 Prijaté faktúry", "2026-02-18T09:00:00.000Z"),
-    ])
-    .run();
+    ]);
 
-  db.insert(documents)
+  await db.insert(documents)
     .values([
       document_("a-jan-inv", COMPANY_A, "2026_01", "confirmed"),
       document_("a-feb-inv1", COMPANY_A, "2026_02", "confirmed"),
       document_("a-feb-inv2", COMPANY_A, "2026_02", null),
-    ])
-    .run();
+    ]);
 }
 
-test("with no month picked, each row reports that company's own open month", () => {
-  seed();
-  const rows = listCompanySummaries();
+test("with no month picked, each row reports that company's own open month", async () => {
+  await seed();
+  const rows = await listCompanySummaries();
 
   const alfa = rows.find((row) => row.id === COMPANY_A);
   assert.equal(alfa?.monthKey, "2026_02");
@@ -133,9 +120,9 @@ test("with no month picked, each row reports that company's own open month", () 
   assert.deepEqual(rows.map((row) => row.id), [COMPANY_B, COMPANY_A]);
 });
 
-test("picking a past month reports that month for every company", () => {
-  seed();
-  const rows = listCompanySummaries("2026_01");
+test("picking a past month reports that month for every company", async () => {
+  await seed();
+  const rows = await listCompanySummaries("2026_01");
 
   const alfa = rows.find((row) => row.id === COMPANY_A);
   assert.equal(alfa?.monthKey, "2026_01");
@@ -150,9 +137,9 @@ test("picking a past month reports that month for every company", () => {
   assert.equal(beta?.chaseState, "silent");
 });
 
-test("a company without the picked month says so rather than reading as idle", () => {
-  seed();
-  const rows = listCompanySummaries("2026_02");
+test("a company without the picked month says so rather than reading as idle", async () => {
+  await seed();
+  const rows = await listCompanySummaries("2026_02");
 
   const beta = rows.find((row) => row.id === COMPANY_B);
   assert.equal(beta?.monthKey, null);
@@ -160,20 +147,20 @@ test("a company without the picked month says so rather than reading as idle", (
   assert.equal(beta?.awaitingCount, null);
 });
 
-test("the month picker offers every month any company has, newest first", () => {
-  seed();
-  assert.deepEqual(listAllMonthKeys(), ["2026_02", "2026_01"]);
+test("the month picker offers every month any company has, newest first", async () => {
+  await seed();
+  assert.deepEqual(await listAllMonthKeys(), ["2026_02", "2026_01"]);
 });
 
-test("a closed month is not counted as missing a statement", () => {
-  seed();
-  const open = summariseChaseList(listCompanySummaries());
+test("a closed month is not counted as missing a statement", async () => {
+  await seed();
+  const open = summariseChaseList(await listCompanySummaries());
   // February has a statement; Beta's January has none.
   assert.equal(open.withoutStatement, 1);
   assert.equal(open.awaitingTotal, 1);
   assert.equal(open.silent, 1);
 
-  const january = summariseChaseList(listCompanySummaries("2026_01"));
+  const january = summariseChaseList(await listCompanySummaries("2026_01"));
   // Alfa's January is closed, so it is not chased for a statement it never got.
   assert.equal(january.withoutStatement, 1);
 });

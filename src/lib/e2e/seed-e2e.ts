@@ -6,7 +6,7 @@ import {
   E2E_DRIVE_PARENT_FOLDER_ID,
 } from "@/adapters/drive/e2e-fixture";
 import { setDriveParentFolderId } from "@/adapters/store/settings";
-import { getDb } from "@/lib/db/migrate";
+import { getDb } from "@/lib/db/client";
 import {
   companies,
   companyProfiles,
@@ -26,6 +26,17 @@ import {
   writeExtractedPayload,
 } from "@/adapters/store/documents";
 import { emptyExtractedPayload } from "@/modules/document-payload";
+import { extractionQueue } from "@/adapters/job-queue/bullmq-queues";
+import { redis, redisKey, redisUrl } from "@/lib/redis/connection";
+
+/** What an earlier spec left queued, and how its reads ended, goes too. */
+async function clearE2eQueues(): Promise<void> {
+  if (!redisUrl()) {
+    return;
+  }
+  await extractionQueue().obliterate({ force: true });
+  await redis().del(redisKey("extraction", "recent"));
+}
 
 /**
  * Puts the e2e database back to the state every spec starts from. The specs
@@ -35,42 +46,43 @@ import { emptyExtractedPayload } from "@/modules/document-payload";
  */
 export async function seedE2eDatabase(): Promise<void> {
   const db = getDb();
-  // Children before parents; then restart ids so company 1 is company 1 again.
-  for (const table of [
-    events,
-    driveMutations,
-    documents,
-    partners,
-    companyProfiles,
-    files,
-    monthFolders,
-    months,
-    companies,
-    settings,
-  ]) {
-    db.delete(table).run();
-  }
-  db.run(sql`DELETE FROM sqlite_sequence`);
+  // Every table, then ids from 1 again so company 1 is company 1 again.
+  await db.execute(sql`TRUNCATE TABLE ${sql.join(
+    [
+      events,
+      driveMutations,
+      documents,
+      partners,
+      companyProfiles,
+      files,
+      monthFolders,
+      months,
+      companies,
+      settings,
+    ],
+    sql`, `,
+  )} RESTART IDENTITY CASCADE`);
+  await clearE2eQueues();
 
   const fixture = e2eDriveFixture();
   const fileContents = e2eDriveFileContents();
 
   const driveClient = new FakeDriveClient(fixture, fileContents);
-  setDriveParentFolderId(E2E_DRIVE_PARENT_FOLDER_ID);
+  await setDriveParentFolderId(E2E_DRIVE_PARENT_FOLDER_ID);
 
   await runSweep(driveClient);
   const now = "2026-01-12T10:00:00.000Z";
-  ensureDocumentsForMonth(1, "2026_01", now);
-  ensureDocumentsForMonth(2, "2026_01", now);
+  await ensureDocumentsForMonth(1, "2026_01", now);
+  await ensureDocumentsForMonth(2, "2026_01", now);
 
-  writeExtractedPayload(
+  await writeExtractedPayload(
     "e2e-doc-blank-receipt",
     emptyExtractedPayload(),
     "failed",
     "The PDF has no extractable text layer.",
   );
 
-  upsertEkasaExtractedPayload({
+  await upsertEkasaExtractedPayload({
     driveFileId: "e2e-doc-receipt",
     companyId: 1,
     monthKey: "2026_01",
@@ -102,7 +114,7 @@ export async function seedE2eDatabase(): Promise<void> {
     createdAt: now,
   });
 
-  upsertEkasaExtractedPayload({
+  await upsertEkasaExtractedPayload({
     driveFileId: "e2e-doc-cz-receipt",
     companyId: 2,
     monthKey: "2026_01",

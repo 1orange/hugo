@@ -18,7 +18,7 @@ export default async function SettingsPage() {
     redirect("/auth/refused");
   }
 
-  const settings = loadSettingsFormData();
+  const settings = await loadSettingsFormData();
 
   return (
     <div className="flex min-h-screen flex-col bg-surface">

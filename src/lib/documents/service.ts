@@ -17,19 +17,19 @@ export type DocumentActionResult =
   | { ok: true }
   | { ok: false; message: string };
 
-export function confirmDocument(input: {
+export async function confirmDocument(input: {
   companyId: number;
   monthKey: string;
   documentId: string;
   confirmed: boolean;
   now?: string;
-}): DocumentActionResult {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+}): Promise<DocumentActionResult> {
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  const document = getDocument(input.documentId);
+  const document = await getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -40,17 +40,17 @@ export function confirmDocument(input: {
 
   const now = input.now ?? new Date().toISOString();
   if (input.confirmed) {
-    setDocumentDecision(input.documentId, "confirmed", {
+    await setDocumentDecision(input.documentId, "confirmed", {
       decidedAt: now,
       notRelevantReason: null,
     });
-    appendUserEvent(now, input.companyId, "Confirmed", {
+    await appendUserEvent(now, input.companyId, "Confirmed", {
       monthKey: input.monthKey,
       driveFileId: document.driveFileId,
       documentId: document.id,
     });
   } else {
-    setDocumentDecision(input.documentId, null, {
+    await setDocumentDecision(input.documentId, null, {
       decidedAt: null,
       notRelevantReason: null,
     });
@@ -59,19 +59,19 @@ export function confirmDocument(input: {
   return { ok: true };
 }
 
-export function dismissDocument(input: {
+export async function dismissDocument(input: {
   companyId: number;
   monthKey: string;
   documentId: string;
   reason?: string;
   now?: string;
-}): DocumentActionResult {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+}): Promise<DocumentActionResult> {
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  const document = getDocument(input.documentId);
+  const document = await getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -81,7 +81,7 @@ export function dismissDocument(input: {
   }
 
   const now = input.now ?? new Date().toISOString();
-  setDocumentDecision(input.documentId, "not_relevant", {
+  await setDocumentDecision(input.documentId, "not_relevant", {
     decidedAt: now,
     notRelevantReason: input.reason?.trim() || null,
   });
@@ -89,18 +89,18 @@ export function dismissDocument(input: {
   return { ok: true };
 }
 
-export function saveDocumentNote(input: {
+export async function saveDocumentNote(input: {
   companyId: number;
   monthKey: string;
   documentId: string;
   note: string;
-}): DocumentActionResult {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+}): Promise<DocumentActionResult> {
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  const document = getDocument(input.documentId);
+  const document = await getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -109,22 +109,22 @@ export function saveDocumentNote(input: {
     return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
   }
 
-  updateDocumentNote(input.documentId, input.note.trim() || null);
+  await updateDocumentNote(input.documentId, input.note.trim() || null);
   return { ok: true };
 }
 
-export function saveDocumentFields(input: {
+export async function saveDocumentFields(input: {
   companyId: number;
   monthKey: string;
   documentId: string;
   fields: DocumentFieldFormInput;
-}): DocumentActionResult {
-  const readOnly = assertMonthEditable(input.companyId, input.monthKey);
+}): Promise<DocumentActionResult> {
+  const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
   }
 
-  const document = getDocument(input.documentId);
+  const document = await getDocument(input.documentId);
   if (
     !document ||
     document.companyId !== input.companyId ||
@@ -143,10 +143,10 @@ export function saveDocumentFields(input: {
   );
   const next = readExportSectionOverride(parsed.payload);
 
-  writeConfirmedPayload(input.documentId, parsed.payload);
+  await writeConfirmedPayload(input.documentId, parsed.payload);
 
   if (previous !== next) {
-    appendUserEvent(new Date().toISOString(), input.companyId, "ExportSectionChanged", {
+    await appendUserEvent(new Date().toISOString(), input.companyId, "ExportSectionChanged", {
       monthKey: input.monthKey,
       driveFileId: document.driveFileId,
       documentId: document.id,

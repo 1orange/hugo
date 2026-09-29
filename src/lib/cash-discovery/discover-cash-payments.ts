@@ -97,13 +97,13 @@ export async function extractReceiptTextLines(
   }
 }
 
-function markManualEntry(
+async function markManualEntry(
   input: {
     driveFileId: string;
     reason: string;
   },
-): void {
-  writeExtractedPayload(
+): Promise<void> {
+  await writeExtractedPayload(
     input.driveFileId,
     emptyExtractedPayload(),
     "failed",
@@ -120,14 +120,14 @@ async function wholeDocumentLines(
   return extracted.ok ? extracted.lines : firstPageLines;
 }
 
-function writeOtherReceipt(input: {
+async function writeOtherReceipt(input: {
   companyId: number;
   monthKey: string;
   driveFileId: string;
   folderSlot: string;
   now: string;
   other: OtherReceipt;
-}): void {
+}): Promise<void> {
   const { other } = input;
   const base = {
     documentId: receiptDocumentId(input.driveFileId, other.uid),
@@ -139,7 +139,7 @@ function writeOtherReceipt(input: {
     createdAt: input.now,
   };
   if (!other.result.ok) {
-    upsertEkasaExtractedPayload({
+    await upsertEkasaExtractedPayload({
       ...base,
       payload: withTypedEkasaUid(emptyExtractedPayload(), other.uid),
       extractionStatus: "failed",
@@ -148,7 +148,7 @@ function writeOtherReceipt(input: {
     return;
   }
   const foreign = other.result.payload.currency !== "EUR";
-  upsertEkasaExtractedPayload({
+  await upsertEkasaExtractedPayload({
     ...base,
     payload: other.result.payload,
     extractionStatus: foreign ? "failed" : "complete",
@@ -156,7 +156,7 @@ function writeOtherReceipt(input: {
       ? `Receipt is in ${other.result.payload.currency} — enter the EUR amount manually.`
       : null,
   });
-  appendCompanySystemEvent(input.now, input.companyId, "Extracted", {
+  await appendCompanySystemEvent(input.now, input.companyId, "Extracted", {
     monthKey: input.monthKey,
     driveFileId: input.driveFileId,
     documentId: base.documentId,
@@ -180,18 +180,18 @@ export async function processCashReceiptFile(
   >,
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
-  const editable = assertMonthEditable(input.companyId, input.monthKey);
+  const editable = await assertMonthEditable(input.companyId, input.monthKey);
   if (editable) {
     return;
   }
 
-  ensureDocumentsForMonth(input.companyId, input.monthKey, now);
+  await ensureDocumentsForMonth(input.companyId, input.monthKey, now);
 
-  if (extractionAlreadyAttempted(input.driveFileId)) {
+  if (await extractionAlreadyAttempted(input.driveFileId)) {
     return;
   }
 
-  const existingRow = getDocument(input.driveFileId);
+  const existingRow = await getDocument(input.driveFileId);
   const existingPayload = parseExtractedPayload(
     existingRow?.extractedPayloadJson ?? "{}",
   );
@@ -201,7 +201,7 @@ export async function processCashReceiptFile(
       : undefined;
   // The file's further receipts, from an earlier read: their UIDs and responses.
   const cachedOpdResponsesByUid: Record<string, unknown> = {};
-  for (const sibling of listDocumentsForFile(input.driveFileId)) {
+  for (const sibling of await listDocumentsForFile(input.driveFileId)) {
     const siblingPayload = parseExtractedPayload(sibling.extractedPayloadJson);
     if (sibling.receiptUid && isEkasaPayload(siblingPayload) && siblingPayload.opdResponse !== undefined) {
       cachedOpdResponsesByUid[sibling.receiptUid] = siblingPayload.opdResponse;
@@ -245,7 +245,7 @@ export async function processCashReceiptFile(
 
   // Each further receipt in the file is a document of its own.
   for (const other of ekasa.otherReceipts ?? []) {
-    writeOtherReceipt({ ...input, now, other });
+    await writeOtherReceipt({ ...input, now, other });
   }
 
   let modelSource: "model" | "ocr" = "model";
@@ -301,7 +301,7 @@ export async function processCashReceiptFile(
       );
       return;
     }
-    markManualEntry({
+    await markManualEntry({
       driveFileId: input.driveFileId,
       reason: ekasa.reason,
     });
@@ -311,7 +311,7 @@ export async function processCashReceiptFile(
   const payload = ekasa.payload;
 
   if (payload.currency !== "EUR") {
-    upsertEkasaExtractedPayload({
+    await upsertEkasaExtractedPayload({
       driveFileId: input.driveFileId,
       companyId: input.companyId,
       monthKey: input.monthKey,
@@ -321,7 +321,7 @@ export async function processCashReceiptFile(
       extractionFailureReason: `Receipt is in ${payload.currency} — enter the EUR amount manually.`,
       createdAt: now,
     });
-    appendCompanySystemEvent(now, input.companyId, "Extracted", {
+    await appendCompanySystemEvent(now, input.companyId, "Extracted", {
       monthKey: input.monthKey,
       driveFileId: input.driveFileId,
       source: ekasa.source,
@@ -330,7 +330,7 @@ export async function processCashReceiptFile(
     return;
   }
 
-  upsertEkasaExtractedPayload({
+  await upsertEkasaExtractedPayload({
     driveFileId: input.driveFileId,
     companyId: input.companyId,
     monthKey: input.monthKey,
@@ -341,7 +341,7 @@ export async function processCashReceiptFile(
     createdAt: now,
   });
 
-  appendCompanySystemEvent(now, input.companyId, "Extracted", {
+  await appendCompanySystemEvent(now, input.companyId, "Extracted", {
     monthKey: input.monthKey,
     driveFileId: input.driveFileId,
     source: ekasa.source,
@@ -349,16 +349,16 @@ export async function processCashReceiptFile(
   });
 }
 
-export function listCashReceiptCandidates(
+export async function listCashReceiptCandidates(
   companyId: number,
   monthKey: string,
-): Array<{
+): Promise<Array<{
   driveFileId: string;
   name: string;
   mimeType: string;
   folderSlot: string;
-}> {
-  return listFilesForMonth(companyId, monthKey)
+}>> {
+  return (await listFilesForMonth(companyId, monthKey))
     .filter((file) => {
       if (file.deleted) {
         return false;
@@ -383,21 +383,21 @@ export async function discoverCashPaymentsForMonth(
   monthKey: string,
   deps: CashDiscoveryDeps,
 ): Promise<void> {
-  const editable = assertMonthEditable(companyId, monthKey);
+  const editable = await assertMonthEditable(companyId, monthKey);
   if (editable) {
     return;
   }
 
   const now = deps.now?.() ?? new Date().toISOString();
-  ensureDocumentsForMonth(companyId, monthKey, now);
-  const candidates = listCashReceiptCandidates(companyId, monthKey);
+  await ensureDocumentsForMonth(companyId, monthKey, now);
+  const candidates = await listCashReceiptCandidates(companyId, monthKey);
 
   for (const file of candidates) {
-    if (!needsExtraction(getDocument(file.driveFileId))) {
+    if (!needsExtraction(await getDocument(file.driveFileId))) {
       continue;
     }
 
-    beginExtractionAttempt(file.driveFileId);
+    await beginExtractionAttempt(file.driveFileId);
 
     try {
       const fileBytes = await deps.driveClient.download(file.driveFileId);
@@ -413,7 +413,7 @@ export async function discoverCashPaymentsForMonth(
         deps,
       );
     } catch (error) {
-      recordExtractionCrash(file.driveFileId, error);
+      await recordExtractionCrash(file.driveFileId, error);
     }
   }
 }
