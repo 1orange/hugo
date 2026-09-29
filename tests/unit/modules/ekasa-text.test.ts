@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   isEkasaReceipt,
   parseEkasaText,
+  printsEkasaMarks,
   validateEkasaArithmetic,
 } from "../../../src/modules/ekasa-text.ts";
 import {
@@ -14,6 +15,28 @@ test("isEkasaReceipt requires UID, OKP and NA ÚHRADU markers", () => {
   const lines = syntheticEkasaLines();
   assert.equal(isEkasaReceipt(lines), true);
   assert.equal(isEkasaReceipt(["train ticket", "Celkem | 30.90 EUR"]), false);
+});
+
+// A parking machine is outside eKasa: its ticket has no UID to ask for.
+test("one eKasa mark is enough; a parking ticket shows none", () => {
+  assert.equal(printsEkasaMarks(syntheticEkasaLines()), true);
+  // As OCR reads a scan: an O read as a zero, the rest of the lines lost.
+  assert.equal(printsEkasaMarks(["UID: 0-1234567890ABCDEF1234567890ABCDEF"]), true);
+  assert.equal(printsEkasaMarks(["*** OVERTE DOKLAD POMOCOU QR KÓDU"]), true);
+  assert.equal(printsEkasaMarks(["Kód pokladnice: 88820200000000001"]), true);
+  assert.equal(
+    printsEkasaMarks([
+      "Parkovisko Centrum s.r.o.",
+      "IČ DPH: SK2120000000",
+      "Automat 12 23.07.26 20:29",
+      "Potvrdenka 12345",
+      "Krátkodobé parkovné",
+      "Spolu s DPH | €3,00",
+      "Terminál: 10000001",
+      "Autorizačný kód: 123456",
+    ]),
+    false,
+  );
 });
 
 test("parseEkasaText extracts synthetic receipt facts", () => {

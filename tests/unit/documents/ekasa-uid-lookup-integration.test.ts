@@ -7,6 +7,8 @@ import { companies, documents, events, files, months } from "../../../src/lib/db
 import { getDb } from "../../../src/lib/db/client.ts";
 import { lookupEkasaUidForDocument } from "../../../src/lib/documents/lookup-ekasa-uid.ts";
 import { buildMonthDocumentView } from "../../../src/lib/documents/view.ts";
+import { createStubExtractor } from "../../../src/adapters/extractor/stub-extractor.ts";
+import { processModelExtractionFromLines } from "../../../src/lib/model-extraction/process-model-extraction.ts";
 import {
   isEkasaPayload,
   parseConfirmedPayload,
@@ -151,4 +153,26 @@ test("closed month rejects UID lookup", async () => {
   });
 
   assert.equal(result.ok, false);
+});
+
+// A parking machine is outside eKasa: its ticket has no UID to type in.
+test("a receipt that prints no eKasa mark is read without asking for a UID", async () => {
+  const readAs = async (lines: string[]) => {
+    await seed();
+    await processModelExtractionFromLines(
+      { companyId: 1, monthKey: "2026_04", driveFileId: RECEIPT_ID, folderSlot: "04 Bločky_hotovosť", lines, source: "ocr" },
+      { extractor: createStubExtractor(), now: () => "2026-04-10T10:00:00.000Z" },
+    );
+    const view = await buildMonthDocumentView(1, "2026_04");
+    return view!.documents.find((doc) => doc.driveFileId === RECEIPT_ID)!;
+  };
+
+  const ticket = await readAs(["Parkovisko Centrum s.r.o.", "Automat 12", "Potvrdenka 12345", "Spolu s DPH | €3,00"]);
+  assert.equal(ticket.outsideEkasa, true);
+  assert.equal(ticket.showUidBox, false);
+
+  // An eKasa receipt whose QR code did not scan still asks for its UID.
+  const receipt = await readAs(["Kaviareň s.r.o.", "Spolu | 3,00", "OKP: 12AB34CD-56EF7890"]);
+  assert.equal(receipt.outsideEkasa, false);
+  assert.equal(receipt.showUidBox, true);
 });

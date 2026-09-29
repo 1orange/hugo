@@ -80,6 +80,12 @@ export type ModelExtractedPayload = {
   docTypeHint: DocTypeHint | null;
   /** Set when extraction checks ran (model / OCR path). */
   fieldChecks?: ExtractionCheckFlags;
+  /**
+   * A document among the receipts that prints no eKasa mark: a parking
+   * machine's ticket, a train ticket, an invoice paid by card. Booked like
+   * the rest of the folder, but there is no UID to ask her for.
+   */
+  outsideEkasa?: true;
   /** The UID she typed into the UID box, kept even when the lookup knew nothing. */
   typedEkasaUid?: string;
 };

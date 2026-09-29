@@ -146,6 +146,29 @@ export function isEkasaReceipt(lines: EkasaTextLine[]): boolean {
   return hasUidMarker && hasOkpMarker && hasTotal;
 }
 
+// What an eKasa receipt prints besides its QR code, folded to capitals
+// without accents: its UID and OKP, the cash register's code (KP, ORP,
+// "kód pokladnice"), "overte doklad pomocou QR kódu".
+const EKASA_MARK =
+  /\bUID\b|\bOKP\b|KPEKK|\bKP\s*:|\bORP\b|POKLADNIC|E-?KASA|OVERTE\s+DOKLAD|\b[OV]-[0-9A-F]{32}\b/;
+
+/**
+ * Whether the text shows any mark of an eKasa receipt. A parking machine's
+ * ticket shows none — the machine is outside eKasa. An eKasa receipt whose QR
+ * code did not scan still shows some, even through OCR's misreadings, so one
+ * mark is enough.
+ */
+export function printsEkasaMarks(lines: readonly string[]): boolean {
+  return lines.some((line) =>
+    EKASA_MARK.test(
+      line
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase(),
+    ),
+  );
+}
+
 /**
  * Map grouped eBloček text lines to receipt facts. No file access, no network,
  * no clock — only the line strings.

@@ -351,6 +351,15 @@ export function FieldsPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-3.5" data-testid="document-field-editor">
+        {document.outsideEkasa ? (
+          <p
+            className="border-b border-line px-3 py-2 text-[11.5px] text-ink-2"
+            data-testid="outside-ekasa"
+          >
+            Doklad nie je z eKasa (parkovací automat, lístok, faktúra): nemá
+            UID, údaje sú prečítané z dokladu.
+          </p>
+        ) : null}
         {document.showUidBox ? (
           <fieldset className="border-b border-line px-3 py-3" data-testid="ekasa-uid-box">
             <legend className="eyebrow mb-2">UID eBločku</legend>

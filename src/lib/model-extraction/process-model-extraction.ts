@@ -11,6 +11,8 @@ import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
 import { runExtractionChecks } from "@/modules/extraction-checks";
+import { deriveReceiptKind } from "@/modules/document-state";
+import { printsEkasaMarks } from "@/modules/ekasa-text";
 import { modelTextForDocument, type ModelTextSource } from "./model-text";
 import { readEmbeddedIsdoc } from "./isdoc-document";
 import { shouldExtractWithModel } from "./should-extract-with-model";
@@ -186,6 +188,9 @@ async function runModelExtractionOnLines(
       ...checked.payload,
       source: input.source,
       fieldChecks: checked.flags,
+      ...(deriveReceiptKind(input.folderSlot) !== null && !printsEkasaMarks(input.lines)
+        ? { outsideEkasa: true as const }
+        : {}),
     };
 
     await writeExtractedPayload(input.driveFileId, payload, "complete", null);

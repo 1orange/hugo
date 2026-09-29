@@ -85,6 +85,8 @@ export type DocumentListItem = {
   hasExtractedData: boolean;
   extractionSource: EkasaExtractionSource | "model" | "ocr" | "isdoc" | null;
   showUidBox: boolean;
+  /** A receipt that is not from eKasa (a parking machine's ticket): read from the document, no UID. */
+  outsideEkasa: boolean;
   typedEkasaUid: string | null;
   fieldEditor: DocumentFieldEditorView;
 };
@@ -279,7 +281,9 @@ export async function buildMonthDocumentView(
         showUidBox:
           !monthReadOnly &&
           deriveReceiptKind(folderSlot) !== null &&
-          !hasEkasaLookupPayload(payload),
+          !hasEkasaLookupPayload(payload) &&
+          !(isModelExtractedPayload(payload) && payload.outsideEkasa === true),
+        outsideEkasa: isModelExtractedPayload(payload) && payload.outsideEkasa === true,
         typedEkasaUid: getTypedEkasaUid(payload),
         fieldEditor: {
           fields: merged.fields,
