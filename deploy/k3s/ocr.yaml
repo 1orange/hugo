@@ -1,0 +1,60 @@
+# The OCR sidecar (ADR 0017), built from services/ocr (image hugo-ocr).
+# Reached only by the workers.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ocr
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: ocr
+    app.kubernetes.io/part-of: hugo
+spec:
+  selector:
+    app.kubernetes.io/name: ocr
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ocr
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: ocr
+    app.kubernetes.io/part-of: hugo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ocr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ocr
+        app.kubernetes.io/part-of: hugo
+    spec:
+      containers:
+        - name: ocr
+          image: hugo-ocr
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 3Gi

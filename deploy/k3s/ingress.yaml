@@ -1,0 +1,36 @@
+# The public URL, through the Traefik k3s ships. TLS from `hugo-tls`: with
+# cert-manager, add `cert-manager.io/cluster-issuer: <issuer>` to the
+# annotations and it is issued there.
+#
+# /api/events is a server-sent-events stream (ADR 0021): no compress
+# middleware on this router — gzip would hold events back. Traefik writes an
+# event-stream response through as it comes, and the app sends a comment
+# every 20 s, well inside Traefik's idle timeout.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hugo
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/part-of: hugo
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - hugo.example.eu
+      secretName: hugo-tls
+  rules:
+    - host: hugo.example.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

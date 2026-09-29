@@ -1,0 +1,26 @@
+# kubectl apply -k deploy/k3s   (after creating the hugo-secrets Secret: secret.example.yaml)
+#
+# Images: hugo-app is the repo's Dockerfile, hugo-ocr services/ocr. Point them
+# at your registry below, or import local builds into k3s's containerd
+# (`docker save hugo-app | sudo k3s ctr images import -`) and keep the names.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hugo
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - redis.yaml
+  - extractor.yaml
+  - ocr.yaml
+  - web.yaml
+  - worker.yaml
+  - ingress.yaml
+  - network-policies.yaml
+images:
+  - name: hugo-app
+    newName: hugo-app
+    newTag: latest
+  - name: hugo-ocr
+    newName: hugo-ocr
+    newTag: latest

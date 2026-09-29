@@ -1,0 +1,156 @@
+# Stateless web replicas (HUGO_ROLE=web, ADR 0021): pages, server actions and
+# the event stream to browsers. They only queue work; any number can run.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: hugo
+spec:
+  selector:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: hugo
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hugo
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hugo
+        app.kubernetes.io/component: web
+        app.kubernetes.io/part-of: hugo
+    spec:
+      # An open event stream ends with the pod; the browser reconnects to another.
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hugo
+              app.kubernetes.io/component: web
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: hugo-app
+          imagePullPolicy: IfNotPresent
+          command: ["node", "node_modules/next/dist/bin/next", "start", "-p", "3000"]
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: hugo-config
+          env:
+            - name: HUGO_ROLE
+              value: web
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: POSTGRES_PASSWORD }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: REDIS_PASSWORD }
+            - name: DATABASE_URL
+              value: postgres://hugo:$(POSTGRES_PASSWORD)@postgres:5432/hugo
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@redis:6379
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: AUTH_SECRET }
+            - name: AUTH_GOOGLE_ID
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: AUTH_GOOGLE_ID }
+            - name: AUTH_GOOGLE_SECRET
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: AUTH_GOOGLE_SECRET }
+            # File previews and the dashboard's sweep read Drive.
+            - name: GOOGLE_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: GOOGLE_SERVICE_ACCOUNT_JSON }
+          # The first start migrates the database (once, under a lock).
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          # Out of the Service while Postgres or Redis is unreachable…
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          # …but not restarted for it: that is the database's problem, not this pod's.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: hugo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hugo
+      app.kubernetes.io/component: web

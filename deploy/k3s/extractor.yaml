@@ -1,0 +1,130 @@
+# The model server (ADR 0017): llama.cpp with Qwen3 4B Q4_0, CPU only. Reached
+# only by the workers. The model file is downloaded into its volume once.
+apiVersion: v1
+kind: Service
+metadata:
+  name: extractor
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: extractor
+    app.kubernetes.io/part-of: hugo
+spec:
+  selector:
+    app.kubernetes.io/name: extractor
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: extractor-models
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: extractor
+    app.kubernetes.io/part-of: hugo
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: extractor
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: extractor
+    app.kubernetes.io/part-of: hugo
+spec:
+  replicas: 1
+  # One pod at a time holds the model volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: extractor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: extractor
+        app.kubernetes.io/part-of: hugo
+    spec:
+      initContainers:
+        - name: fetch-model
+          image: curlimages/curl:8.11.1
+          env:
+            - name: MODEL_FILE
+              value: Qwen3-4B-Q4_0.gguf
+            - name: MODEL_URL
+              value: https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_0.gguf
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              if [ -s "/models/$MODEL_FILE" ]; then echo "model present"; exit 0; fi
+              curl -fL --retry 5 --retry-delay 10 -o "/models/$MODEL_FILE.part" "$MODEL_URL"
+              mv "/models/$MODEL_FILE.part" "/models/$MODEL_FILE"
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: llama
+          image: ghcr.io/ggml-org/llama.cpp:server
+          args:
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -m
+            - /models/Qwen3-4B-Q4_0.gguf
+            # The model's own chat template, so a request can switch thinking.
+            - --jinja
+            # Context is split across slots: keep 8192 per slot (docker-compose.yml).
+            - -c
+            - "8192"
+            # Slots: keep EXTRACTOR_CONCURRENCY (config.yaml) the same.
+            - -np
+            - "1"
+            - --cache-ram
+            - "0"
+          env:
+            - name: LLAMA_ARG_THREADS
+              value: "4"
+          ports:
+            - name: http
+              containerPort: 8080
+          # 503 while the model loads: out of the Service until it can answer.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              memory: 6Gi
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: extractor-models

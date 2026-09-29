@@ -1,0 +1,102 @@
+# Reads documents and sweeps Drive (HUGO_ROLE=worker, ADR 0021). More than one
+# can run: Redis keeps each document read once, and EXTRACTOR_CONCURRENCY caps
+# the documents read at once across all of them, not per worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: hugo
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: hugo
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hugo
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hugo
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: hugo
+    spec:
+      # On SIGTERM the worker finishes the document it is reading; the model's
+      # deadline for one is ten minutes (EXTRACTOR_TIMEOUT_MS).
+      terminationGracePeriodSeconds: 660
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: hugo-app
+          imagePullPolicy: IfNotPresent
+          command: ["node", "dist/worker.mjs"]
+          ports:
+            - name: health
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: hugo-config
+          env:
+            - name: HUGO_ROLE
+              value: worker
+            - name: WORKER_HEALTH_PORT
+              value: "9464"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: POSTGRES_PASSWORD }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: REDIS_PASSWORD }
+            - name: DATABASE_URL
+              value: postgres://hugo:$(POSTGRES_PASSWORD)@postgres:5432/hugo
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@redis:6379
+            - name: GOOGLE_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef: { name: hugo-secrets, key: GOOGLE_SERVICE_ACCOUNT_JSON }
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: health
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # PDF pages rendered for OCR and QR codes, HEIC photos converted.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

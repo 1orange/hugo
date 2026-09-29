@@ -1,5 +1,10 @@
 hugo.example.eu {
-  encode gzip
+  # The event stream (ADR 0021) stays uncompressed: gzip would hold events back to fill a block.
+  @compressible not path /api/events
+  encode @compressible gzip
 
-  reverse_proxy localhost:3000
+  reverse_proxy localhost:3000 {
+    # Write each server-sent event through as it arrives.
+    flush_interval -1
+  }
 }

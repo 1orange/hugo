@@ -1,0 +1,64 @@
+# Who may connect to what, inside the namespace. Egress stays open: Drive,
+# eKasa, the registers and VIES are outside the cluster.
+#
+# Postgres and Redis: the app's pods only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-and-redis-from-app
+  namespace: hugo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [postgres, redis]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hugo
+---
+# The model and OCR: the workers only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sidecars-from-workers
+  namespace: hugo
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [extractor, ocr]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hugo
+              app.kubernetes.io/component: worker
+---
+# The web replicas: Traefik, which k3s runs in kube-system.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-from-traefik
+  namespace: hugo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hugo
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 3000

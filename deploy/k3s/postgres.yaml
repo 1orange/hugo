@@ -1,0 +1,92 @@
+# The app's data (ADR 0021). One instance on a k3s local-path volume; back it
+# up (pg_dump) — the volume lives on one node.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: hugo
+spec:
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: hugo
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: hugo
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: hugo
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: hugo
+            - name: POSTGRES_DB
+              value: hugo
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hugo-secrets
+                  key: POSTGRES_PASSWORD
+            # A subdirectory: the volume's root may hold lost+found.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # SIGTERM is a "smart" shutdown, which waits for every client to
+          # leave; the app keeps its pool open, so Kubernetes killed it after
+          # the grace period and the next start replayed the WAL. A fast
+          # shutdown ends the sessions and stops cleanly.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", 'su-exec postgres pg_ctl stop -D "$PGDATA" -m fast -w -t 50']
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "hugo", "-d", "hugo"]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "hugo", "-d", "hugo"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
