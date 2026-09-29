@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { MIGRATIONS_FOLDER } from "../../../src/lib/db/client.ts";
+import { MIGRATIONS_FOLDER, runMigrations } from "../../../src/lib/db/client.ts";
 
 const clients: PGlite[] = [];
 
@@ -83,4 +83,25 @@ test("migrations create the unique indexes", async () => {
   ]) {
     assert.ok(unique.has(index), `missing unique index ${index}`);
   }
+});
+
+// On k3s every pod starts at once; Postgres is often last.
+test("a replica that starts before Postgres waits for it, then gives up", async (t) => {
+  const warnings: unknown[] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => warnings.push(args[0]));
+  // Nothing listens on port 1: refused, as while Postgres starts.
+  await assert.rejects(
+    runMigrations("postgres://hugo:x@127.0.0.1:1/hugo", { attempts: 3, delayMs: 10 }),
+    (error: { code?: string }) => error.code === "ECONNREFUSED",
+  );
+  assert.equal(warnings.length, 2);
+  assert.match(String(warnings[0]), /Postgres is not up yet \(ECONNREFUSED\)/);
+});
+
+test("an error that waiting will not fix fails at once", async (t) => {
+  const warnings: unknown[] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => warnings.push(args[0]));
+  // A port no server can have: a configuration error, not a start-up.
+  await assert.rejects(runMigrations("postgres://hugo:x@127.0.0.1:99999/hugo", { attempts: 3, delayMs: 10 }));
+  assert.equal(warnings.length, 0);
 });

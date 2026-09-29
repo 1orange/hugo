@@ -48,10 +48,47 @@ export function getDb(): Db {
 }
 
 /**
+ * Refused, unresolvable, or up but not yet accepting connections (57P03):
+ * Postgres is starting. Anything else — a wrong password, a failed migration —
+ * will not fix itself by waiting.
+ */
+const NOT_UP_YET = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "57P03"]);
+
+function isPostgresStarting(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && NOT_UP_YET.has(code);
+}
+
+/**
  * Applies pending migrations. Every replica runs this on start; the advisory
  * lock makes the others wait while the first migrates, then find nothing left.
+ *
+ * A replica that starts before Postgres waits for it. On k3s every pod starts
+ * at once: the worker exited, and Next — its instrumentation hook failing —
+ * answered every request with 500 until its startup probe killed it.
  */
-export async function runMigrations(url: string = databaseUrl()): Promise<void> {
+export async function runMigrations(
+  url: string = databaseUrl(),
+  wait: { attempts?: number; delayMs?: number } = {},
+): Promise<void> {
+  const attempts = wait.attempts ?? 30;
+  const delayMs = wait.delayMs ?? 2000;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await migrateOnce(url);
+      return;
+    } catch (error) {
+      if (attempt >= attempts || !isPostgresStarting(error)) {
+        throw error;
+      }
+      const code = (error as { code: string }).code;
+      console.warn(`[db] Postgres is not up yet (${code}); trying again in ${delayMs / 1000} s (${attempt}/${attempts})`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+async function migrateOnce(url: string): Promise<void> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
