@@ -25,6 +25,8 @@ import {
   saveDocumentNote,
 } from "@/lib/documents/service";
 import { lookupEkasaUidForDocument } from "@/lib/documents/lookup-ekasa-uid";
+import { requestDocumentReextraction } from "@/lib/documents/reextract-document";
+import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
 import { runSweep } from "@/lib/sweep/run-sweep";
 import type { DocumentFieldFormInput } from "@/modules/document-fields";
 import { revalidatePath } from "next/cache";
@@ -209,6 +211,21 @@ export async function saveDocumentNoteAction(input: {
   note: string;
 }): Promise<MutationActionResult> {
   const result = await saveDocumentNote(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function reextractDocumentAction(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+}): Promise<MutationActionResult> {
+  const result = await requestDocumentReextraction({
+    ...input,
+    schedule: scheduleDocumentExtractionForMonth,
+  });
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }

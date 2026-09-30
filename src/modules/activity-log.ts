@@ -25,6 +25,7 @@ export const USER_COMPANY_EVENT_TYPES = [
   "Exported",
   "CompanyProfileSaved",
   "ExportSectionChanged",
+  "ReextractionRequested",
 ] as const;
 
 export const GLOBAL_EVENT_TYPES = [
@@ -65,6 +66,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   Exported: "Mesiac exportovaný",
   CompanyProfileSaved: "Profil firmy uložený",
   ExportSectionChanged: "Zmenená sekcia exportu",
+  ReextractionRequested: "Doklad znova načítaný",
   DriveParentFolderIdChanged: "Zmenený nadradený priečinok Drive",
   CanonicalFolderNamesChanged: "Zmenený zoznam názvov priečinkov",
   MovableFolderNamesChanged: "Zmenené presunuteľné priečinky",
@@ -121,6 +123,7 @@ export function eventMonthKey(
     case "Confirmed":
     case "Exported":
     case "ExportSectionChanged":
+    case "ReextractionRequested":
       return text(payload.monthKey);
     default:
       return null;
@@ -217,6 +220,8 @@ export function summarizeEventPayload(
     }
     case "Confirmed":
       return `Potvrdený doklad ${text(payload.driveFileId) ?? "?"}`;
+    case "ReextractionRequested":
+      return `Znova načítať doklad ${text(payload.driveFileId) ?? "?"}`;
     case "Exported": {
       const included = Array.isArray(payload.included) ? payload.included.length : null;
       const heldBack = Array.isArray(payload.heldBack) ? payload.heldBack.length : null;

@@ -9,6 +9,7 @@ import {
   dismissDocumentAction,
   saveDocumentFieldsAction,
   lookupEkasaUidAction,
+  reextractDocumentAction,
   saveDocumentNoteAction,
 } from "../../actions";
 import { DecisionBar } from "./decision-bar";
@@ -265,6 +266,19 @@ export function DocumentWorkbench({
       });
   }
 
+  function reextract() {
+    if (!selectedDocument?.canReextract) {
+      return;
+    }
+    runAction(() =>
+      reextractDocumentAction({
+        companyId,
+        monthKey,
+        documentId: selectedDocument.id,
+      }),
+    );
+  }
+
   function saveNote() {
     if (!selectedDocument || note === (selectedDocument.note ?? "")) {
       return;
@@ -349,6 +363,7 @@ export function DocumentWorkbench({
             noteDirty={note !== (selectedDocument?.note ?? "")}
             onLookupUid={lookupUid}
             uidLookupMessage={uidLookupMessage}
+            onReextract={reextract}
           />
         </section>
       </div>

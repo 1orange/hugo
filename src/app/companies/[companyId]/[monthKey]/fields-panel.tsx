@@ -53,6 +53,8 @@ type FieldsPanelProps = {
   noteDirty: boolean;
   onLookupUid: (uid: string) => void;
   uidLookupMessage: string | null;
+  /** Read the file again (document.canReextract). */
+  onReextract: () => void;
 };
 
 function draftFrom(document: DocumentListItem): DocumentFieldsInput {
@@ -133,6 +135,7 @@ export function FieldsPanel({
   noteDirty,
   onLookupUid,
   uidLookupMessage,
+  onReextract,
 }: FieldsPanelProps) {
   const [uidDraft, setUidDraft] = useState("");
   const [uidValidationMessage, setUidValidationMessage] = useState<string | null>(
@@ -300,6 +303,18 @@ export function FieldsPanel({
                         ? "XML MOL"
                         : "Text PDF"}
           </span>
+        ) : null}
+        {document.canReextract ? (
+          <button
+            type="button"
+            className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-2 hover:bg-surface-2 disabled:opacity-50"
+            disabled={pending}
+            onClick={onReextract}
+            title="Prečíta súbor znova — tvoje zmenené polia ostanú."
+            data-testid="reextract-document"
+          >
+            Načítať znova
+          </button>
         ) : null}
         <div className="flex-1" />
         <span className="text-[10.5px] text-ink-3">

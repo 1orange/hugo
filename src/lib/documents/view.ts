@@ -87,6 +87,8 @@ export type DocumentListItem = {
   showUidBox: boolean;
   /** A receipt that is not from eKasa (a parking machine's ticket): read from the document, no UID. */
   outsideEkasa: boolean;
+  /** Whether she may have the file read again (requestDocumentReextraction): open, undecided, not being read. */
+  canReextract: boolean;
   typedEkasaUid: string | null;
   fieldEditor: DocumentFieldEditorView;
 };
@@ -215,6 +217,12 @@ export async function buildMonthDocumentView(
   );
   const monthReadOnly = month.closedAt !== null;
 
+  // A file with anything decided or exported is not read again.
+  const settledFiles = new Set(
+    documentRows
+      .filter((document) => document.decision !== null || document.exportedAt !== null)
+      .map((document) => document.driveFileId),
+  );
   const documentItems = documentRows
     .map((document) => {
       const file = fileById.get(document.driveFileId);
@@ -284,6 +292,10 @@ export async function buildMonthDocumentView(
           !hasEkasaLookupPayload(payload) &&
           !(isModelExtractedPayload(payload) && payload.outsideEkasa === true),
         outsideEkasa: isModelExtractedPayload(payload) && payload.outsideEkasa === true,
+        canReextract:
+          !monthReadOnly &&
+          !settledFiles.has(document.driveFileId) &&
+          document.extractionStatus !== "pending",
         typedEkasaUid: getTypedEkasaUid(payload),
         fieldEditor: {
           fields: merged.fields,

@@ -345,6 +345,20 @@ export async function beginExtractionAttempt(documentId: string): Promise<void> 
     .where(eq(documents.id, documentId));
 }
 
+/**
+ * Her request to read a file again, by the pipeline as it is now: its
+ * document goes back to pending, as if never attempted. What was extracted
+ * stays until the new read replaces it — a UID she typed, the eKasa
+ * response already fetched — and her own values are never touched.
+ */
+export async function markForReextraction(driveFileId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(documents)
+    .set({ extractionStatus: "pending", extractionFailureReason: null, extractionPipelineVersion: null })
+    .where(eq(documents.id, driveFileId));
+}
+
 export async function listExportNumbersForCompany(companyId: number): Promise<string[]> {
   const db = getDb();
   const rows = await db
