@@ -75,6 +75,9 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
 }
 
@@ -291,6 +294,9 @@ test("the model reads every page of a multi-page invoice, up to the cap", async 
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
   const seenLines: string[][] = [];
   const stub = createStubExtractor();
@@ -367,6 +373,9 @@ test("an invoice that carries its ISDOC is read from it, without the model", asy
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
   const modelNeverAsked = {
     async extract(): Promise<never> {
@@ -437,6 +446,9 @@ test("a MOL e-invoice is read from its XML, the seller's IČO from its text", as
       return [{ filename: "SK_MSSK_4500000001_I_CARD.xml", content: new TextEncoder().encode(xml) }];
     },
     async extractPageImages() {
+      return [];
+    },
+    async renderPages() {
       return [];
     },
   };

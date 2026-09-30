@@ -91,6 +91,9 @@ function syntheticPdfAccess(
     async extractPageImages() {
       return pageImages;
     },
+    async renderPages() {
+      return [];
+    },
   };
 }
 
@@ -659,6 +662,9 @@ test("a document that crashes is recorded, and the rest of the month is still re
         throw new Error("Cannot transfer object of unsupported type.");
       }
       return [pageImage];
+    },
+    async renderPages() {
+      return [];
     },
   };
 

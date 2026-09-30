@@ -27,6 +27,9 @@ function pdfAccess(lines: string[], seen: Array<Parameters<PdfAccess["extractTex
     async extractPageImages() {
       return [PAGE_IMAGE];
     },
+    async renderPages() {
+      return [];
+    },
   };
 }
 

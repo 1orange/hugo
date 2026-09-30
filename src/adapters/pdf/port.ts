@@ -29,10 +29,11 @@ export type PdfAccess = {
   extractPageImages(pdfBytes: Uint8Array): Promise<PdfPageImage[]>;
   /**
    * Pages 1…maxPages drawn as a reader sees them, their long side
-   * `longSidePx` — drawn text included, which extractPageImages misses. A
-   * fake may leave it out; OCR then reads the page images only.
+   * `longSidePx` — drawn text included, which extractPageImages misses.
+   * Required, so a wrapper cannot drop it: the job queue's progress wrapper
+   * once did, and garbled PDFs failed in the app while they read in tests.
    */
-  renderPages?(pdfBytes: Uint8Array, options: { maxPages: number; longSidePx: number }): Promise<PdfPageImage[]>;
+  renderPages(pdfBytes: Uint8Array, options: { maxPages: number; longSidePx: number }): Promise<PdfPageImage[]>;
   /** Files embedded in the PDF, such as the ISDOC invoice Omega attaches. */
   extractAttachments(pdfBytes: Uint8Array): Promise<PdfAttachment[]>;
 };

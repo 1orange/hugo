@@ -77,7 +77,7 @@ test("a PDF with no image is drawn for OCR", async () => {
 test("a scan is read from its own images; drawn only when asked", async () => {
   const scanned: PdfPageImage = { kind: "encoded", bytes: new Uint8Array([1]) };
   const drawn: PdfPageImage = { kind: "encoded", bytes: new Uint8Array([2]) };
-  const access = (renderPages?: PdfAccess["renderPages"]): PdfAccess => ({
+  const access = (renderPages: PdfAccess["renderPages"]): PdfAccess => ({
     async extractTextLines() {
       return [];
     },
@@ -87,14 +87,14 @@ test("a scan is read from its own images; drawn only when asked", async () => {
     async extractPageImages() {
       return [scanned];
     },
-    ...(renderPages ? { renderPages } : {}),
+    renderPages,
   });
   const read = (pdfAccess: PdfAccess, drawPages: boolean) =>
     pageImagesForDocument({ mimeType: "application/pdf", fileBytes: new Uint8Array([0]), pdfAccess, drawPages });
 
   assert.deepEqual(await read(access(async () => [drawn]), false), [scanned]);
   assert.deepEqual(await read(access(async () => [drawn]), true), [drawn]);
-  // Where drawing fails or is not to be had, the images are what there is.
+  // Where drawing fails or draws nothing, the images are what there is.
   assert.deepEqual(await read(access(async () => { throw new Error("no canvas"); }), true), [scanned]);
-  assert.deepEqual(await read(access(), true), [scanned]);
+  assert.deepEqual(await read(access(async () => []), true), [scanned]);
 });

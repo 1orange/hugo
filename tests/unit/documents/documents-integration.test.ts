@@ -91,6 +91,9 @@ function syntheticPdfAccess(lines: string[]): PdfAccess {
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
 }
 

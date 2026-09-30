@@ -129,6 +129,10 @@ export function instrumentDeps(deps: CashDiscoveryDeps, reporter: ProgressReport
         reporter.stage("images");
         return pdfAccess.extractPageImages(...args);
       },
+      renderPages(...args) {
+        reporter.stage("images");
+        return pdfAccess.renderPages(...args);
+      },
     },
     qrReader: {
       readAllCodes(...args) {

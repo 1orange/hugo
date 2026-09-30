@@ -66,6 +66,9 @@ async function sweptMonth() {
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
   return { driveClient, pdfAccess };
 }

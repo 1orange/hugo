@@ -41,10 +41,10 @@ export async function pageImagesForDocument(input: {
 }): Promise<PdfPageImage[]> {
   if (input.mimeType === "application/pdf") {
     const draw = () =>
-      input.pdfAccess.renderPages?.(input.fileBytes, {
+      input.pdfAccess.renderPages(input.fileBytes, {
         maxPages: RENDERED_MAX_PAGES,
         longSidePx: RENDERED_LONG_SIDE_PX,
-      }) ?? Promise.resolve([]);
+      });
     if (input.drawPages) {
       const drawn = await draw().catch(() => []);
       if (drawn.length > 0) {

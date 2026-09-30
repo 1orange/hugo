@@ -122,6 +122,9 @@ test("a worker reads a queued document, and every replica hears it", { skip }, a
     async extractPageImages() {
       return [];
     },
+    async renderPages() {
+      return [];
+    },
   };
 
   const read = new Promise<AppEvent>((resolve) => {

@@ -31,6 +31,9 @@ function imageOnlyPdfAccess(pageImages: PdfPageImage[]): PdfAccess {
     async extractPageImages() {
       return pageImages;
     },
+    async renderPages() {
+      return [];
+    },
   };
 }
 
