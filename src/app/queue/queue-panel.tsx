@@ -18,9 +18,9 @@ const STATE_CHIP: Record<ServiceState, { label: string; className: string }> = {
 };
 
 const SERVICE_HINT: Partial<Record<ServiceState, string>> = {
-  down: "Doklady čakajú. Spusti sidecary: docker compose --env-file .env.docker up -d",
+  down: "Doklady čakajú. Služba je momentálne nedostupná. Keď bude opäť dostupná, čítanie sa obnoví automaticky.",
   loading: "Doklady počkajú, kým sa model načíta.",
-  unconfigured: "Doklady čakajú. Doplň hodnoty do .env a reštartuj npm run dev.",
+  unconfigured: "Doklady čakajú. Nastavenie služby chýba; je potrebné doplniť konfiguráciu aplikácie.",
 };
 
 function ServiceCard({ title, health, subtitle }: { title: string; health: ServiceHealth; subtitle: string | null }) {
