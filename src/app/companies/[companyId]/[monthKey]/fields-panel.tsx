@@ -91,6 +91,20 @@ function draftFrom(document: DocumentListItem): DocumentFieldsInput {
   };
 }
 
+// Allow intermediate input (empty or a trailing separator) while typing.
+const DECIMAL_INPUT_PATTERN = /^\d{0,10}(?:[.,]\d{0,2})?$/;
+
+/** Empty VAT rows are local placeholders, omitted by the server on save. */
+function savedSnapshot(draft: DocumentFieldsInput): DocumentFieldsInput {
+  const rows = draft.vatRecap.filter((row) =>
+    row.rateLiteral.trim() || row.baseLiteral.trim() || row.vatLiteral.trim(),
+  );
+  return {
+    ...draft,
+    vatRecap: rows.length ? rows : [{ rateLiteral: "", baseLiteral: "", vatLiteral: "" }],
+  };
+}
+
 /** Signed, in the same dot-decimal form as the amount fields beside it. */
 function formatCashRounding(cents: number, currency: string): string {
   const sign = cents < 0 ? "−" : "+";
@@ -177,7 +191,9 @@ export function FieldsPanel({
   }, [documentId, document]);
 
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(saved),
+    () =>
+      JSON.stringify(draft ? savedSnapshot(draft) : null) !==
+      JSON.stringify(saved ? savedSnapshot(saved) : null),
     [draft, saved],
   );
 
@@ -259,7 +275,7 @@ export function FieldsPanel({
     if (readOnly || !dirty || !draft) {
       return;
     }
-    setSaved(draft);
+    setSaved(savedSnapshot(draft));
     onSave(draft);
   }
 
@@ -275,7 +291,7 @@ export function FieldsPanel({
     const next = { ...draft!, vatRecap: rows };
     setDraft(next);
     if (!readOnly) {
-      setSaved(next);
+      setSaved(savedSnapshot(next));
       onSave(next);
     }
   }
@@ -794,10 +810,12 @@ export function FieldsPanel({
               type="button"
               disabled={pending}
               onClick={() =>
-                commitVatRows([
-                  ...draft.vatRecap,
-                  { rateLiteral: "", baseLiteral: "", vatLiteral: "" },
-                ])
+                patch({
+                  vatRecap: [
+                    ...draft.vatRecap,
+                    { rateLiteral: "", baseLiteral: "", vatLiteral: "" },
+                  ],
+                })
               }
               data-testid="add-vat-recap-row"
               className="mt-2 text-[11.5px] text-accent underline underline-offset-2"
@@ -931,7 +949,13 @@ function Field({
         readOnly={readOnly}
         disabled={disabled}
         placeholder={placeholder ?? (state === "empty" ? "vyplň ručne" : undefined)}
-        onChange={(event) => onChange(event.target.value)}
+        inputMode={money ? "decimal" : undefined}
+        onChange={(event) => {
+          const next = event.target.value;
+          if (!money || DECIMAL_INPUT_PATTERN.test(next)) {
+            onChange(next);
+          }
+        }}
         onBlur={onCommit}
         data-testid={testId}
         data-field-state={state}
@@ -969,7 +993,13 @@ function CellInput({
       readOnly={readOnly}
       disabled={disabled}
       placeholder={placeholder}
-      onChange={(event) => onChange(event.target.value)}
+      inputMode="decimal"
+      onChange={(event) => {
+        const next = event.target.value;
+        if (DECIMAL_INPUT_PATTERN.test(next)) {
+          onChange(next);
+        }
+      }}
       onBlur={onCommit}
       data-testid={testId}
       data-field-state={state}
