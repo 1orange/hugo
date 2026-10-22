@@ -258,6 +258,135 @@ test("model extracted parties derive roles for received invoices", () => {
   assert.equal(merged.rolesFlagged, false);
 });
 
+test("new pipeline merges VAT summary totals from rows and infers one safe rate", () => {
+  const merged = mergeDocumentFields(
+    {
+      kind: "extracted",
+      parties: [{ name: "Supplier", ico: "87654321", dic: null, icDph: "SK8765432100" }],
+      documentNumber: "1",
+      variableSymbol: "1",
+      issueDate: null,
+      taxableSupplyDate: null,
+      dueDate: null,
+      currency: "EUR",
+      amountCents: 12300,
+      amountLiteral: "123.00",
+      vatRecap: [],
+      docTypeHint: "invoice",
+    },
+    emptyConfirmedPayload(),
+    {
+      folderSlot: "02 Prijaté faktúry",
+      profile: { country: "SK", ico: "31333532", icDph: "SK7120001713" },
+      extractionPipelineVersion: 5,
+    },
+  );
+  assert.equal(merged.fields.recapBaseCents, null);
+  // No client profile country fallback can override the supplier's country;
+  // the one-rate result is deliberately absent because no aggregate base exists.
+  assert.equal(merged.fields.vatRecap.length, 0);
+
+  const fromRows = mergeDocumentFields(
+    {
+      kind: "extracted",
+      parties: [],
+      documentNumber: "2",
+      variableSymbol: "2",
+      issueDate: null,
+      taxableSupplyDate: null,
+      dueDate: null,
+      currency: "EUR",
+      amountCents: 12300,
+      amountLiteral: "123.00",
+      vatRecap: [{ rateLiteral: "23", baseLiteral: "100.00", baseCents: 10000, vatLiteral: "23.00", vatCents: 2300 }],
+      docTypeHint: "invoice",
+    },
+    emptyConfirmedPayload(),
+    { folderSlot: "02 Prijaté faktúry", extractionPipelineVersion: 5 },
+  );
+  assert.equal(fromRows.fields.recapBaseCents, 10000);
+  assert.equal(fromRows.fields.recapVatCents, 2300);
+  assert.equal(fromRows.provenance.recapBaseLiteral, "derived");
+  assert.equal(fromRows.provenance.recapVatLiteral, "derived");
+});
+
+test("old pipeline documents do not receive VAT derivation", () => {
+  const extracted = {
+    kind: "extracted" as const,
+    parties: [],
+    documentNumber: "INV-1",
+    variableSymbol: "INV-1",
+    issueDate: null,
+    taxableSupplyDate: null,
+    dueDate: null,
+    currency: "EUR",
+    amountCents: 12300,
+    amountLiteral: "123.00",
+    vatRecap: [],
+    docTypeHint: "invoice" as const,
+  };
+  const old = mergeDocumentFields(extracted, emptyConfirmedPayload(), {
+    folderSlot: "02 Prijaté faktúry",
+    extractionPipelineVersion: 4,
+    profile: { country: "SK", ico: "31333532", icDph: "SK7120001713" },
+  });
+  assert.deepEqual(old.fields.vatRecap, []);
+  assert.equal(old.fields.recapVatLiteral, "");
+});
+
+test("invalidates persisted VAT-rate derivation when supplier country changes", () => {
+  const extracted = {
+    kind: "extracted" as const,
+    parties: [],
+    documentNumber: "INV-1",
+    variableSymbol: "INV-1",
+    issueDate: null,
+    taxableSupplyDate: null,
+    dueDate: null,
+    currency: "EUR",
+    amountCents: 12100,
+    amountLiteral: "121.00",
+    vatRecap: [],
+    docTypeHint: "invoice" as const,
+  };
+  const confirmed = {
+    icDph: "CZ12345678",
+    amountLiteral: "121.00",
+    amountCents: 12100,
+    recapBaseLiteral: "100.00",
+    recapBaseCents: 10000,
+    recapVatLiteral: "21.00",
+    recapVatCents: 2100,
+    vatRecap: [{ rateLiteral: "23", baseLiteral: "100.00", baseCents: 10000, vatLiteral: "23.00", vatCents: 2300 }],
+    derived: {
+      vatRecap: {
+        dependencies: ["amountLiteral", "recapBaseLiteral", "supplierIcDph", "folderSlot"],
+        dependencyValues: {
+          amountLiteral: "123.00",
+          recapBaseLiteral: "100.00",
+          supplierIcDph: "SK1234567890",
+          folderSlot: "02 Prijaté faktúry",
+        },
+      },
+      recapVatLiteral: {
+        dependencies: ["amountLiteral", "recapBaseLiteral", "supplierIcDph", "folderSlot"],
+        dependencyValues: {
+          amountLiteral: "123.00",
+          recapBaseLiteral: "100.00",
+          supplierIcDph: "SK1234567890",
+          folderSlot: "02 Prijaté faktúry",
+        },
+      },
+    },
+  };
+  const merged = mergeDocumentFields(extracted, confirmed, {
+    folderSlot: "02 Prijaté faktúry",
+    extractionPipelineVersion: 5,
+  });
+  assert.equal(merged.fields.vatRecap[0]?.rateLiteral, "21");
+  assert.equal(merged.provenance.vatRecap, "derived");
+});
+
 test("checkArithmeticWarning flags multi-rate totals in Slovak", () => {
   const warning = checkArithmeticWarning({
     ...emptyEditableFields,

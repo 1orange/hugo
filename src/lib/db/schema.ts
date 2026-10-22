@@ -126,6 +126,13 @@ export const documents = pgTable("documents", {
   /** EXTRACTION_PIPELINE_VERSION of the last attempt; null before versions were kept. */
   extractionPipelineVersion: integer("extraction_pipeline_version"),
   extractedPayloadJson: text("extracted_payload_json").notNull().default("{}"),
+  /** A manual replacement is written here until the complete file can be promoted atomically. */
+  replacementPending: boolean("replacement_pending").notNull().default(false),
+  /** True only for extra document rows first discovered during that attempt. */
+  replacementCreated: boolean("replacement_created").notNull().default(false),
+  stagedExtractedPayloadJson: text("staged_extracted_payload_json"),
+  stagedExtractionStatus: text("staged_extraction_status"),
+  stagedExtractionFailureReason: text("staged_extraction_failure_reason"),
   confirmedPayloadJson: text("confirmed_payload_json").notNull().default("{}"),
   note: text("note"),
   exportedAt: text("exported_at"),

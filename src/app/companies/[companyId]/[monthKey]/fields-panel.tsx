@@ -8,6 +8,7 @@ import {
   fieldCheckState,
   type FieldCheckState,
 } from "@/modules/document-fields";
+import { deriveVat } from "@/modules/vat-derivation";
 import { validateEkasaUidInput } from "@/modules/ekasa-identifiers";
 import { rebaseDraft } from "@/modules/draft-rebase";
 
@@ -92,7 +93,7 @@ function draftFrom(document: DocumentListItem): DocumentFieldsInput {
 }
 
 // Allow intermediate input (empty or a trailing separator) while typing.
-const DECIMAL_INPUT_PATTERN = /^\d{0,10}(?:[.,]\d{0,2})?$/;
+const DECIMAL_INPUT_PATTERN = /^-?\d{0,10}(?:[.,]\d{0,2})?$/;
 
 /** Empty VAT rows are local placeholders, omitted by the server on save. */
 function savedSnapshot(draft: DocumentFieldsInput): DocumentFieldsInput {
@@ -116,15 +117,15 @@ function parseDraftCents(literal: string): number | null {
   if (!trimmed) {
     return null;
   }
-  const match = /^(\d{1,10})(?:[.,](\d{1,2}))?$/.exec(trimmed);
+  const match = /^(-?)(\d{1,10})(?:[.,](\d{1,2}))?$/.exec(trimmed);
   if (!match) {
     return null;
   }
-  const whole = match[1]!;
-  const fraction = match[2] ?? "";
+  const whole = match[2]!;
+  const fraction = match[3] ?? "";
   const centsFromFraction =
     fraction.length === 0 ? 0 : fraction.length === 1 ? Number(fraction) * 10 : Number(fraction);
-  return Number(whole) * 100 + centsFromFraction;
+  return (match[1] === "-" ? -1 : 1) * (Number(whole) * 100 + centsFromFraction);
 }
 
 function fieldStateClass(state: FieldCheckState): string {
@@ -161,21 +162,25 @@ export function FieldsPanel({
   const [saved, setSaved] = useState<DocumentFieldsInput | null>(
     document ? draftFrom(document) : null,
   );
+  const [liveVatWarnings, setLiveVatWarnings] = useState<string[]>([]);
 
   const documentId = document?.id ?? null;
   const loadedDocumentId = useRef<string | null>(documentId);
   const savedRef = useRef(saved);
   savedRef.current = saved;
+  const manualOverridesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const next = document ? draftFrom(document) : null;
     if (loadedDocumentId.current !== documentId) {
       // Another document: start from what it holds.
       loadedDocumentId.current = documentId;
+      manualOverridesRef.current.clear();
       setDraft(next);
       setSaved(next);
       setUidDraft(document?.typedEkasaUid ?? "");
       setUidValidationMessage(null);
+      setLiveVatWarnings([]);
       return;
     }
     // The same document refreshed — a background extraction finished, or a
@@ -189,6 +194,87 @@ export function FieldsPanel({
     setSaved(next);
     setUidDraft((current) => current || (document?.typedEkasaUid ?? ""));
   }, [documentId, document]);
+
+  useEffect(() => {
+    if (!document || !draft || readOnly) {
+      return;
+    }
+    const parsedRows = draft.vatRecap.map((row) => ({
+      rateLiteral: row.rateLiteral,
+      baseLiteral: row.baseLiteral,
+      baseCents: parseDraftCents(row.baseLiteral) ?? 0,
+      vatLiteral: row.vatLiteral,
+      vatCents: parseDraftCents(row.vatLiteral) ?? 0,
+    }));
+    const result = deriveVat({
+      amount: {
+        literal: draft.amountLiteral,
+        cents: parseDraftCents(draft.amountLiteral),
+        provenance: document.fieldEditor.provenance.amountLiteral,
+      },
+      recapBase: {
+        literal: draft.recapBaseLiteral,
+        cents: parseDraftCents(draft.recapBaseLiteral),
+        provenance: document.fieldEditor.provenance.recapBaseLiteral,
+      },
+      recapVat: {
+        literal: draft.recapVatLiteral,
+        cents: parseDraftCents(draft.recapVatLiteral),
+        provenance: document.fieldEditor.provenance.recapVatLiteral,
+      },
+      vatRecap:
+        document.fieldEditor.provenance.vatRecap === "derived" &&
+        !manualOverridesRef.current.has("vatRecap") &&
+        !manualOverridesRef.current.has("recapVatLiteral")
+          ? []
+          : parsedRows,
+      vatRecapProvenance: document.fieldEditor.provenance.vatRecap,
+      folderSlot: document.folderSlot,
+      supplierIcDph: draft.icDph,
+      profileCountry: document.fieldEditor.profileCountry,
+    });
+    setLiveVatWarnings(result.warnings);
+    const next = { ...draft };
+    let changed = false;
+    const canDerive = (key: keyof typeof document.fieldEditor.provenance) =>
+      document.fieldEditor.provenance[key] === "derived" ||
+      document.fieldEditor.provenance[key] === "empty";
+    if (
+      canDerive("recapBaseLiteral") &&
+      !manualOverridesRef.current.has("recapBaseLiteral") &&
+      result.recapBase.provenance === "derived" &&
+      result.recapBase.literal !== draft.recapBaseLiteral
+    ) {
+      next.recapBaseLiteral = result.recapBase.literal;
+      changed = true;
+    }
+    if (
+      canDerive("recapVatLiteral") &&
+      !manualOverridesRef.current.has("recapVatLiteral") &&
+      result.recapVat.provenance === "derived" &&
+      result.recapVat.literal !== draft.recapVatLiteral
+    ) {
+      next.recapVatLiteral = result.recapVat.literal;
+      changed = true;
+    }
+    if (
+      (document.fieldEditor.provenance.vatRecap === "derived" ||
+        document.fieldEditor.provenance.vatRecap === "empty") &&
+      !manualOverridesRef.current.has("vatRecap") &&
+      result.vatRecapProvenance === "derived" &&
+      JSON.stringify(result.vatRecap) !== JSON.stringify(parsedRows)
+    ) {
+      next.vatRecap = result.vatRecap.map((row) => ({
+        rateLiteral: row.rateLiteral,
+        baseLiteral: row.baseLiteral,
+        vatLiteral: row.vatLiteral,
+      }));
+      changed = true;
+    }
+    if (changed) {
+      setDraft(next);
+    }
+  }, [document, draft, readOnly]);
 
   const dirty = useMemo(
     () =>
@@ -214,6 +300,7 @@ export function FieldsPanel({
     rolesFlagged,
     missingProfile,
     exportSectionResolved,
+    vatWarnings,
   } = document.fieldEditor;
 
   const roleFieldFlagged = rolesFlagged || missingProfile;
@@ -258,7 +345,11 @@ export function FieldsPanel({
     })),
   };
 
-  const arithmeticWarnings = checkArithmeticWarnings(draftFieldsForChecks);
+  const arithmeticWarnings = [
+    ...(vatWarnings ?? []),
+    ...liveVatWarnings,
+    ...checkArithmeticWarnings(draftFieldsForChecks),
+  ].filter((warning, index, warnings) => warnings.indexOf(warning) === index);
   const cashRounding = cashRoundingOfFields(draftFieldsForChecks);
   const amountCheckOk = fieldChecks?.amountLiteral === "correct";
   const vatCheckOk = fieldChecks?.vatRecap === "correct";
@@ -267,7 +358,10 @@ export function FieldsPanel({
     arithmeticWarnings.length > 0 &&
     !(amountCheckOk && (draftFieldsForChecks.vatRecap.length === 0 || vatCheckOk));
 
-  function patch(next: Partial<DocumentFieldsInput>) {
+  function patch(next: Partial<DocumentFieldsInput>, manuallyEdited: string[] = Object.keys(next)) {
+    for (const key of manuallyEdited) {
+      manualOverridesRef.current.add(key);
+    }
     setDraft((current) => (current ? { ...current, ...next } : current));
   }
 
@@ -288,6 +382,7 @@ export function FieldsPanel({
   }
 
   function commitVatRows(rows: VatRecapRowInput[]) {
+    manualOverridesRef.current.add("vatRecap");
     const next = { ...draft!, vatRecap: rows };
     setDraft(next);
     if (!readOnly) {
@@ -326,7 +421,7 @@ export function FieldsPanel({
             className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-2 hover:bg-surface-2 disabled:opacity-50"
             disabled={pending}
             onClick={onReextract}
-            title="Prečíta súbor znova — tvoje zmenené polia ostanú."
+            title="Prečíta súbor znova — po úspechu nahradí staré polia, pri chybe ich zachová."
             data-testid="reextract-document"
           >
             Načítať znova
@@ -518,6 +613,7 @@ export function FieldsPanel({
             <Field
               label="IČO"
               value={draft.ico}
+              provenance={provenance.ico}
               state={resolveState("ico", roleFieldFlagged)}
               readOnly={readOnly}
               disabled={pending}
@@ -528,6 +624,7 @@ export function FieldsPanel({
             <Field
               label="DIČ"
               value={draft.dic}
+              provenance={provenance.dic}
               state={resolveState("dic")}
               readOnly={readOnly}
               disabled={pending}
@@ -538,6 +635,7 @@ export function FieldsPanel({
             <Field
               label="IČ DPH"
               value={draft.icDph}
+              provenance={provenance.icDph}
               state={resolveState("icDph", roleFieldFlagged)}
               readOnly={readOnly}
               disabled={pending}
@@ -555,6 +653,7 @@ export function FieldsPanel({
             <Field
               label="Názov"
               value={draft.customerName}
+              provenance={provenance.customerName}
               state={resolveState("customerName", roleFieldFlagged)}
               readOnly={readOnly}
               disabled={pending}
@@ -566,6 +665,7 @@ export function FieldsPanel({
             <Field
               label="IČO"
               value={draft.customerIco}
+              provenance={provenance.customerIco}
               state={resolveState("customerIco", roleFieldFlagged)}
               readOnly={readOnly}
               disabled={pending}
@@ -576,6 +676,7 @@ export function FieldsPanel({
             <Field
               label="DIČ"
               value={draft.customerDic}
+              provenance={provenance.customerDic}
               state={resolveState("customerDic")}
               readOnly={readOnly}
               disabled={pending}
@@ -586,6 +687,7 @@ export function FieldsPanel({
             <Field
               label="IČ DPH"
               value={draft.customerIcDph}
+              provenance={provenance.customerIcDph}
               state={resolveState("customerIcDph", roleFieldFlagged)}
               readOnly={readOnly}
               disabled={pending}
@@ -673,10 +775,11 @@ export function FieldsPanel({
             <Field
               label="Celkom"
               value={draft.amountLiteral}
+              provenance={provenance.amountLiteral}
               state={resolveState("amountLiteral", arithmeticFlagged)}
               readOnly={readOnly}
               disabled={pending}
-              onChange={(value) => patch({ amountLiteral: value })}
+              onChange={(value) => patch({ amountLiteral: value }, ["amountLiteral"])}
               onCommit={commit}
               testId="field-amount"
               money
@@ -684,10 +787,11 @@ export function FieldsPanel({
             <Field
               label="Základ DPH (SPOLU)"
               value={draft.recapBaseLiteral}
+              provenance={provenance.recapBaseLiteral}
               state={resolveState("recapBaseLiteral", arithmeticFlagged)}
               readOnly={readOnly}
               disabled={pending}
-              onChange={(value) => patch({ recapBaseLiteral: value })}
+              onChange={(value) => patch({ recapBaseLiteral: value }, ["recapBaseLiteral"])}
               onCommit={commit}
               testId="field-recap-base"
               money
@@ -695,10 +799,11 @@ export function FieldsPanel({
             <Field
               label="DPH (SPOLU)"
               value={draft.recapVatLiteral}
+              provenance={provenance.recapVatLiteral}
               state={resolveState("recapVatLiteral", arithmeticFlagged)}
               readOnly={readOnly}
               disabled={pending}
-              onChange={(value) => patch({ recapVatLiteral: value })}
+              onChange={(value) => patch({ recapVatLiteral: value }, ["recapVatLiteral"])}
               onCommit={commit}
               testId="field-recap-vat"
               money
@@ -750,6 +855,7 @@ export function FieldsPanel({
                   <td className="border-t border-line py-1 pr-1">
                     <CellInput
                       value={row.rateLiteral}
+                      provenance={provenance.vatRecap}
                       readOnly={readOnly}
                       disabled={pending}
                       placeholder="%"
@@ -762,6 +868,7 @@ export function FieldsPanel({
                   <td className="border-t border-line py-1 pr-1">
                     <CellInput
                       value={row.baseLiteral}
+                      provenance={provenance.vatRecap}
                       readOnly={readOnly}
                       disabled={pending}
                       placeholder="Základ"
@@ -774,6 +881,7 @@ export function FieldsPanel({
                   <td className="border-t border-line py-1 pr-1">
                     <CellInput
                       value={row.vatLiteral}
+                      provenance={provenance.vatRecap}
                       readOnly={readOnly}
                       disabled={pending}
                       placeholder="DPH"
@@ -886,7 +994,7 @@ export function FieldsPanel({
   );
 }
 
-function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" | "empty" }) {
+function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" | "profile" | "derived" | "empty" }) {
   if (provenance === "extracted") {
     return (
       <span
@@ -904,6 +1012,26 @@ function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" |
         title="Hodnota, ktorú si zadala"
       >
         moje
+      </span>
+    );
+  }
+  if (provenance === "derived") {
+    return (
+      <span
+        className="rounded-[2px] bg-accent-soft px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-accent"
+        title="Hodnota vypočítaná z iných údajov"
+      >
+        vypočítané
+      </span>
+    );
+  }
+  if (provenance === "profile") {
+    return (
+      <span
+        className="rounded-[2px] bg-surface-3 px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-ink-2"
+        title="Hodnota z profilu firmy"
+      >
+        profil
       </span>
     );
   }
@@ -926,7 +1054,7 @@ function Field({
 }: {
   label: string;
   value: string;
-  provenance?: "confirmed" | "extracted" | "empty";
+  provenance?: "confirmed" | "extracted" | "profile" | "derived" | "empty";
   state: FieldCheckState;
   readOnly: boolean;
   disabled: boolean;
@@ -969,6 +1097,7 @@ function Field({
 
 function CellInput({
   value,
+  provenance = "empty",
   readOnly,
   disabled,
   placeholder,
@@ -978,6 +1107,7 @@ function CellInput({
   onCommit,
 }: {
   value: string;
+  provenance?: "confirmed" | "extracted" | "profile" | "derived" | "empty";
   readOnly: boolean;
   disabled: boolean;
   placeholder: string;
@@ -987,24 +1117,27 @@ function CellInput({
   onCommit: () => void;
 }) {
   return (
-    <input
-      type="text"
-      value={value}
-      readOnly={readOnly}
-      disabled={disabled}
-      placeholder={placeholder}
-      inputMode="decimal"
-      onChange={(event) => {
-        const next = event.target.value;
-        if (DECIMAL_INPUT_PATTERN.test(next)) {
-          onChange(next);
-        }
-      }}
-      onBlur={onCommit}
-      data-testid={testId}
-      data-field-state={state}
-      aria-label={placeholder}
-      className={`w-full rounded-md border px-1.5 py-1 text-right font-mono text-[11.5px] read-only:bg-surface ${fieldStateClass(state)}`}
-    />
+    <div className="flex flex-col items-end gap-0.5">
+      <ProvenanceTag provenance={provenance} />
+      <input
+        type="text"
+        value={value}
+        readOnly={readOnly}
+        disabled={disabled}
+        placeholder={placeholder}
+        inputMode="decimal"
+        onChange={(event) => {
+          const next = event.target.value;
+          if (DECIMAL_INPUT_PATTERN.test(next)) {
+            onChange(next);
+          }
+        }}
+        onBlur={onCommit}
+        data-testid={testId}
+        data-field-state={state}
+        aria-label={placeholder}
+        className={`w-full rounded-md border px-1.5 py-1 text-right font-mono text-[11.5px] read-only:bg-surface ${fieldStateClass(state)}`}
+      />
+    </div>
   );
 }

@@ -371,3 +371,68 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   const t00Headers = t00Section.split("\r\n").filter((line) => line.startsWith("R01\t"));
   assert.equal(t00Headers.length, 2);
 });
+
+test("export preserves old-pipeline VAT gating instead of re-merging a fresh projection", async () => {
+  await freshTestDb();
+  const db = getDb();
+  const companyId = (
+    await db.insert(companies).values({ driveFolderId: "old-pipeline", name: "Acme", active: true }).returning({ id: companies.id })
+  )[0]!.id;
+  await db.insert(months).values({
+    companyId,
+    monthKey: "2026_05",
+    driveFolderId: "month-old-pipeline",
+    closedAt: null,
+    openedAt: "2026-05-01T00:00:00.000Z",
+  });
+  await seedFile(db, {
+    driveFileId: "old-vat-doc",
+    companyId,
+    monthKey: "2026_05",
+    folderSlot: "01 Vystavené faktúry",
+    name: "old.pdf",
+  });
+  await db.update(documents).set({
+    extractionPipelineVersion: 4,
+    extractedPayloadJson: JSON.stringify({
+      kind: "extracted",
+      parties: [],
+      documentNumber: "OLD-1",
+      variableSymbol: "OLD-1",
+      issueDate: "2026-05-10",
+      taxableSupplyDate: null,
+      dueDate: null,
+      currency: "EUR",
+      amountCents: null,
+      amountLiteral: null,
+      vatRecap: [],
+      docTypeHint: "invoice",
+    }),
+  }).where(eq(documents.driveFileId, "old-vat-doc"));
+  await saveDocumentFields({
+    companyId,
+    monthKey: "2026_05",
+    documentId: "old-vat-doc",
+    fields: fieldInput({
+      supplierName: "Old Supplier",
+      ico: "87654321",
+      customerName: "Acme Customer",
+      customerIco: "31333532",
+      variableSymbol: "OLD-1",
+      issueDateRaw: "10.05.2026",
+      amountLiteral: "123.00",
+      recapBaseLiteral: "100.00",
+    }),
+  });
+  await confirmDocument({ companyId, monthKey: "2026_05", documentId: "old-vat-doc", confirmed: true });
+
+  const result = await buildMonthOmegaExport({
+    companyId,
+    monthKey: "2026_05",
+    register: new FakeCompanyRegister(),
+    persist: false,
+  });
+  assert.equal(result.preview.included.length, 0);
+  assert.equal(result.preview.heldBack[0]?.documentId, "old-vat-doc");
+  assert.match(result.preview.heldBack[0]?.reason ?? "", /DPH/);
+});

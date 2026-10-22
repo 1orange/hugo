@@ -204,6 +204,15 @@ export type ConfirmedPayload = {
   vatRecap?: DocumentVatRecapRow[];
   /** Forces T01 vs T00 in the Omega export when set. */
   exportSection?: "T01" | "T00" | null;
+  /** Field-level dependency metadata for values calculated by the pipeline. */
+  derived?: Record<
+    string,
+    {
+      dependencies: string[];
+      /** Snapshot used to invalidate folder/profile-dependent derivations. */
+      dependencyValues?: Record<string, string>;
+    }
+  >;
 };
 
 export function emptyConfirmedPayload(): ConfirmedPayload {

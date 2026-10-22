@@ -1,0 +1,1 @@
+ALTER TABLE "documents" ADD COLUMN "replacement_created" boolean DEFAULT false NOT NULL;

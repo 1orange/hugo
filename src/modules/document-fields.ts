@@ -17,6 +17,14 @@ import {
   validateLabeledPartyRoles,
   type ClientIdentity,
 } from "./party-roles";
+import {
+  enrichInvoiceParties,
+  partySourceFromValues,
+  type PartyField,
+  type PartyValueProvenance,
+} from "./party-enrichment";
+import { PARTY_ENRICHMENT_PIPELINE_VERSION } from "./extraction-pipeline";
+import { deriveVat, type VatProvenance } from "./vat-derivation";
 
 export type EditableDocumentFields = {
   supplierName: string;
@@ -48,7 +56,12 @@ export type EditableDocumentFields = {
   vatRecap: DocumentVatRecapRow[];
 };
 
-export type FieldProvenance = "confirmed" | "extracted" | "empty";
+export type FieldProvenance =
+  | "confirmed"
+  | "extracted"
+  | "profile"
+  | "derived"
+  | "empty";
 
 export type FieldCheckState = "correct" | "flagged" | "empty";
 
@@ -83,12 +96,15 @@ export type MergedDocumentFields = {
   nonEurCurrency: boolean;
   rolesFlagged: boolean;
   missingProfile: boolean;
+  vatWarnings: string[];
 };
 
 export type MergeDocumentFieldsOptions = {
   folderSlot?: string;
   profile?: ClientIdentity | null;
   homeCurrency?: HomeCurrency;
+  /** Results from older extraction contracts must remain byte-for-byte stable. */
+  extractionPipelineVersion?: number | null;
 };
 
 export type ExportSectionFormValue = "" | "T01" | "T00";
@@ -220,6 +236,108 @@ function hasConfirmedKey(confirmed: ConfirmedPayload, key: keyof ConfirmedPayloa
   return Object.prototype.hasOwnProperty.call(confirmed, key);
 }
 
+function hasDerivedField(confirmed: ConfirmedPayload, key: string): boolean {
+  return Boolean(confirmed.derived?.[key]);
+}
+
+function derivationEnabled(options?: MergeDocumentFieldsOptions): boolean {
+  return (
+    options?.extractionPipelineVersion === undefined ||
+    (options.extractionPipelineVersion !== null &&
+      options.extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION)
+  );
+}
+
+function dependencyValue(
+  dependency: string,
+  extracted: ExtractedPayload,
+  confirmed: ConfirmedPayload,
+  options?: MergeDocumentFieldsOptions,
+): string {
+  if (dependency === "folderSlot") {
+    return options?.folderSlot ?? "";
+  }
+  if (dependency === "profileCountry") {
+    return options?.profile?.country ?? "";
+  }
+  if (dependency === "vatRecap") {
+    const rows = hasConfirmedKey(confirmed, "vatRecap")
+      ? confirmed.vatRecap ?? []
+      : extractedEditableFields(extracted).vatRecap ?? [];
+    return JSON.stringify(rows);
+  }
+  const extractedFields = extractedEditableFields(extracted);
+  const fieldKey = dependency === "supplierIcDph" ? "icDph" : dependency;
+  const confirmedKey = fieldKey as keyof ConfirmedPayload;
+  let value = hasConfirmedKey(confirmed, confirmedKey)
+    ? confirmed[confirmedKey]
+    : extractedFields[fieldKey as keyof EditableDocumentFields];
+  if (
+    dependency === "supplierIcDph" &&
+    String(value ?? "").trim().length === 0 &&
+    options?.folderSlot?.startsWith("01 ")
+  ) {
+    value = options.profile?.icDph ?? "";
+  }
+  return String(value ?? "");
+}
+
+function clearInvalidDerivedValue(confirmed: ConfirmedPayload, key: string): void {
+  if (key === "vatRecap") {
+    delete confirmed.vatRecap;
+  } else if (key === "recapBaseLiteral") {
+    delete confirmed.recapBaseLiteral;
+    delete confirmed.recapBaseCents;
+  } else if (key === "recapVatLiteral") {
+    delete confirmed.recapVatLiteral;
+    delete confirmed.recapVatCents;
+  }
+}
+
+/**
+ * A saved derived value may depend on the invoice direction, VAT ID, or
+ * folder. Invalidate it before merging when its persisted dependency snapshot
+ * no longer matches the current document. Older metadata without snapshots is
+ * retained for backwards compatibility and is refreshed on the next save.
+ */
+function invalidateStaleDerivedFields(
+  extracted: ExtractedPayload,
+  confirmed: ConfirmedPayload,
+  options?: MergeDocumentFieldsOptions,
+): ConfirmedPayload {
+  if (!derivationEnabled(options) || !confirmed.derived) {
+    return confirmed;
+  }
+  const next: ConfirmedPayload = {
+    ...confirmed,
+    derived: { ...confirmed.derived },
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [key, metadata] of Object.entries(next.derived ?? {})) {
+      if (!metadata.dependencyValues) {
+        continue;
+      }
+      const stale = metadata.dependencies.some(
+        (dependency) =>
+          metadata.dependencyValues?.[dependency] !==
+          dependencyValue(dependency, extracted, next, options),
+      );
+      if (!stale) {
+        continue;
+      }
+      clearInvalidDerivedValue(next, key);
+      delete next.derived?.[key];
+      changed = true;
+    }
+  }
+  if (Object.keys(next.derived ?? {}).length === 0) {
+    delete next.derived;
+  }
+  return next;
+}
+
 function scalarFromConfirmed(confirmed: ConfirmedPayload, key: keyof ConfirmedPayload): string {
   const value = confirmed[key];
   if (value === null || value === undefined) {
@@ -235,7 +353,10 @@ function mergeScalar(
   confirmed: ConfirmedPayload,
 ): { value: string; provenance: FieldProvenance } {
   if (hasConfirmedKey(confirmed, confirmedKey)) {
-    return { value: scalarFromConfirmed(confirmed, confirmedKey), provenance: "confirmed" };
+    return {
+      value: scalarFromConfirmed(confirmed, confirmedKey),
+      provenance: hasDerivedField(confirmed, String(confirmedKey)) ? "derived" : "confirmed",
+    };
   }
   const extractedValue = extracted[key as keyof EditableDocumentFields];
   if (typeof extractedValue === "string" && extractedValue.length > 0) {
@@ -253,7 +374,11 @@ function mergeMoneyLiteral(
   if (hasConfirmedKey(confirmed, literalKey)) {
     const literal = scalarFromConfirmed(confirmed, literalKey);
     const cents = confirmed[centsKey] ?? null;
-    return { literal, cents, provenance: "confirmed" };
+    return {
+      literal,
+      cents,
+      provenance: hasDerivedField(confirmed, literalKey) ? "derived" : "confirmed",
+    };
   }
   const literal = extracted[literalKey];
   if (typeof literal === "string" && literal.length > 0) {
@@ -354,6 +479,32 @@ function mergePartyFields(
   const customerDic = mergeScalar("customerDic", "customerDic", fromExtracted, confirmed);
   const customerIcDph = mergeScalar("customerIcDph", "customerIcDph", fromExtracted, confirmed);
 
+  const partySource = (values: Record<PartyField, ReturnType<typeof mergeScalar>>) => {
+    const source = partySourceFromValues(
+      Object.fromEntries(
+        (Object.keys(values) as PartyField[]).map((field) => [field, values[field].value]),
+      ),
+      "extracted",
+    );
+    for (const field of Object.keys(values) as PartyField[]) {
+      if (source[field].value) {
+        source[field].provenance = values[field].provenance as PartyValueProvenance;
+      }
+    }
+    return source;
+  };
+
+  const enriched = enrichInvoiceParties({
+    folderSlot: options?.folderSlot ?? "",
+    supplier: partySource({ name: supplier, ico, dic, icDph }),
+    customer: partySource({ name: customerName, ico: customerIco, dic: customerDic, icDph: customerIcDph }),
+    profile: options?.profile ?? null,
+    enabled:
+      options?.extractionPipelineVersion === undefined ||
+      (options.extractionPipelineVersion !== null &&
+        options.extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION),
+  });
+
   const folderSlot = options?.folderSlot;
   const invoiceFolder =
     folderSlot !== undefined &&
@@ -363,31 +514,33 @@ function mergePartyFields(
       folderSlot,
       profile: options?.profile ?? null,
       supplier: {
-        name: supplier.value,
-        ico: ico.value,
-        dic: dic.value,
-        icDph: icDph.value,
+        name: enriched.supplier.name.value,
+        ico: enriched.supplier.ico.value,
+        dic: enriched.supplier.dic.value,
+        icDph: enriched.supplier.icDph.value,
       },
       customer: {
-        name: customerName.value,
-        ico: customerIco.value,
-        dic: customerDic.value,
-        icDph: customerIcDph.value,
+        name: enriched.customer.name.value,
+        ico: enriched.customer.ico.value,
+        dic: enriched.customer.dic.value,
+        icDph: enriched.customer.icDph.value,
       },
     });
     rolesFlagged = rolesFlagged || validation.rolesFlagged;
     missingProfile = missingProfile || validation.missingProfile;
   }
+  rolesFlagged =
+    rolesFlagged || enriched.conflicts.supplier || enriched.conflicts.customer;
 
   return {
-    supplier,
-    ico,
-    dic,
-    icDph,
-    customerName,
-    customerIco,
-    customerDic,
-    customerIcDph,
+    supplier: enriched.supplier.name,
+    ico: enriched.supplier.ico,
+    dic: enriched.supplier.dic,
+    icDph: enriched.supplier.icDph,
+    customerName: enriched.customer.name,
+    customerIco: enriched.customer.ico,
+    customerDic: enriched.customer.dic,
+    customerIcDph: enriched.customer.icDph,
     rolesFlagged,
     missingProfile,
   };
@@ -399,6 +552,7 @@ export function mergeDocumentFields(
   options?: MergeDocumentFieldsOptions,
 ): MergedDocumentFields {
   let fromExtracted = extractedEditableFields(extracted);
+  confirmed = invalidateStaleDerivedFields(extracted, confirmed, options);
 
   const parties = mergePartyFields(extracted, confirmed, fromExtracted, options);
 
@@ -448,7 +602,7 @@ export function mergeDocumentFields(
   let vatRecapProvenance: FieldProvenance;
   if (hasConfirmedKey(confirmed, "vatRecap")) {
     vatRecap = confirmed.vatRecap ?? [];
-    vatRecapProvenance = "confirmed";
+    vatRecapProvenance = hasDerivedField(confirmed, "vatRecap") ? "derived" : "confirmed";
   } else if ((fromExtracted.vatRecap?.length ?? 0) > 0) {
     vatRecap = fromExtracted.vatRecap!;
     vatRecapProvenance = "extracted";
@@ -466,6 +620,33 @@ export function mergeDocumentFields(
 
   const effectiveDocumentNumber =
     documentNumber.value || receiptNumber.value;
+
+  const vat = deriveVat({
+    amount: {
+      literal: amount.literal,
+      cents: amount.cents,
+      provenance: amount.provenance as VatProvenance,
+    },
+    recapBase: {
+      literal: recapBase.literal,
+      cents: recapBase.cents,
+      provenance: recapBase.provenance as VatProvenance,
+    },
+    recapVat: {
+      literal: recapVat.literal,
+      cents: recapVat.cents,
+      provenance: recapVat.provenance as VatProvenance,
+    },
+    vatRecap,
+    vatRecapProvenance: vatRecapProvenance as VatProvenance,
+    folderSlot: options?.folderSlot ?? "",
+    supplierIcDph: parties.icDph.value,
+    profileCountry: options?.profile?.country ?? null,
+    enabled:
+      options?.extractionPipelineVersion === undefined ||
+      (options.extractionPipelineVersion !== null &&
+        options.extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION),
+  });
 
   return {
     fields: {
@@ -491,11 +672,11 @@ export function mergeDocumentFields(
       currency: effectiveCurrency,
       amountLiteral: amount.literal,
       amountCents: amount.cents,
-      recapBaseLiteral: recapBase.literal,
-      recapBaseCents: recapBase.cents,
-      recapVatLiteral: recapVat.literal,
-      recapVatCents: recapVat.cents,
-      vatRecap,
+      recapBaseLiteral: vat.recapBase.literal,
+      recapBaseCents: vat.recapBase.cents,
+      recapVatLiteral: vat.recapVat.literal,
+      recapVatCents: vat.recapVat.cents,
+      vatRecap: vat.vatRecap,
     },
     provenance: {
       supplierName: parties.supplier.provenance,
@@ -515,14 +696,15 @@ export function mergeDocumentFields(
       receiptTimestampRaw: receiptTimestampRaw.provenance,
       currency: currency.provenance,
       amountLiteral: amount.provenance,
-      recapBaseLiteral: recapBase.provenance,
-      recapVatLiteral: recapVat.provenance,
-      vatRecap: vatRecapProvenance,
+      recapBaseLiteral: vat.recapBase.provenance,
+      recapVatLiteral: vat.recapVat.provenance,
+      vatRecap: vat.vatRecapProvenance,
     },
     nonEurCurrency:
       effectiveCurrency.length > 0 && effectiveCurrency !== homeCurrency,
     rolesFlagged: parties.rolesFlagged,
     missingProfile: parties.missingProfile,
+    vatWarnings: vat.warnings,
   };
 }
 

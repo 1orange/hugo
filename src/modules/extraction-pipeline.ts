@@ -17,8 +17,13 @@
  * 4 — a text longer than the model's context is cut to fit it (a loan
  *     contract was refused); a garbled text layer goes to OCR, or fails with
  *     what to do about it.
+ * 5 — invoice party identity enrichment (safe Slovak DIČ derivation and
+ *     company-profile backfill) is part of the extracted result contract.
  */
-export const EXTRACTION_PIPELINE_VERSION = 4;
+export const EXTRACTION_PIPELINE_VERSION = 5;
+
+/** Results before this contract must not change merely by opening them. */
+export const PARTY_ENRICHMENT_PIPELINE_VERSION = 5;
 
 export function needsExtraction(
   document:

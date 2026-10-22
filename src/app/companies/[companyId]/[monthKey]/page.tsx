@@ -12,10 +12,11 @@ import { monthLabel } from "@/modules/format-sk";
 import { DocumentWorkbench } from "./document-workbench";
 import { MonthRail } from "./month-rail";
 import { OmegaExportPanel } from "./omega-export-panel";
+import { parseDocumentSortParams } from "@/modules/document-browser";
 
 type MonthPageProps = {
   params: Promise<{ companyId: string; monthKey: string }>;
-  searchParams: Promise<{ folder?: string }>;
+  searchParams: Promise<{ folder?: string; sort?: string; direction?: string; dir?: string }>;
 };
 
 export default async function MonthPage({ params, searchParams }: MonthPageProps) {
@@ -31,14 +32,20 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
   }
 
   const { companyId, monthKey } = await params;
-  const { folder } = await searchParams;
+  const { folder, sort, direction, dir } = await searchParams;
+  const documentSort = parseDocumentSortParams({ sort, direction, dir });
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
     notFound();
   }
 
   const view = await buildMonthView(companyIdNum, monthKey);
-  const documentView = await buildMonthDocumentView(companyIdNum, monthKey, folder ?? null);
+  const documentView = await buildMonthDocumentView(
+    companyIdNum,
+    monthKey,
+    folder ?? null,
+    documentSort,
+  );
   if (!view || !documentView) {
     notFound();
   }

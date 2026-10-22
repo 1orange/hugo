@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DocumentActionResult } from "@/lib/documents/service";
 import type { MonthDocumentView } from "@/lib/documents/view";
@@ -17,6 +17,10 @@ import { DocumentRail } from "./document-rail";
 import { DocumentStage } from "./document-stage";
 import { FieldsPanel, type DocumentFieldsInput } from "./fields-panel";
 import { useMonthExtraction } from "./use-month-extraction";
+import {
+  documentBrowserNavigationKey,
+  filterDocuments,
+} from "@/modules/document-browser";
 
 type DocumentWorkbenchProps = {
   companyId: number;
@@ -59,8 +63,12 @@ export function DocumentWorkbench({
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     view.documents[0]?.id ?? null,
   );
+  const [search, setSearch] = useState("");
 
-  const documents = view.documents;
+  const documents = useMemo(
+    () => filterDocuments(view.documents, search),
+    [search, view.documents],
+  );
   const selectedIndex = documents.findIndex(
     (document) => document.id === selectedDocumentId,
   );
@@ -69,7 +77,11 @@ export function DocumentWorkbench({
 
   // Parsing is kicked off in the background when the month is opened; the
   // screen follows the queue and renders again when a document is read.
-  const liveExtraction = useMonthExtraction({ companyId, monthKey, documents });
+  const liveExtraction = useMonthExtraction({
+    companyId,
+    monthKey,
+    documents: view.documents,
+  });
 
   // The filter is a URL round-trip, so the selection has to survive a list that
   // no longer contains it.
@@ -81,6 +93,25 @@ export function DocumentWorkbench({
       setSelectedDocumentId(documents[0]?.id ?? null);
     }
   }, [documents, selectedDocumentId]);
+
+  const navigationSource = useRef(
+    documentBrowserNavigationKey({
+      folderFilter: view.folderFilter,
+      sortKey: view.sortKey,
+      sortDirection: view.sortDirection,
+    }),
+  );
+  useEffect(() => {
+    const nextNavigation = documentBrowserNavigationKey({
+      folderFilter: view.folderFilter,
+      sortKey: view.sortKey,
+      sortDirection: view.sortDirection,
+    });
+    if (navigationSource.current !== nextNavigation) {
+      navigationSource.current = nextNavigation;
+      setSearch("");
+    }
+  }, [view.folderFilter, view.sortDirection, view.sortKey]);
 
   const [note, setNote] = useState(selectedDocument?.note ?? "");
   const noteSourceId = useRef<string | null>(selectedDocument?.id ?? null);
@@ -305,7 +336,7 @@ export function DocumentWorkbench({
         </p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)_320px] xl:grid-cols-[264px_minmax(0,1fr)_340px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)_320px] xl:grid-cols-[400px_minmax(0,1fr)_340px]">
         <section
           className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:border-r"
           data-testid="documents-column"
@@ -315,7 +346,11 @@ export function DocumentWorkbench({
             documents={documents}
             folderFilters={view.folderFilters}
             folderFilter={view.folderFilter}
-            totalCount={view.totalCount}
+            totalCount={view.documents.length}
+            search={search}
+            onSearchChange={setSearch}
+            sortKey={view.sortKey}
+            sortDirection={view.sortDirection}
             readOnlyFiles={view.readOnlyFiles}
             selectedDocumentId={selectedDocument?.id ?? null}
             liveExtraction={liveExtraction}

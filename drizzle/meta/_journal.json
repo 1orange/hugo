@@ -8,6 +8,20 @@
       "when": 1790688347434,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792675686496,
+      "tag": "0001_atomic_manual_reextraction",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792676421830,
+      "tag": "0002_replacement_created_document",
+      "breakpoints": true
     }
   ]
 }

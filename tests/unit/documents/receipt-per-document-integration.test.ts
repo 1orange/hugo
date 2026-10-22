@@ -134,7 +134,7 @@ test("the export writes every receipt of a scan and holds back a receipt booked 
   assert.equal(new Set(numbers).size, 2);
 });
 
-test("a scan's receipts stay together in the list, even when found later", async () => {
+test("a scan's receipts keep deterministic positions after browser sorting", async () => {
   const companyId = await seed();
   const THIRD_UID = "V-33333333333333333333333333333333";
   await getDb()
@@ -156,7 +156,7 @@ test("a scan's receipts stay together in the list, even when found later", async
 
   assert.deepEqual(
     view.documents.map((item) => item.id),
-    [SCAN, receiptDocumentId(SCAN, SECOND_UID), receiptDocumentId(SCAN, THIRD_UID), OTHER],
+    [OTHER, SCAN, receiptDocumentId(SCAN, SECOND_UID), receiptDocumentId(SCAN, THIRD_UID)],
   );
-  assert.deepEqual(view.documents[2]!.receiptOfFile, { index: 3, count: 3 });
+  assert.deepEqual(view.documents[3]!.receiptOfFile, { index: 3, count: 3 });
 });

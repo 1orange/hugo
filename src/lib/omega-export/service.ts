@@ -171,39 +171,24 @@ function invoiceDocType(folderSlot: string): 0 | 14 {
 }
 
 function buildVatRecap(merged: ReturnType<typeof mergeDocumentFields>) {
-  const vatRecap = [...merged.fields.vatRecap];
-  if (vatRecap.length === 0 && merged.fields.recapBaseCents !== null) {
-    vatRecap.push({
-      rateLiteral: "23",
-      baseLiteral: merged.fields.recapBaseLiteral,
-      baseCents: merged.fields.recapBaseCents ?? 0,
-      vatLiteral: merged.fields.recapVatLiteral,
-      vatCents: merged.fields.recapVatCents ?? 0,
-    });
-  }
-  return vatRecap;
+  return [...merged.fields.vatRecap];
 }
 
 function buildInvoiceDraft(input: {
   document: DocumentRow;
   exportNumber: string;
   counterparty: OmegaPartnerRecord;
+  merged: ReturnType<typeof mergeDocumentFields>;
 }): OmegaInvoiceDraft | { heldBack: true; reason: string } {
-  const merged = mergeDocumentFields(
-    parseExtractedPayload(input.document.extractedPayloadJson),
-    parseConfirmedPayload(input.document.confirmedPayloadJson),
-    { folderSlot: input.document.folderSlot },
-  );
-
   const variableSymbol =
-    merged.fields.variableSymbol.trim() || merged.fields.documentNumber.trim();
+    input.merged.fields.variableSymbol.trim() || input.merged.fields.documentNumber.trim();
   if (variableSymbol.length === 0) {
     return { heldBack: true, reason: "Chýba VS alebo číslo dokladu." };
   }
 
-  const vatRecap = buildVatRecap(merged);
+  const vatRecap = buildVatRecap(input.merged);
   const totalCents =
-    merged.fields.amountCents ??
+    input.merged.fields.amountCents ??
     vatRecap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
 
   return {
@@ -211,10 +196,11 @@ function buildInvoiceDraft(input: {
     exportNumber: input.exportNumber,
     docType: invoiceDocType(input.document.folderSlot),
     variableSymbol,
-    issueDate: merged.fields.issueDateRaw,
-    dueDate: merged.fields.dueDateRaw,
-    taxableSupplyDate: merged.fields.taxableSupplyDateRaw || merged.fields.issueDateRaw,
-    currency: merged.fields.currency || "EUR",
+    issueDate: input.merged.fields.issueDateRaw,
+    dueDate: input.merged.fields.dueDateRaw,
+    taxableSupplyDate:
+      input.merged.fields.taxableSupplyDateRaw || input.merged.fields.issueDateRaw,
+    currency: input.merged.fields.currency || "EUR",
     counterparty: input.counterparty,
     vatRecap,
     totalCents,
@@ -227,36 +213,30 @@ function buildReceiptDraft(input: {
   counterparty: OmegaPartnerRecord;
   settings: SettingsRow;
   homeCurrency: string;
+  merged: ReturnType<typeof mergeDocumentFields>;
 }): OmegaReceiptDraft | { heldBack: true; reason: string } {
-  const merged = mergeDocumentFields(
-    parseExtractedPayload(input.document.extractedPayloadJson),
-    parseConfirmedPayload(input.document.confirmedPayloadJson),
-    { folderSlot: input.document.folderSlot },
-  );
-
   const externalNumber =
-    merged.fields.receiptNumber.trim() ||
-    merged.fields.documentNumber.trim();
+    input.merged.fields.receiptNumber.trim() || input.merged.fields.documentNumber.trim();
   if (externalNumber.length === 0) {
     return { heldBack: true, reason: "Chýba číslo bločku alebo dokladu." };
   }
 
-  const vatRecap = buildVatRecap(merged);
+  const vatRecap = buildVatRecap(input.merged);
   const totalCents =
-    merged.fields.amountCents ??
+    input.merged.fields.amountCents ??
     vatRecap.reduce((sum, row) => sum + row.baseCents + row.vatCents, 0);
 
   const issueRaw =
-    merged.fields.issueDateRaw.trim() ||
-    formatDateOnly(merged.fields.receiptTimestampRaw);
+    input.merged.fields.issueDateRaw.trim() ||
+    formatDateOnly(input.merged.fields.receiptTimestampRaw);
   if (issueRaw.length === 0) {
     return { heldBack: true, reason: "Chýba dátum dokladu." };
   }
 
   const primaryDate = formatDateOnly(issueRaw);
   const foreignCurrency =
-    merged.fields.currency.length > 0 &&
-    merged.fields.currency !== input.homeCurrency;
+    input.merged.fields.currency.length > 0 &&
+    input.merged.fields.currency !== input.homeCurrency;
 
   const docTypeCode = foreignCurrency
     ? Number(input.settings.omegaT00ForeignDocumentTypeCode) || 380
@@ -270,12 +250,12 @@ function buildReceiptDraft(input: {
     seriesCode: input.settings.omegaT00SeriesCode,
     externalNumber,
     issueDate: primaryDate,
-    receiptDate: formatDateOnly(merged.fields.receiptTimestampRaw) || primaryDate,
-    dueDate: merged.fields.dueDateRaw.trim() || primaryDate,
+    receiptDate: formatDateOnly(input.merged.fields.receiptTimestampRaw) || primaryDate,
+    dueDate: input.merged.fields.dueDateRaw.trim() || primaryDate,
     taxableSupplyDate:
-      merged.fields.taxableSupplyDateRaw.trim() || primaryDate,
+      input.merged.fields.taxableSupplyDateRaw.trim() || primaryDate,
     transactionDate: primaryDate,
-    currency: merged.fields.currency || input.homeCurrency,
+    currency: input.merged.fields.currency || input.homeCurrency,
     foreignCurrency,
     counterparty: input.counterparty,
     vatRecap,
@@ -375,6 +355,7 @@ export async function buildMonthOmegaExport(input: {
     const merged = mergeDocumentFields(extracted, confirmedPayload, {
       folderSlot: document.folderSlot,
       profile: profile ?? null,
+      extractionPipelineVersion: document.extractionPipelineVersion,
     });
 
     const counterpartySource =
@@ -414,6 +395,7 @@ export async function buildMonthOmegaExport(input: {
         document,
         exportNumber,
         counterparty,
+        merged,
       });
       if ("heldBack" in draft) {
         preHeldBack.push({ documentId: document.id, reason: draft.reason });
@@ -429,6 +411,7 @@ export async function buildMonthOmegaExport(input: {
       counterparty,
       settings,
       homeCurrency,
+      merged,
     });
     if ("heldBack" in draft) {
       preHeldBack.push({ documentId: document.id, reason: draft.reason });

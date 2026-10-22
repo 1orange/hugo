@@ -586,6 +586,60 @@ test("company profile saved after extraction assigns party roles without re-extr
   assert.equal(invoice.fieldEditor.rolesFlagged, false);
 });
 
+test("VAT summary derivation survives save and reload with derived provenance", async () => {
+  await seedMonth();
+  const db = getDb();
+  await db.update(documents).set({
+    extractedPayloadJson: serializeExtractedPayload({
+      kind: "extracted",
+      parties: [],
+      documentNumber: "VAT-1",
+      variableSymbol: "VAT-1",
+      issueDate: "2026-01-10",
+      taxableSupplyDate: null,
+      dueDate: null,
+      currency: "EUR",
+      amountCents: 12300,
+      amountLiteral: "123.00",
+      vatRecap: [{ rateLiteral: "23", baseLiteral: "100.00", baseCents: 10000, vatLiteral: "23.00", vatCents: 2300 }],
+      docTypeHint: "invoice",
+    }),
+    extractionStatus: "complete",
+    extractionPipelineVersion: 5,
+  }).where(eq(documents.driveFileId, INVOICE_A));
+
+  let view = (await buildMonthDocumentView(1, "2026_01"))!;
+  let invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
+  assert.equal(invoice.fieldEditor.fields.recapBaseCents, 10000);
+  assert.equal(invoice.fieldEditor.fields.recapVatCents, 2300);
+  assert.equal(invoice.fieldEditor.provenance.recapBaseLiteral, "derived");
+
+  const saved = await saveDocumentFields({
+    companyId: 1,
+    monthKey: "2026_01",
+    documentId: invoice.id,
+    fields: emptyFieldInput({
+      documentNumber: "VAT-1",
+      variableSymbol: "VAT-1",
+      currency: "EUR",
+      amountLiteral: "123.00",
+      recapBaseLiteral: "100.00",
+      recapVatLiteral: "23.00",
+      vatRecap: [{ rateLiteral: "23", baseLiteral: "100.00", vatLiteral: "23.00" }],
+    }),
+  });
+  assert.equal(saved.ok, true);
+  const confirmed = parseConfirmedPayload(
+    (await db.select().from(documents).where(eq(documents.driveFileId, INVOICE_A)).limit(1))[0]!.confirmedPayloadJson,
+  );
+  assert.equal(confirmed.derived?.recapBaseLiteral?.dependencies[0], "vatRecap");
+
+  view = (await buildMonthDocumentView(1, "2026_01"))!;
+  invoice = view.documents.find((document) => document.driveFileId === INVOICE_A)!;
+  assert.equal(invoice.fieldEditor.provenance.recapBaseLiteral, "derived");
+  assert.equal(invoice.fieldEditor.fields.recapVatCents, 2300);
+});
+
 test("closed month rejects saving fields", async () => {
   await seedMonth();
   const db = getDb();

@@ -36,7 +36,12 @@ import {
   parseExtractedPayload,
   type EkasaExtractionSource,
 } from "@/modules/document-payload";
-import { folderSlotPrefix, formatDateTime } from "@/modules/format-sk";
+import { folderSlotPrefix, formatDate, formatDateTime } from "@/modules/format-sk";
+import {
+  sortDocuments,
+  type DocumentSortDirection,
+  type DocumentSortKey,
+} from "@/modules/document-browser";
 import type { HomeCurrency } from "@/modules/company-profile";
 import type { DocTypeHint } from "@/modules/document-payload";
 import {
@@ -52,8 +57,10 @@ export type DocumentFieldEditorView = {
   fieldChecks: EditorScalarFieldChecks | null;
   docTypeHint: DocTypeHint | null;
   arithmeticWarning: string | null;
+  vatWarnings: string[];
   nonEurCurrency: boolean;
   homeCurrency: HomeCurrency;
+  profileCountry: "SK" | "CZ" | null;
   rolesFlagged: boolean;
   missingProfile: boolean;
   exportSectionOverride: ExportSectionOverride;
@@ -80,6 +87,7 @@ export type DocumentListItem = {
   label: string;
   amountDisplay: string;
   receiptDisplay: string;
+  issueDateDisplay: string;
   derivedStatus: DerivedDocumentStatus;
   extractionFailureReason: string | null;
   hasExtractedData: boolean;
@@ -121,6 +129,8 @@ export type MonthDocumentView = {
    */
   pendingExtractionCount: number;
   folderFilter: string | null;
+  sortKey: DocumentSortKey;
+  sortDirection: DocumentSortDirection;
   folderFilters: FolderFilterOption[];
   documents: DocumentListItem[];
   /**
@@ -161,6 +171,7 @@ export async function buildMonthDocumentView(
   companyId: number,
   monthKey: string,
   folderFilter?: string | null,
+  sort?: { key: DocumentSortKey; direction: DocumentSortDirection },
 ): Promise<MonthDocumentView | null> {
   const company = await getCompanyById(companyId);
   if (!company) {
@@ -241,11 +252,13 @@ export async function buildMonthDocumentView(
         folderSlot,
         profile: companyProfile,
         homeCurrency,
+        extractionPipelineVersion: document.extractionPipelineVersion,
       });
       const amountDisplay = effectiveAmountDisplay(merged.fields);
       const receiptDisplay = formatReceiptAt(
         merged.fields.issueDateAt ?? merged.fields.receiptAt,
       );
+      const issueDateDisplay = formatDate(merged.fields.issueDateAt);
 
       return {
         id: document.id,
@@ -272,6 +285,7 @@ export async function buildMonthDocumentView(
         label: documentLabel(file.name, merged.fields),
         amountDisplay,
         receiptDisplay,
+        issueDateDisplay,
         derivedStatus: deriveDocumentStatus({
           decision: document.decision,
           extractionStatus: document.extractionStatus,
@@ -309,8 +323,10 @@ export async function buildMonthDocumentView(
             : null,
           docTypeHint: isModelExtractedPayload(payload) ? payload.docTypeHint : null,
           arithmeticWarning: checkArithmeticWarning(merged.fields),
+          vatWarnings: merged.vatWarnings ?? [],
           nonEurCurrency: merged.nonEurCurrency,
           homeCurrency,
+          profileCountry: companyProfile?.country ?? null,
           rolesFlagged: merged.rolesFlagged,
           missingProfile: merged.missingProfile,
           exportSectionOverride: readExportSectionOverride(confirmed),
@@ -338,6 +354,15 @@ export async function buildMonthDocumentView(
       (left.receiptOfFile?.index ?? 0) - (right.receiptOfFile?.index ?? 0),
   );
 
+  const sortKey = sort?.key ?? "issueDate";
+  const sortDirection = sort?.direction ?? "desc";
+  const sortedDocumentItems = sortDocuments(
+    documentItems,
+    sortKey,
+    sortDirection,
+    homeCurrency,
+  );
+
   const awaitingCount = documentItems.filter(
     (item) => item.decision === null,
   ).length;
@@ -357,7 +382,8 @@ export async function buildMonthDocumentView(
 
   const readOnlyFiles: ReadOnlyFile[] = files
     .filter((file) => !file.deleted && file.folderSlot === null)
-    .map((file) => ({ driveFileId: file.driveFileId, name: file.name }));
+    .map((file) => ({ driveFileId: file.driveFileId, name: file.name }))
+    .sort((left, right) => left.name.localeCompare(right.name, "sk"));
 
   return {
     companyName: company.name,
@@ -372,7 +398,9 @@ export async function buildMonthDocumentView(
     totalCount: documentItems.length,
     folderFilter: folderFilter ?? null,
     folderFilters,
-    documents: documentItems.filter(
+    sortKey,
+    sortDirection,
+    documents: sortedDocumentItems.filter(
       (item) => !folderFilter || item.folderSlot === folderFilter,
     ),
     readOnlyFiles,

@@ -43,6 +43,8 @@ export async function requestDocumentReextraction(input: {
     monthKey: input.monthKey,
     driveFileId: document.driveFileId,
     documentId: document.id,
+    source: "manual",
+    outcome: "pending",
   });
   await input.schedule(input.companyId, input.monthKey);
   return { ok: true };

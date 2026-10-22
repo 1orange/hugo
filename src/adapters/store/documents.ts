@@ -31,6 +31,11 @@ export type DocumentRow = {
   extractionFailureReason: string | null;
   extractionPipelineVersion: number | null;
   extractedPayloadJson: string;
+  replacementPending: boolean;
+  replacementCreated: boolean;
+  stagedExtractedPayloadJson: string | null;
+  stagedExtractionStatus: string | null;
+  stagedExtractionFailureReason: string | null;
   confirmedPayloadJson: string;
   note: string | null;
   exportedAt: string | null;
@@ -210,6 +215,14 @@ export async function setExtractionStatus(
   failureReason: string | null,
 ): Promise<void> {
   const db = getDb();
+  const existing = await getDocument(documentId);
+  if (existing?.replacementPending) {
+    await db
+      .update(documents)
+      .set({ stagedExtractionStatus: status, stagedExtractionFailureReason: failureReason })
+      .where(eq(documents.id, documentId));
+    return;
+  }
   await db
     .update(documents)
     .set({
@@ -226,6 +239,19 @@ export async function writeExtractedPayload(
   failureReason: string | null,
 ): Promise<DocumentRow | undefined> {
   const db = getDb();
+  const existing = await getDocument(documentId);
+  if (existing?.replacementPending) {
+    const [row] = await db
+      .update(documents)
+      .set({
+        stagedExtractedPayloadJson: serializeExtractedPayload(payload),
+        stagedExtractionStatus: status,
+        stagedExtractionFailureReason: failureReason,
+      })
+      .where(eq(documents.id, documentId))
+      .returning();
+    return row;
+  }
   const [row] = await db
     .update(documents)
     .set({
@@ -268,6 +294,10 @@ export async function upsertEkasaExtractedPayload(input: {
   const db = getDb();
   const serialized = serializeExtractedPayload(input.payload);
   const documentId = input.documentId ?? input.driveFileId;
+  const existing = await getDocument(documentId);
+  const replacementPending = existing?.replacementPending ??
+    (await getDocument(input.driveFileId))?.replacementPending ?? false;
+  const replacementCreated = replacementPending && existing === undefined;
   const [row] = await db
     .insert(documents)
     .values({
@@ -277,10 +307,20 @@ export async function upsertEkasaExtractedPayload(input: {
       companyId: input.companyId,
       monthKey: input.monthKey,
       folderSlot: input.folderSlot,
-      extractionStatus: input.extractionStatus,
-      extractionFailureReason: input.extractionFailureReason,
-      extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+      extractionStatus: replacementPending ? "pending" : input.extractionStatus,
+      extractionFailureReason: replacementPending ? null : input.extractionFailureReason,
+      extractionPipelineVersion: replacementPending ? null : EXTRACTION_PIPELINE_VERSION,
       extractedPayloadJson: serialized,
+      replacementPending,
+      replacementCreated,
+      ...(replacementPending
+        ? {
+            extractedPayloadJson: existing?.extractedPayloadJson ?? "{}",
+            stagedExtractedPayloadJson: serialized,
+            stagedExtractionStatus: input.extractionStatus,
+            stagedExtractionFailureReason: input.extractionFailureReason,
+          }
+        : {}),
       confirmedPayloadJson: "{}",
       createdAt: input.createdAt,
     })
@@ -288,10 +328,20 @@ export async function upsertEkasaExtractedPayload(input: {
       target: documents.id,
       set: {
         folderSlot: input.folderSlot,
-        extractedPayloadJson: serialized,
-        extractionStatus: input.extractionStatus,
-        extractionFailureReason: input.extractionFailureReason,
-        extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+        ...(replacementPending
+          ? {
+              stagedExtractedPayloadJson: serialized,
+              stagedExtractionStatus: input.extractionStatus,
+              stagedExtractionFailureReason: input.extractionFailureReason,
+            }
+          : {
+              extractedPayloadJson: serialized,
+              extractionStatus: input.extractionStatus,
+              extractionFailureReason: input.extractionFailureReason,
+            }),
+        ...(replacementPending
+          ? {}
+          : { extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION }),
       },
     })
     .returning();
@@ -335,12 +385,17 @@ export async function recordExtractionCrash(documentId: string, error: unknown):
 /** Marks a document as being read now, by the current pipeline. */
 export async function beginExtractionAttempt(documentId: string): Promise<void> {
   const db = getDb();
+  const existing = await getDocument(documentId);
   await db
     .update(documents)
     .set({
       extractionStatus: "pending",
       extractionFailureReason: null,
-      extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+      // Keep the active payload's version while an explicit replacement is
+      // staged; promotion alone adopts the current pipeline version.
+      extractionPipelineVersion: existing?.replacementPending
+        ? existing.extractionPipelineVersion
+        : EXTRACTION_PIPELINE_VERSION,
     })
     .where(eq(documents.id, documentId));
 }
@@ -355,8 +410,119 @@ export async function markForReextraction(driveFileId: string): Promise<void> {
   const db = getDb();
   await db
     .update(documents)
-    .set({ extractionStatus: "pending", extractionFailureReason: null, extractionPipelineVersion: null })
-    .where(eq(documents.id, driveFileId));
+    .set({
+      extractionStatus: "pending",
+      extractionFailureReason: null,
+      replacementPending: true,
+      stagedExtractedPayloadJson: null,
+      stagedExtractionStatus: null,
+      stagedExtractionFailureReason: null,
+    })
+    .where(eq(documents.driveFileId, driveFileId));
+}
+
+/** Whether the file is in the explicit, destructive-on-success replacement mode. */
+export async function isReplacementPending(driveFileId: string): Promise<boolean> {
+  const [row] = await getDb()
+    .select({ replacementPending: documents.replacementPending })
+    .from(documents)
+    .where(and(eq(documents.driveFileId, driveFileId), eq(documents.replacementPending, true)))
+    .limit(1);
+  return row?.replacementPending === true;
+}
+
+export type ReextractionFinalization = {
+  outcome: "complete" | "failed";
+  reason: string | null;
+  sources: string[];
+  documentIds: string[];
+};
+
+/**
+ * Promotes or discards a staged file replacement in one transaction. Rows not
+ * touched by a sparse successful parser are intentionally replaced with an
+ * empty payload as well: the fresh file read is authoritative for every receipt.
+ */
+export async function finalizeReextraction(
+  driveFileId: string,
+  interruptedReason?: string | null,
+): Promise<ReextractionFinalization | null> {
+  const db = getDb();
+  const rows = await listDocumentsForFile(driveFileId);
+  if (rows.length === 0 || !rows.some((row) => row.replacementPending)) {
+    return null;
+  }
+  const failed = rows.find((row) => row.stagedExtractionStatus === "failed");
+  const pending = rows.some(
+    (row) => row.stagedExtractionStatus === "pending" ||
+      (row.stagedExtractionStatus === null && row.id === driveFileId),
+  );
+  if (!failed && pending && !interruptedReason) {
+    // A service-unreachable attempt has no staged result yet. Leave the old
+    // active payload and replacement marker in place so the queue can retry.
+    return null;
+  }
+  const interrupted = !failed && pending ? interruptedReason : null;
+  const sources = rows
+    .map((row) => row.stagedExtractedPayloadJson)
+    .filter((json): json is string => json !== null)
+    .flatMap((json) => {
+      try {
+        const source = (JSON.parse(json) as { source?: unknown }).source;
+        return typeof source === "string" ? [source] : [];
+      } catch {
+        return [];
+      }
+    });
+  if (failed || interrupted) {
+    const reason = failed?.stagedExtractionFailureReason ?? interruptedReason ?? "Opätovné načítanie dokladu zlyhalo.";
+    await db.transaction(async (tx) => {
+      // Extra receipts discovered during this attempt had no prior active
+      // state to preserve. Remove only those rows; all original documents
+      // retain their payloads, notes, and identity.
+      await tx
+        .delete(documents)
+        .where(
+          and(
+            eq(documents.driveFileId, driveFileId),
+            eq(documents.replacementCreated, true),
+          ),
+        );
+      await tx
+        .update(documents)
+        .set({
+          extractionStatus: "failed",
+          extractionFailureReason: reason,
+          replacementPending: false,
+          stagedExtractedPayloadJson: null,
+          stagedExtractionStatus: null,
+          stagedExtractionFailureReason: null,
+        })
+        .where(eq(documents.driveFileId, driveFileId));
+    });
+    return { outcome: "failed", reason, sources, documentIds: rows.map((row) => row.id) };
+  }
+  await db.transaction(async (tx) => {
+    for (const row of rows) {
+      await tx
+        .update(documents)
+        .set({
+          extractedPayloadJson: row.stagedExtractedPayloadJson ?? "{}",
+          extractionStatus: "complete",
+          extractionFailureReason: null,
+          extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+          // A replacement is the explicit authority to discard old edits.
+          confirmedPayloadJson: "{}",
+          replacementPending: false,
+          replacementCreated: false,
+          stagedExtractedPayloadJson: null,
+          stagedExtractionStatus: null,
+          stagedExtractionFailureReason: null,
+        })
+        .where(eq(documents.id, row.id));
+    }
+  });
+  return { outcome: "complete", reason: null, sources, documentIds: rows.map((row) => row.id) };
 }
 
 export async function listExportNumbersForCompany(companyId: number): Promise<string[]> {
