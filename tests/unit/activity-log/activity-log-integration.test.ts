@@ -38,7 +38,7 @@ function buildFixture() {
     folder(PARENT_ID, "Clients", []),
     folder(COMPANY_ID, "Theta s.r.o.", [PARENT_ID]),
     folder(MONTH_ID, "2026_03", [COMPANY_ID]),
-    folder(TYPO_SLOT_ID, "04 Bločky_hotorvosť", [MONTH_ID]),
+    folder(TYPO_SLOT_ID, "04 Platby hotorvosťou", [MONTH_ID]),
     {
       id: "activity-doc",
       name: "receipt.pdf",
@@ -60,12 +60,12 @@ test("activity log returns reverse-chronological stream with filters", async () 
 
   await applyFolderRename(client, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
-    targetName: "04 Bločky_hotovosť",
+    currentName: "04 Platby hotorvosťou",
+    targetName: "04 Bločky",
     parentId: MONTH_ID,
   });
 
-  await closeCompanyMonth(client, company.id, "2026_03");
+  await closeCompanyMonth(company.id, "2026_03");
 
   const all = await listCompanyActivity(company.id, {});
   const formatted = all.entries.map(formatActivityEntry);
@@ -119,11 +119,12 @@ test("global settings events appear only in global activity scope", async () => 
       "01 Vystavené faktúry",
       "02 Prijaté faktúry",
       "03 Bankové výpisy",
-      "04 Bločky_hotovosť",
-      "05 Bločky_firemná karta",
-      "06 Iné doklady",
+      "04 Bločky",
+      "05 Cestovné príkazy",
+      "06 Ostatné dokumenty",
       "07 Mzdy",
-      "08 Test slot",
+      "08 DPH",
+      "09 Test slot",
     ],
     movableFolderNames: ["02 Prijaté faktúry"],
     autoAdvanceAfterDecision: false,

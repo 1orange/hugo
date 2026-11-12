@@ -40,23 +40,21 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
   const back = backHref((await searchParams).from);
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface">
+    <div className="flex min-h-screen flex-col bg-ground">
       <AppBar
         crumbs={[{ label: "Firmy", href: "/companies" }, { label: "Spracovanie" }]}
         email={session.user.email}
         lastSweepAt={(await getSettings()).lastSweepAt}
       />
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        <div className="mb-4 text-[13px]">
-          <Link href={back ?? "/companies"} className="text-accent underline" data-testid="queue-back">
-            {back ? "← Späť" : "← Späť na zoznam firiem"}
-          </Link>
-        </div>
+      <main className="mx-auto w-full max-w-[820px] flex-1 px-4 pt-6 pb-16 sm:px-6">
+        <Link href={back ?? "/companies"} className="text-[13.5px] font-medium text-accent hover:underline" data-testid="queue-back">
+          {back ? "‹ Späť" : "‹ Späť na zoznam firiem"}
+        </Link>
 
-        <header>
-          <h1 className="text-2xl">Spracovanie dokladov</h1>
-          <p className="mt-1 text-sm text-ink-2">
+        <header className="mt-2.5">
+          <h1 className="title-large">Spracovanie dokladov</h1>
+          <p className="mt-1.5 text-[15px] text-ink-3">
             Jeden rad pre všetky firmy: čo sa práve číta, čo čaká a ako dopadli posledné doklady.
           </p>
         </header>

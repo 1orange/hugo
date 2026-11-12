@@ -23,19 +23,19 @@ const existingFolders = [
     companyId: 1,
     companyName: "Alpha s.r.o.",
     monthKey: "2026_01",
-    folderName: "04 Bločky_hotovosť",
+    folderName: "04 Platby hotovosťou",
   },
   {
     companyId: 2,
     companyName: "Beta s.r.o.",
     monthKey: "2026_03",
-    folderName: "04 Bločky_hotorvosť",
+    folderName: "04 Platby hotorvosťou",
   },
 ];
 
 test("normalizeFolderName trims and converts to NFC", () => {
-  const nfd = "04 Bločky_hotovosť".normalize("NFD");
-  assert.equal(normalizeFolderName(`  ${nfd}  `), "04 Bločky_hotovosť");
+  const nfd = "04 Platby hotovosťou".normalize("NFD");
+  assert.equal(normalizeFolderName(`  ${nfd}  `), "04 Platby hotovosťou");
 });
 
 test("validateCanonicalFolderNames rejects an empty list", () => {
@@ -68,9 +68,9 @@ test("validateCanonicalFolderNames rejects exact duplicates", () => {
 });
 
 test("validateCanonicalFolderNames rejects entries that differ only by normalisation", () => {
-  const nfd = "04 Bločky_hotovosť".normalize("NFD");
+  const nfd = "04 Platby hotovosťou".normalize("NFD");
   const result = validateCanonicalFolderNames([
-    "04 Bločky_hotovosť",
+    "04 Platby hotovosťou",
     nfd,
   ]);
   assert.equal(result.ok, false);
@@ -82,8 +82,8 @@ test("validateCanonicalFolderNames rejects entries that differ only by normalisa
 
 test("validateCanonicalFolderNames rejects entries that differ only by case", () => {
   const result = validateCanonicalFolderNames([
-    "04 Bločky_hotovosť",
-    "04 bločky_hotovosť",
+    "04 Platby hotovosťou",
+    "04 platby hotovosťou",
   ]);
   assert.equal(result.ok, false);
   if (!result.ok) {
@@ -102,9 +102,9 @@ test("validateCanonicalFolderNames normalises valid entries to NFC on success", 
 });
 
 test("saving an NFD-entered canonical name still matches the corresponding Drive folder", () => {
-  const nfdEntry = "04 Bločky_hotovosť".normalize("NFD");
+  const nfdEntry = "06 Ostatné dokumenty".normalize("NFD");
   const validation = validateCanonicalFolderNames([
-    ...CANONICAL_FOLDER_NAMES.filter((name) => name !== "04 Bločky_hotovosť"),
+    ...CANONICAL_FOLDER_NAMES.filter((name) => name !== "06 Ostatné dokumenty"),
     nfdEntry,
   ]);
   assert.equal(validation.ok, true);
@@ -113,7 +113,7 @@ test("saving an NFD-entered canonical name still matches the corresponding Drive
   }
 
   const settings = { canonicalFolderNames: validation.normalized };
-  const driveFolderName = "04 Bločky_hotovosť".normalize("NFD");
+  const driveFolderName = "06 Ostatné dokumenty".normalize("NFD");
   assert.equal(classifyFolder(driveFolderName, settings).kind, "canonical");
 });
 
@@ -157,7 +157,7 @@ test("previewCanonicalListImpact counts folders that would become unrecognised",
 
 test("previewCanonicalListImpact groups affected folders by company", () => {
   const proposed = CANONICAL_FOLDER_NAMES.filter(
-    (name) => name !== "02 Prijaté faktúry" && name !== "04 Bločky_hotovosť",
+    (name) => name !== "02 Prijaté faktúry" && name !== "04 Bločky",
   );
   const folders = [
     ...existingFolders,
@@ -236,4 +236,47 @@ test("previewCanonicalListImpact matches an NFD folder name against an NFC addit
   });
 
   assert.equal(impact.newlyRecognisedFolders.length, 1);
+});
+
+test("previewCanonicalListImpact: folders still carrying the 2026-08 names stay recognised when the list moves to the office's names", () => {
+  const legacyCanonical = [
+    "01 Vystavené faktúry",
+    "02 Prijaté faktúry",
+    "03 Bankové výpisy",
+    "04 Bločky_hotovosť",
+    "05 Bločky_firemná karta",
+    "06 Iné doklady",
+    "07 Mzdy",
+  ];
+  const folders = [
+    { companyId: 1, companyName: "Alpha s.r.o.", monthKey: "2026_05", folderName: "04 Bločky_hotovosť" },
+    { companyId: 1, companyName: "Alpha s.r.o.", monthKey: "2026_05", folderName: "05 Bločky_firemná karta" },
+    { companyId: 1, companyName: "Alpha s.r.o.", monthKey: "2026_06", folderName: "04 Platby hotovosťou" },
+  ];
+  const impact = previewCanonicalListImpact({
+    currentCanonicalNames: legacyCanonical,
+    proposedCanonicalNames: [...CANONICAL_FOLDER_NAMES],
+    existingFolders: folders,
+  });
+
+  assert.deepEqual(impact.removedCanonicalNames, ["04 Bločky_hotovosť", "05 Bločky_firemná karta", "06 Iné doklady"]);
+  // The older names are accepted as the office's slots (2026-11-12): no folder loses its slot.
+  assert.equal(impact.totalAffected, 0);
+  assert.deepEqual(impact.affectedFolders, []);
+  // The office's own name is what the change adds: the preview confirms it too.
+  assert.deepEqual(
+    impact.newlyRecognisedFolders.map((folder) => folder.folderName),
+    ["04 Platby hotovosťou"],
+  );
+});
+
+test("the new default movable list is a subset of the new canonical list", () => {
+  for (const name of DEFAULT_MOVABLE_FOLDER_NAMES) {
+    assert.ok(CANONICAL_FOLDER_NAMES.includes(name), name);
+  }
+  assert.deepEqual([...DEFAULT_MOVABLE_FOLDER_NAMES], [
+    "02 Prijaté faktúry",
+    "04 Bločky",
+    "06 Ostatné dokumenty",
+  ]);
 });

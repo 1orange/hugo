@@ -12,6 +12,12 @@ export type ExtractionJobData = {
   enqueuedAt: string;
   /** Set while it waits for the model or OCR to come back. */
   waitingReason?: string | null;
+  /**
+   * An undecided result from an older pipeline, read again while it stays
+   * complete: nothing is marked as being read, and a read that cannot be done
+   * leaves the result as it was (PRD 0004).
+   */
+  reread?: boolean;
 };
 
 /** Receipts go first: most are one eKasa lookup (ADR 0020). */
@@ -24,4 +30,19 @@ export interface ExtractionJobQueue {
    * a service — in any replica. True when this call queued it.
    */
   add(data: ExtractionJobData, options: { priority: number }): Promise<boolean>;
+}
+
+/** One document whose parties are to be checked against the registers (ADR 0022). */
+export type SubjectVerificationJobData = {
+  documentId: string;
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  /** ISO time it was queued. */
+  enqueuedAt: string;
+};
+
+export interface SubjectVerificationQueue {
+  /** Queues the document unless it is already waiting, in any replica. True when this call queued it. */
+  add(data: SubjectVerificationJobData): Promise<boolean>;
 }

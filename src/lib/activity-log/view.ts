@@ -1,4 +1,5 @@
 import { getCompanyById } from "@/adapters/store/companies";
+import { companyDisplayName } from "@/modules/company-display-name";
 import {
   listCompanyActivity,
   listDistinctMonthKeysForCompany,
@@ -98,7 +99,7 @@ export async function buildCompanyActivityView(
   const result = await listCompanyActivity(companyId, toQuery(filters, beforeId));
   return buildView("company", result, {
     companyId,
-    companyName: company.name,
+    companyName: companyDisplayName(company.name),
     eventTypeOptions: buildTypeOptions(COMPANY_SCOPED_EVENT_TYPES),
     monthOptions: buildMonthOptions(await listDistinctMonthKeysForCompany(companyId)),
     filters,

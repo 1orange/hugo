@@ -14,9 +14,10 @@ import { events } from "../../../src/lib/db/schema.ts";
 import { saveGlobalSettings } from "../../../src/lib/settings/service.ts";
 import { freshTestDb } from "../support/test-db.ts";
 
-test("getSettings seeds movable folder defaults", async () => {
+test("getSettings seeds the office's canonical and movable folder defaults", async () => {
   await freshTestDb();
   const row = await getSettings();
+  assert.deepEqual(row.canonicalFolderNames, [...CANONICAL_FOLDER_NAMES]);
   assert.deepEqual(row.movableFolderNames, [...DEFAULT_MOVABLE_FOLDER_NAMES]);
 });
 
@@ -32,7 +33,7 @@ test("updateCanonicalFolderNames normalises NFD entries to NFC on save", async (
   const stored = (await getSettings()).canonicalFolderNames;
   assert.deepEqual(stored, [...CANONICAL_FOLDER_NAMES]);
   assert.equal(
-    classifyFolder("04 Bločky_hotovosť".normalize("NFD"), {
+    classifyFolder("04 Bločky".normalize("NFD"), {
       canonicalFolderNames: stored,
     }).kind,
     "canonical",
@@ -59,7 +60,7 @@ test("saveGlobalSettings emits settings change events", async () => {
   const result = await saveGlobalSettings({
     driveParentFolderId: "stored-parent",
     canonicalFolderNames: [...CANONICAL_FOLDER_NAMES],
-    movableFolderNames: ["02 Prijaté faktúry", "06 Iné doklady"],
+    movableFolderNames: ["02 Prijaté faktúry", "06 Ostatné dokumenty"],
     autoAdvanceAfterDecision: true,
   });
   assert.equal(result.ok, true);

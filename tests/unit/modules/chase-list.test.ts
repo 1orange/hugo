@@ -4,8 +4,13 @@ import {
   chaseActionLabel,
   chaseIsQuiet,
   chaseSeverity,
+  CHASE_FILTERS,
   deriveChaseState,
+  matchesChaseFilter,
   sortChaseRows,
+  summariseChaseList,
+  type ChaseFilter,
+  type ChaseSummaryRow,
 } from "../../../src/modules/chase-list.ts";
 
 const BASE = {
@@ -112,4 +117,38 @@ test("rows sort by who owes her something, then by name", () => {
       "Zima s.r.o.",
     ],
   );
+});
+
+test("each summary figure filters to exactly the companies it counts", () => {
+  const row = (overrides: Partial<ChaseSummaryRow>): ChaseSummaryRow => ({
+    monthKey: "2026_11",
+    monthClosed: false,
+    statementArrivedAt: "2026-11-03T08:00:00.000Z",
+    chaseState: "decide",
+    awaitingCount: 0,
+    profileMissing: false,
+    structureDeviations: 0,
+    ...overrides,
+  });
+  const rows = [
+    row({ awaitingCount: 3 }),
+    row({ statementArrivedAt: null }),
+    row({ statementArrivedAt: null, monthClosed: true }),
+    row({ chaseState: "silent", statementArrivedAt: null }),
+    row({ chaseState: "ready-to-close" }),
+    row({ profileMissing: true }),
+    row({ structureDeviations: 2 }),
+    row({ monthKey: null, statementArrivedAt: null, awaitingCount: null, chaseState: "idle" }),
+  ];
+  const summary = summariseChaseList(rows);
+  const count = (filter: ChaseFilter) => rows.filter((company) => matchesChaseFilter(company, filter)).length;
+
+  assert.equal(count("without-statement"), summary.withoutStatement);
+  assert.equal(count("silent"), summary.silent);
+  assert.equal(count("ready-to-close"), summary.readyToClose);
+  assert.equal(count("profile-missing"), summary.withoutProfile);
+  assert.equal(count("structure"), summary.withStructureDeviations);
+  assert.equal(count("awaiting"), 1, "the companies with documents waiting, whose sum is the figure");
+  assert.equal(summary.awaitingTotal, 3);
+  assert.equal(CHASE_FILTERS.length, 6);
 });

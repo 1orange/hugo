@@ -1,6 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { months } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
+import { monthKeyAt, selectOpenMonthKey } from "@/modules/month-lifecycle";
 
 export type MonthRow = {
   id: number;
@@ -41,14 +42,15 @@ export async function listMonthsForCompany(companyId: number): Promise<MonthRow[
   return rows.sort((left, right) => left.monthKey.localeCompare(right.monthKey));
 }
 
-export async function getOpenMonthKey(companyId: number): Promise<string | null> {
-  const monthRows = (await listMonthsForCompany(companyId)).filter(
-    (month) => month.closedAt === null,
-  );
-  if (monthRows.length === 0) {
-    return null;
-  }
-  return monthRows[monthRows.length - 1]!.monthKey;
+/**
+ * The open month on the office clock. Future months are pre-created by the
+ * office and never open (ADR 0005, amended 2026-11-11).
+ */
+export async function getOpenMonthKey(
+  companyId: number,
+  currentMonthKey: string = monthKeyAt(new Date()),
+): Promise<string | null> {
+  return selectOpenMonthKey(await listMonthsForCompany(companyId), currentMonthKey);
 }
 
 export async function getMonthByKey(
@@ -106,4 +108,14 @@ export async function getMonthByDriveFolderId(
     .where(eq(months.driveFolderId, driveFolderId))
     .limit(1);
   return row ?? null;
+}
+
+/** Every closed month, of one company or all: what late arrivals are judged against. */
+export async function listClosedMonths(companyId?: number): Promise<MonthRow[]> {
+  const db = getDb();
+  const closed = isNotNull(months.closedAt);
+  return db
+    .select()
+    .from(months)
+    .where(companyId === undefined ? closed : and(closed, eq(months.companyId, companyId)));
 }

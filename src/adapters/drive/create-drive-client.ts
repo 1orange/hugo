@@ -20,8 +20,27 @@ export function createDriveClient(
     if (fixture) {
       return new FakeDriveClient(JSON.parse(fixture) as DriveFileRecord[]);
     }
-    return new FakeDriveClient(e2eDriveFixture(), e2eDriveFileContents());
+    return e2eFakeDrive();
   }
 
   return loadGoogleDriveClientFromEnv(env);
+}
+
+/**
+ * The e2e Drive, one per server process: a move made by one action is still
+ * there for the next sweep, as in a real Drive. Kept on globalThis because the
+ * dev server may load this module more than once. The e2e reset starts it afresh.
+ */
+const E2E_DRIVE = Symbol.for("hugo.e2eFakeDrive");
+
+function e2eFakeDrive(): FakeDriveClient {
+  const holder = globalThis as unknown as Record<symbol, FakeDriveClient | undefined>;
+  holder[E2E_DRIVE] ??= new FakeDriveClient(e2eDriveFixture(), e2eDriveFileContents());
+  return holder[E2E_DRIVE];
+}
+
+/** A fresh e2e Drive, as the fixture describes it. */
+export function resetE2eFakeDrive(): FakeDriveClient {
+  (globalThis as unknown as Record<symbol, FakeDriveClient | undefined>)[E2E_DRIVE] = undefined;
+  return e2eFakeDrive();
 }

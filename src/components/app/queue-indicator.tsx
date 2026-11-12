@@ -38,11 +38,11 @@ export function QueueIndicator() {
   const href = pathname === "/queue" ? "/queue" : `/queue?from=${encodeURIComponent(pathname)}`;
 
   const base =
-    "flex items-center gap-1.5 rounded-md border px-2.5 py-[3px] text-[11.5px] tabular-nums hover:border-accent hover:text-accent";
+    "press flex items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-medium tabular-nums whitespace-nowrap";
 
   if (!view) {
     return (
-      <Link href={href} className={`${base} border-line-2 bg-surface text-ink-3`} data-testid="queue-indicator">
+      <Link href={href} className={`${base} text-ink-3 hover:bg-fill`} data-testid="queue-indicator">
         Spracovanie
       </Link>
     );
@@ -56,13 +56,13 @@ export function QueueIndicator() {
     return (
       <Link
         href={href}
-        className={`${base} border-warn/40 bg-warn-soft text-warn`}
+        className={`${base} bg-warn-soft text-warn-strong hover:brightness-[0.98]`}
         data-testid="queue-indicator"
         title="Doklady čakajú na službu — podrobnosti v Spracovaní"
       >
-        <span aria-hidden className="size-1.5 rounded-full bg-warn" />
+        <span aria-hidden className="size-[7px] rounded-full bg-warn-dot" />
         {blocked}
-        {waiting + view.running.length > 0 ? <span className="text-warn/80">· {waiting + view.running.length}</span> : null}
+        {waiting + view.running.length > 0 ? <span className="text-warn">· {waiting + view.running.length}</span> : null}
       </Link>
     );
   }
@@ -71,19 +71,19 @@ export function QueueIndicator() {
     return (
       <Link
         href={href}
-        className={`${base} border-accent/30 bg-accent-soft text-accent`}
+        className={`${base} bg-accent-soft text-accent hover:brightness-[0.98]`}
         data-testid="queue-indicator"
         title={`${current.fileName} — ${current.stageLabel}`}
       >
-        <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-accent" />
+        <span aria-hidden className="size-[7px] animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
         Číta sa · {current.percent} %
-        {waiting > 0 ? <span className="text-accent/70">+{waiting} v rade</span> : null}
+        {waiting > 0 ? <span className="font-normal text-accent/80">+{waiting} v rade</span> : null}
       </Link>
     );
   }
 
   return (
-    <Link href={href} className={`${base} border-line-2 bg-surface text-ink-3`} data-testid="queue-indicator">
+    <Link href={href} className={`${base} text-ink-3 hover:bg-fill`} data-testid="queue-indicator">
       Rad prázdny
     </Link>
   );

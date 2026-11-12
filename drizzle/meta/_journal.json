@@ -22,6 +22,55 @@
       "when": 1792676421830,
       "tag": "0002_replacement_created_document",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794402904218,
+      "tag": "0003_structure_deviations",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794408011825,
+      "tag": "0004_subject_directory",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794410147818,
+      "tag": "0005_subject_alias_sightings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794474224524,
+      "tag": "0006_late_arrivals",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794475487532,
+      "tag": "0007_company_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794478749815,
+      "tag": "0008_eight_document_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794485192909,
+      "tag": "0009_drive_snapshot",
+      "breakpoints": true
     }
   ]
 }

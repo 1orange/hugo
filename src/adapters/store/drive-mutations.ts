@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { driveMutations } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
 import type { MutationKind } from "@/modules/drive-mutation";
@@ -129,4 +129,24 @@ export async function getMutationById(mutationId: number): Promise<DriveMutation
     .where(eq(driveMutations.id, mutationId))
     .limit(1);
   return row ? hydrate(row) : null;
+}
+
+/** Renames Hugo applied and that have not been undone, for one company. */
+export async function listActiveRenamesForCompany(
+  companyId: number,
+): Promise<DriveMutationRow[]> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(driveMutations)
+    .where(
+      and(
+        eq(driveMutations.companyId, companyId),
+        eq(driveMutations.kind, "rename"),
+        eq(driveMutations.status, "applied"),
+        isNull(driveMutations.undoneAt),
+      ),
+    )
+    .orderBy(asc(driveMutations.id));
+  return rows.map(hydrate);
 }

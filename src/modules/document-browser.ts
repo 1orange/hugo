@@ -21,6 +21,8 @@ export type DocumentBrowserOptions = {
   sortKey?: DocumentSortKey;
   direction?: DocumentSortDirection;
   homeCurrency?: string;
+  /** Narrow to documents with a party whose verdict is a mismatch. */
+  subjectProblemsOnly?: boolean;
 };
 
 export type DocumentBrowserProjection = {
@@ -28,6 +30,9 @@ export type DocumentBrowserProjection = {
   search: string;
   sortKey: DocumentSortKey;
   direction: DocumentSortDirection;
+  subjectProblemsOnly: boolean;
+  /** How many of the given documents have a subject problem, whatever the search says. */
+  subjectProblemCount: number;
   totalCount: number;
 };
 
@@ -99,6 +104,16 @@ export function filterDocuments(
     return [...documents];
   }
   return documents.filter((document) => documentSearchText(document).includes(normalizedQuery));
+}
+
+/**
+ * A party's identity disagrees with a register, VIES or her profile (verdict
+ * mismatch). Notices, unverifiable and unavailable parties do not count: they
+ * are worth a look, not a wrong value. The verdict is the one the panel shows.
+ */
+export function hasSubjectProblem(document: DocumentListItem): boolean {
+  const { supplier, customer } = document.fieldEditor.partyIntegrity;
+  return supplier.verdict === "mismatch" || customer.verdict === "mismatch";
 }
 
 /** VAT outputs use only their filename and never enter the document projection. */
@@ -277,12 +292,17 @@ export function projectDocuments(
   const search = normalizeDocumentSearch(options.search);
   const sortKey = options.sortKey ?? DEFAULT_DOCUMENT_SORT.key;
   const direction = options.direction ?? DEFAULT_DOCUMENT_SORT.direction;
-  const filtered = filterDocuments(documents, search);
+  const subjectProblemsOnly = options.subjectProblemsOnly === true;
+  const filtered = filterDocuments(documents, search).filter(
+    (document) => !subjectProblemsOnly || hasSubjectProblem(document),
+  );
   return {
     documents: sortDocuments(filtered, sortKey, direction, options.homeCurrency),
     search,
     sortKey,
     direction,
+    subjectProblemsOnly,
+    subjectProblemCount: documents.filter(hasSubjectProblem).length,
     totalCount: documents.length,
   };
 }

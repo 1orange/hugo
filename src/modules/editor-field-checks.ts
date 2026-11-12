@@ -45,3 +45,14 @@ export function editorFieldChecksFromModel(input: {
     vatRecap: flags.vatRecap,
   };
 }
+
+/**
+ * Her settlement decision changes the amounts the extraction judged, so the
+ * arithmetic verdicts stored with it no longer hold: the panel judges them live.
+ */
+export function withoutArithmeticChecks(checks: EditorScalarFieldChecks): EditorScalarFieldChecks {
+  const next: EditorScalarFieldChecks = { ...checks };
+  delete next.amountLiteral;
+  delete next.vatRecap;
+  return next;
+}

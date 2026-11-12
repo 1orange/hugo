@@ -123,6 +123,17 @@ function isIssuedInvoices(folderSlot: string): boolean {
   return folderSlot.startsWith("01 ");
 }
 
+/** The side her company is on by its folder: the supplier of issued invoices, the customer of received ones. */
+export function clientSideOfFolder(folderSlot: string): "supplier" | "customer" | null {
+  if (isReceivedInvoices(folderSlot)) {
+    return "customer";
+  }
+  if (isIssuedInvoices(folderSlot)) {
+    return "supplier";
+  }
+  return null;
+}
+
 export function partyRoleIndices(input: {
   parties: DocumentParty[];
   profile: ClientIdentity | null;

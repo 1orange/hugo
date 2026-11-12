@@ -1,5 +1,7 @@
 import type { DomainEvent } from "./drive-tree";
 import { formatDateTime } from "./format-sk";
+import type { SubjectField } from "./subject-directory";
+import { correctableFieldLabel } from "./subject-screen";
 
 /**
  * Single source of truth for the append-only event vocabulary (ADR 0012).
@@ -19,12 +21,16 @@ export const USER_COMPANY_EVENT_TYPES = [
   "MonthClosed",
   "MonthReopened",
   "Moved",
+  "LateArrivalIgnored",
   "Extracted",
   "EkasaUidEntered",
   "Confirmed",
   "Exported",
   "CompanyProfileSaved",
   "ExportSectionChanged",
+  "PartiesSwapped",
+  "PartyTakenFromRegister",
+  "AdvanceSettlementOverridden",
   "ReextractionRequested",
   "ReextractionCompleted",
   "ReextractionFailed",
@@ -35,6 +41,7 @@ export const GLOBAL_EVENT_TYPES = [
   "CanonicalFolderNamesChanged",
   "MovableFolderNamesChanged",
   "AutoAdvanceChanged",
+  "SubjectCorrected",
 ] as const;
 
 export const COMPANY_SCOPED_EVENT_TYPES = [
@@ -62,12 +69,16 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   MonthClosed: "Mesiac uzavretý",
   MonthReopened: "Mesiac znovu otvorený",
   Moved: "Doklad presunutý",
+  LateArrivalIgnored: "Neskorý doklad ignorovaný",
   Extracted: "Údaje spracované",
   EkasaUidEntered: "Zadaný UID eBločku",
   Confirmed: "Doklad potvrdený",
   Exported: "Mesiac exportovaný",
   CompanyProfileSaved: "Profil firmy uložený",
   ExportSectionChanged: "Zmenená sekcia exportu",
+  PartiesSwapped: "Strany dokladu vymenené",
+  PartyTakenFromRegister: "Údaje strany prevzaté z registra",
+  AdvanceSettlementOverridden: "Vyúčtovanie zálohy určené ručne",
   ReextractionRequested: "Doklad znova načítaný",
   ReextractionCompleted: "Doklad znova načítaný — údaje nahradené",
   ReextractionFailed: "Opätovné načítanie dokladu zlyhalo",
@@ -75,6 +86,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   CanonicalFolderNamesChanged: "Zmenený zoznam názvov priečinkov",
   MovableFolderNamesChanged: "Zmenené presunuteľné priečinky",
   AutoAdvanceChanged: "Zmenený automatický posun na ďalší doklad",
+  SubjectCorrected: "Subjekt v adresári opravený",
 };
 
 export type StoredActivityEvent = {
@@ -127,6 +139,9 @@ export function eventMonthKey(
     case "Confirmed":
     case "Exported":
     case "ExportSectionChanged":
+    case "PartiesSwapped":
+    case "PartyTakenFromRegister":
+    case "AdvanceSettlementOverridden":
     case "ReextractionRequested":
     case "ReextractionCompleted":
     case "ReextractionFailed":
@@ -179,10 +194,25 @@ export function summarizeEventPayload(
     case "MonthReopened":
       return `Znovu otvorený mesiac ${text(payload.monthKey) ?? "?"}`;
     case "Moved": {
+      const name = text(payload.name) ?? text(payload.driveFileId) ?? "doklad";
+      const fromMonthKey = text(payload.fromMonthKey);
+      const toMonthKey = text(payload.toMonthKey);
+      if (fromMonthKey && toMonthKey) {
+        const folder = text(payload.folderSlot);
+        const where = folder ? ` (${folder})` : "";
+        return payload.undone === true
+          ? `Vrátené: „${name}“ z ${fromMonthKey} späť do ${toMonthKey}${where}`
+          : `Neskorý doklad „${name}“ presunutý z ${fromMonthKey} do ${toMonthKey}${where}`;
+      }
       const previousParent = text(payload.previousParent) ?? "?";
       const newParent = text(payload.newParent) ?? "?";
-      const name = text(payload.name) ?? text(payload.driveFileId) ?? "doklad";
       return `Presunuté „${name}“ z priečinka ${previousParent} do ${newParent}`;
+    }
+    case "LateArrivalIgnored": {
+      const name = text(payload.driveFileId) ?? "doklad";
+      return payload.ignored === false
+        ? `Neskorý doklad ${name} vrátený do zoznamu`
+        : `Neskorý doklad ${name} ignorovaný`;
     }
     case "DriveParentFolderIdChanged":
       return "Zmenený priečinok Drive, v ktorom sú firmy klientov";
@@ -194,6 +224,12 @@ export function summarizeEventPayload(
       return payload.next === true
         ? "Po rozhodnutí sa automaticky prejde na ďalší doklad"
         : "Po rozhodnutí sa zostáva na tom istom doklade";
+    case "SubjectCorrected": {
+      const subjectName = text(payload.subjectName) ?? "subjekt";
+      const field = text(payload.field);
+      const label = field ? correctableFieldLabel(field as SubjectField) : "pole";
+      return `${subjectName} — ${label}: „${text(payload.previous) ?? "—"}“ → „${text(payload.next) ?? "—"}“`;
+    }
     case "Extracted": {
       const driveFileId = text(payload.driveFileId) ?? "doklad";
       const source = text(payload.source);
@@ -245,6 +281,16 @@ export function summarizeEventPayload(
       const legalName = text(payload.legalName) ?? "firma";
       const ico = text(payload.ico);
       return ico ? `${legalName} (IČO ${ico})` : legalName;
+    }
+    case "PartiesSwapped":
+      return `Vymenené strany dokladu ${text(payload.driveFileId) ?? "?"}`;
+    case "PartyTakenFromRegister":
+      return `${text(payload.driveFileId) ?? "doklad"} → ${payload.side === "customer" ? "odberateľ" : "dodávateľ"} z registra`;
+    case "AdvanceSettlementOverridden": {
+      const driveFileId = text(payload.driveFileId) ?? "doklad";
+      return payload.settled === true
+        ? `${driveFileId} → vyúčtovanie zálohy`
+        : `${driveFileId} → nie je vyúčtovanie zálohy`;
     }
     case "ExportSectionChanged": {
       const driveFileId = text(payload.driveFileId) ?? "doklad";

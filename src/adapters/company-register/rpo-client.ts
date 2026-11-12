@@ -55,21 +55,30 @@ function mapStatus(entity: RpoEntity): RegisterEntityStatus {
   return entity.termination ? "dissolved" : "active";
 }
 
-function mapRpoEntity(entity: RpoEntity): RegisterSearchHit | null {
+function mapRpoEntity(entity: RpoEntity): RpoEntityHistory | null {
   const ico = current(entity.identifiers)?.value?.trim();
   const legalName = current(entity.fullNames)?.value?.trim();
   if (!ico || !legalName) {
     return null;
   }
+  // Every name it was held under before, from the same history.
+  const formerNames = [
+    ...new Set(
+      (entity.fullNames ?? [])
+        .map((name) => name.value?.trim() ?? "")
+        .filter((name) => name.length > 0 && name !== legalName),
+    ),
+  ];
   return {
     ico,
     legalName,
     address: formatRpoAddress(current(entity.addresses)),
     status: mapStatus(entity),
+    formerNames,
   };
 }
 
-async function fetchRpo(fullName: string, fetchImpl: typeof fetch): Promise<RegisterSearchHit[]> {
+async function fetchRpo(fullName: string, fetchImpl: typeof fetch): Promise<RpoEntityHistory[]> {
   const url = `${RPO_SEARCH_URL}?fullName=${encodeURIComponent(fullName)}`;
   const response = await fetchImpl(url, {
     headers: { Accept: "application/json", "User-Agent": "hugo-accounting/1.0" },
@@ -78,7 +87,7 @@ async function fetchRpo(fullName: string, fetchImpl: typeof fetch): Promise<Regi
     throw new Error(`RPO search failed: HTTP ${response.status}`);
   }
   const body = (await response.json()) as RpoSearchResponse;
-  const hits: RegisterSearchHit[] = [];
+  const hits: RpoEntityHistory[] = [];
   const seen = new Set<string>();
   for (const entity of body.results ?? []) {
     const hit = mapRpoEntity(entity);
@@ -90,6 +99,9 @@ async function fetchRpo(fullName: string, fetchImpl: typeof fetch): Promise<Regi
   return hits;
 }
 
+/** A search hit with the names the entity was held under before. */
+export type RpoEntityHistory = RegisterSearchHit & { formerNames: string[] };
+
 /**
  * RPO matches the name as one literal substring, any of its former names
  * included, and returns at most 500 entities: "spring etc" finds nothing
@@ -97,10 +109,10 @@ async function fetchRpo(fullName: string, fetchImpl: typeof fetch): Promise<Regi
  * that finds nothing is asked again by its longest word; ranking the hits
  * against every word is the caller's (register-search module).
  */
-export async function searchRpoByName(
+export async function searchRpoHistoryByName(
   fullName: string,
   fetchImpl: typeof fetch = fetch,
-): Promise<RegisterSearchHit[]> {
+): Promise<RpoEntityHistory[]> {
   const trimmed = fullName.trim();
   if (trimmed.length === 0) {
     return [];
@@ -111,4 +123,17 @@ export async function searchRpoByName(
     return hits;
   }
   return fetchRpo(fallback, fetchImpl);
+}
+
+export async function searchRpoByName(
+  fullName: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RegisterSearchHit[]> {
+  const hits = await searchRpoHistoryByName(fullName, fetchImpl);
+  return hits.map((hit) => ({
+    ico: hit.ico,
+    legalName: hit.legalName,
+    address: hit.address,
+    status: hit.status,
+  }));
 }

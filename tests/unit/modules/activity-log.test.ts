@@ -41,16 +41,16 @@ test("eventMonthKey derives month from payload shapes and returns null honestly"
 test("summarizeEventPayload describes drive mutations with previous values", () => {
   assert.match(
     summarizeEventPayload("Renamed", {
-      previousName: "04 Bločky_hotorvosť",
-      newName: "04 Bločky_hotovosť",
+      previousName: "04 Platby hotorvosťou",
+      newName: "04 Bločky",
       driveFileId: "folder-1",
     }),
-    /04 Bločky_hotorvosť/,
+    /04 Platby hotorvosťou/,
   );
   assert.match(
     summarizeEventPayload("Renamed", {
-      previousName: "04 Bločky_hotovosť",
-      newName: "04 Bločky_hotorvosť",
+      previousName: "04 Bločky",
+      newName: "04 Platby hotorvosťou",
       undone: true,
     }),
     /vrátené/i,
@@ -112,4 +112,20 @@ test("formatActivityEntry surfaces first-seen time for discoveries", () => {
   assert.match(entry.summary, /supplier-a\.pdf/);
   assert.match(entry.summary, /05\.02\.2026 10:30/);
   assert.equal(entry.monthKey, "2026_02");
+});
+
+test("an advance settlement she marks is logged in Slovak, with the month and the document", () => {
+  assert.equal(EVENT_TYPE_LABELS.AdvanceSettlementOverridden, "Vyúčtovanie zálohy určené ručne");
+  assert.equal(
+    eventMonthKey("AdvanceSettlementOverridden", { monthKey: "2026_05" }),
+    "2026_05",
+  );
+  assert.equal(
+    summarizeEventPayload("AdvanceSettlementOverridden", { driveFileId: "faktura.pdf", settled: true }),
+    "faktura.pdf → vyúčtovanie zálohy",
+  );
+  assert.equal(
+    summarizeEventPayload("AdvanceSettlementOverridden", { driveFileId: "faktura.pdf", settled: false }),
+    "faktura.pdf → nie je vyúčtovanie zálohy",
+  );
 });

@@ -11,6 +11,7 @@ import {
   type SettingsUpdateResult,
 } from "@/adapters/store/settings";
 import type { GlobalEventType } from "@/modules/activity-log";
+import { companyDisplayName } from "@/modules/company-display-name";
 import {
   previewCanonicalListImpact,
   validateCanonicalFolderNames,
@@ -29,7 +30,8 @@ export async function buildExistingFolderRefs() {
   const folders = await listAllMonthFolders();
   const companyNames = new Map<number, string | null>();
   for (const companyId of new Set(folders.map((folder) => folder.companyId))) {
-    companyNames.set(companyId, (await getCompanyById(companyId))?.name ?? null);
+    const company = await getCompanyById(companyId);
+    companyNames.set(companyId, company ? companyDisplayName(company.name) : null);
   }
   return folders
     .map((folder) => {

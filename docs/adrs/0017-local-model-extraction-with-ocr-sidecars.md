@@ -454,3 +454,36 @@ Bolt receipt's seller is now right (merged), Bonami's IBAN no longer stands as i
 new wrong-but-plausible field was flagged only because her company went unfound: found by name
 now, 2Checkout's invoice names "Verifone Payments BV dba 2Checkout", the seller of record, where
 her register has "Kaspersky".
+
+### Amendment, 2026-11-11: an invoice settled by an advance keeps its real values (PRD 0004)
+
+The office calls them *zálohové (preddavkové) faktúry*: a final tax document from which an advance
+already paid is deducted, so the amount due is zero. Two layouts occur in the benchmark corpus:
+
+- the advance printed as **negative recap rows** — `Zál. daň. dokl. základ 23% | -32,51 | DPH 23% |
+  -7,48` beside `Základ 23% | 32,51 | DPH 23% | 7,48` — so that `Základ celkom 0,00 | Celkom DPH
+  0,00`, with a line `Odpočet zálohového daňového dokladu ZDD…`;
+- a full recap `Celkom | 364,65 | 83,87 | 448,52`, then `Celkom uhradených záloh: 448,52` and
+  `Celkom k úhrade vrátane DPH | 0,00`.
+
+Booking the zero is wrong: the accountant books the invoice's value. **The document's total, base and
+VAT are therefore the values of the supply, not the amount due.**
+
+- Extraction keeps three amounts apart: the **total** (value of the supply incl. VAT), the **advance
+  deducted**, and the **amount due**. The advance documents referenced (`ZDD15873826`, `5926010455`)
+  are kept with the deduction.
+- Recap rows labelled as an advance deduction (`Zál. daň. dokl.`, `záloha`, `preddavok`, `odpočet
+  zálohy`) are **settlement rows**, excluded from the per-rate VAT recap and from every aggregate
+  derived from it (PRD 0003's VAT summary).
+- When the printed total is zero, or equals the amount due after a deduction, the total is taken from
+  a printed gross total (`Celkom`, `Zálohy celkom`) when one is grounded in the text; otherwise it is
+  the sum of the supply rows' base and VAT, with provenance `derived`. A total of zero with non-zero
+  supply rows is never accepted.
+- **Arithmetic** checks base + VAT against the supply total; an amount due of zero is not a mismatch.
+  Total − deducted = due is checked as a separate, informational identity.
+- PRD 0003's single-rate VAT inference (VAT = total − base) **does not run** on a document with a
+  deduction, since its total and due amounts differ by the advance, not by VAT.
+- Detection is deterministic on the text, after the model, so the model schema does not change. A
+  settled invoice is a *flag* on an invoice or advance tax document, not a new document type; the
+  existing *proforma* hint is unchanged. The extraction pipeline version is bumped so open months are
+  re-read.

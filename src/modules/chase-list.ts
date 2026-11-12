@@ -35,6 +35,8 @@ export type ChaseInput = {
   proofsArrived: number;
   awaitingCount: number | null;
   lastUploadAt: string | null;
+  /** A client in the archive group. */
+  archived?: boolean;
 };
 
 /**
@@ -43,6 +45,10 @@ export type ChaseInput = {
  * needs a phone call and the second needs a reminder.
  */
 export function deriveChaseState(input: ChaseInput): ChaseState {
+  // An archived client gets no new months: nothing to chase (the office's rules, 2026-11-11).
+  if (input.archived) {
+    return "idle";
+  }
   if (!input.monthKey) {
     return input.monthRequested ? "no-month" : "idle";
   }
@@ -144,4 +150,90 @@ export function sortChaseRows<T extends ChaseRowLike>(rows: readonly T[]): T[] {
     }
     return left.name.localeCompare(right.name, "sk");
   });
+}
+
+/** The fields the summary strip counts. `CompanyListItem` satisfies it. */
+export type ChaseSummaryRow = {
+  monthKey: string | null;
+  monthClosed: boolean;
+  statementArrivedAt: string | null;
+  chaseState: ChaseState;
+  awaitingCount: number | null;
+  profileMissing: boolean;
+  structureDeviations: number;
+};
+
+export type ChaseSummary = {
+  awaitingTotal: number;
+  withoutStatement: number;
+  silent: number;
+  readyToClose: number;
+  withoutProfile: number;
+  /** Companies with at least one structure deviation. */
+  withStructureDeviations: number;
+};
+
+/**
+ * Figures for the summary strip. Pure so the client can recount the rows it is
+ * showing after the *Moje firmy* filter, rather than trusting a server total.
+ */
+export function summariseChaseList(
+  companies: readonly ChaseSummaryRow[],
+): ChaseSummary {
+  return {
+    awaitingTotal: companies.reduce(
+      (total, company) => total + (company.awaitingCount ?? 0),
+      0,
+    ),
+    withoutStatement: companies.filter(
+      (company) =>
+        company.monthKey !== null &&
+        !company.monthClosed &&
+        company.statementArrivedAt === null,
+    ).length,
+    silent: companies.filter((company) => company.chaseState === "silent").length,
+    readyToClose: companies.filter(
+      (company) => company.chaseState === "ready-to-close",
+    ).length,
+    withoutProfile: companies.filter((company) => company.profileMissing).length,
+    withStructureDeviations: companies.filter(
+      (company) => company.structureDeviations > 0,
+    ).length,
+  };
+}
+
+/** The summary figures she can filter the table by; each counts what it filters to. */
+export type ChaseFilter =
+  | "awaiting"
+  | "without-statement"
+  | "silent"
+  | "ready-to-close"
+  | "profile-missing"
+  | "structure";
+
+export const CHASE_FILTERS: readonly ChaseFilter[] = [
+  "awaiting",
+  "without-statement",
+  "silent",
+  "profile-missing",
+  "structure",
+  "ready-to-close",
+];
+
+/** Whether a company is one the figure counts: the same rule `summariseChaseList` uses. */
+export function matchesChaseFilter(company: ChaseSummaryRow, filter: ChaseFilter): boolean {
+  switch (filter) {
+    case "awaiting":
+      return (company.awaitingCount ?? 0) > 0;
+    case "without-statement":
+      return company.monthKey !== null && !company.monthClosed && company.statementArrivedAt === null;
+    case "silent":
+      return company.chaseState === "silent";
+    case "ready-to-close":
+      return company.chaseState === "ready-to-close";
+    case "profile-missing":
+      return company.profileMissing;
+    case "structure":
+      return company.structureDeviations > 0;
+  }
 }

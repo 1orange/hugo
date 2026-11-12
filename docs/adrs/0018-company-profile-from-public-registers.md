@@ -137,3 +137,23 @@ Two things about the registers themselves, found when setup failed on a real IČ
   by the longest word when a query of several finds nothing, ranks live companies and closer names
   first, and keeps each answer for ten minutes. A register that fails is a message in the form, and
   in the Omega export a counterparty keeps the document's own name and DIČ.
+
+## Amendment, 2026-11-11 — every party verified, once per subject (PRD 0004, ADR 0022)
+
+The registers were used at profile setup and for the export's partner details; VIES "once per setup,
+never per document". PRD 0004 checks the **integrity of every party** — that its name, IČO, DIČ and
+IČ DPH belong to one subject — because grounding proves each identifier is printed, not that they
+belong together.
+
+- **Offline checks first, always:** IČO mod-11 checksum; Slovak DIČ (10 digits) and IČ DPH (`SK` +
+  10 digits, divisible by 11); Czech DIČ (`CZ` + 8–10 digits). `SK` + DIČ ≠ IČ DPH is a *notice*,
+  never a mismatch, because VAT groups exist (Slovnaft).
+- **Then the registers and VIES, once per subject, not per document.** Answers are kept in the
+  subject directory (ADR 0022) and refreshed by age. Register calls happen on the worker, never while
+  a page renders.
+- **The client's own party is checked against the profile**, never the registers; the profile remains
+  the single source of the client's identity and of roles.
+- **Nothing is overwritten on its own.** A disagreement is a finding shown on the party, with the
+  register's value. Taking it is one click, recorded as the accountant's correction with provenance
+  `register`.
+- A register or VIES outage leaves the offline checks in force and the verdict `unavailable`.

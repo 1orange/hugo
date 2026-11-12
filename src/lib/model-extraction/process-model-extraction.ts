@@ -10,6 +10,7 @@ import {
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
 import type { ModelExtractedPayload } from "@/modules/document-payload";
+import { applyAdvanceSettlement } from "@/modules/advance-settlement";
 import { runExtractionChecks } from "@/modules/extraction-checks";
 import { deriveReceiptKind } from "@/modules/document-state";
 import { printsEkasaMarks } from "@/modules/ekasa-text";
@@ -37,6 +38,14 @@ export function isExtractorUnreachableError(error: unknown): boolean {
   );
 }
 
+/**
+ * Reads one file and writes its document. Resolves true when a result was
+ * written (complete or failed), false when nothing was written because the
+ * service it needs was unreachable or the document is not to be read now.
+ *
+ * A `reread` of an undecided result from an older pipeline is read even though
+ * its document is complete (PRD 0004); the caller decides what to keep.
+ */
 export async function processModelExtractionFile(
   input: {
     companyId: number;
@@ -45,6 +54,7 @@ export async function processModelExtractionFile(
     folderSlot: string;
     mimeType: string;
     fileBytes: Uint8Array;
+    reread?: boolean;
   },
   deps: {
     pdfAccess: PdfAccess;
@@ -52,15 +62,15 @@ export async function processModelExtractionFile(
     extractor: Extractor;
     now?: () => string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const now = deps.now?.() ?? new Date().toISOString();
   const editable = await assertMonthEditable(input.companyId, input.monthKey);
   if (editable) {
-    return;
+    return false;
   }
 
-  if (await extractionAlreadyAttempted(input.driveFileId)) {
-    return;
+  if (!input.reread && (await extractionAlreadyAttempted(input.driveFileId))) {
+    return false;
   }
 
   if (input.mimeType !== "application/pdf") {
@@ -70,7 +80,7 @@ export async function processModelExtractionFile(
       "failed",
       "Automatic extraction supports PDF documents only.",
     );
-    return;
+    return true;
   }
 
   const e2eLines =
@@ -78,7 +88,7 @@ export async function processModelExtractionFile(
       ? stubTextLinesForDriveFile(input.driveFileId)
       : null;
   if (e2eLines === null && (await extractFromEmbeddedInvoiceXml(input, deps, now))) {
-    return;
+    return true;
   }
   const text = await modelTextForDocument({
     mimeType: input.mimeType,
@@ -88,7 +98,7 @@ export async function processModelExtractionFile(
     textLayerLines: e2eLines,
   });
   if (!text.ok) {
-    return;
+    return false;
   }
   const { lines, hadTextLayer, source: extractionSource } = text;
 
@@ -99,10 +109,10 @@ export async function processModelExtractionFile(
       "failed",
       text.textLayerFailure ?? "The PDF has no extractable text layer.",
     );
-    return;
+    return true;
   }
 
-  await runModelExtractionOnLines(
+  return runModelExtractionOnLines(
     {
       companyId: input.companyId,
       monthKey: input.monthKey,
@@ -183,7 +193,7 @@ async function runModelExtractionOnLines(
     now?: () => string;
   },
   now: string,
-): Promise<void> {
+): Promise<boolean> {
   const profile = await getCompanyProfile(input.companyId);
 
   try {
@@ -193,8 +203,10 @@ async function runModelExtractionOnLines(
       textLines: input.lines,
     });
 
+    // An advance-settled invoice is booked at its supply, before the checks
+    // and PRD 0003's derivations read the recap (ADR 0017 amendment).
     const checked = runExtractionChecks({
-      payload: result.payload,
+      payload: applyAdvanceSettlement(result.payload, input.lines),
       sourceTextLines: input.lines,
       monthKey: input.monthKey,
       issuerCountry: profile?.country ?? null,
@@ -219,9 +231,10 @@ async function runModelExtractionOnLines(
       source: input.source,
       status: "complete",
     });
+    return true;
   } catch (error) {
     if (isExtractorUnreachableError(error)) {
-      return;
+      return false;
     }
     await writeExtractedPayload(
       input.driveFileId,
@@ -235,6 +248,7 @@ async function runModelExtractionOnLines(
       source: input.source,
       status: "failed",
     });
+    return true;
   }
 }
 
@@ -251,9 +265,9 @@ export async function processModelExtractionFromLines(
     extractor: Extractor;
     now?: () => string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const now = deps.now?.() ?? new Date().toISOString();
-  await runModelExtractionOnLines(
+  return runModelExtractionOnLines(
     {
       ...input,
       source: input.source ?? "model",

@@ -69,7 +69,25 @@ function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+export type FakeCompanyRegisterOptions = {
+  /** The entities the fake knows by IČO and country. Default: the e2e fixture. */
+  lookups?: RegisterLookup[];
+  /** Milliseconds each lookup takes, so that concurrent callers overlap. */
+  delayMs?: number;
+};
+
+/**
+ * A register that answers from fixtures and counts what it was asked: a test
+ * asserts how often the directory called it, and that a page never did.
+ */
 export class FakeCompanyRegister implements CompanyRegister {
+  /** Every IČO looked up, in order, with its country. */
+  readonly lookupCalls: Array<{ ico: string; country: CompanyCountry }> = [];
+  /** Set to make every lookup fail, as a register outage would. */
+  failure: Error | null = null;
+
+  constructor(private readonly options: FakeCompanyRegisterOptions = {}) {}
+
   async searchByName(name: string, country: CompanyCountry): Promise<RegisterSearchHit[]> {
     const needle = normalizeName(name);
     if (needle.length === 0) {
@@ -91,10 +109,14 @@ export class FakeCompanyRegister implements CompanyRegister {
   }
 
   async lookupByIco(ico: string, country: CompanyCountry): Promise<RegisterLookup | null> {
-    const lookup = E2E_LOOKUP[ico.trim()];
-    if (!lookup || lookup.country !== country) {
-      return null;
+    this.lookupCalls.push({ ico: ico.trim(), country });
+    if (this.options.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, this.options.delayMs));
     }
-    return lookup;
+    if (this.failure) {
+      throw this.failure;
+    }
+    const entities = this.options.lookups ?? Object.values(E2E_LOOKUP);
+    return entities.find((lookup) => lookup.ico === ico.trim() && lookup.country === country) ?? null;
   }
 }

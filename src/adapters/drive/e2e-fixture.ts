@@ -9,6 +9,14 @@ const SLOT_02_ID = "e2e-slot-02";
 const SLOT_04_ID = "e2e-slot-04";
 const SLOT_06_ID = "e2e-slot-06";
 const SLOT_CZ_04_ID = "e2e-slot-cz-04";
+const SLOT_CZ_02_ID = "e2e-slot-cz-02";
+/** Gamma's December, which the seed closes: what is in it arrived late. */
+const MONTH_CZ_CLOSED_ID = "e2e-month-cz-2025-12";
+const SLOT_CZ_CLOSED_02_ID = "e2e-slot-cz-2025-12-02";
+const SLOT_CZ_CLOSED_03_ID = "e2e-slot-cz-2025-12-03";
+
+/** The month the seed closes, and when: before the sweep sees its files. */
+export const E2E_CLOSED_MONTH = { companyId: 2, monthKey: "2025_12", closedAt: "2026-01-02T08:00:00.000Z" };
 
 export function e2eDriveFixture(): DriveFileRecord[] {
   return [
@@ -28,7 +36,7 @@ export function e2eDriveFixture(): DriveFileRecord[] {
     },
     {
       id: COMPANY_CZ_ID,
-      name: "Gamma s.r.o.",
+      name: "Konto Gamma s.r.o.",
       parents: [PARENT_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
@@ -56,14 +64,14 @@ export function e2eDriveFixture(): DriveFileRecord[] {
     },
     {
       id: SLOT_04_ID,
-      name: "04 Bločky_hotovosť",
+      name: "04 Platby hotovosťou",
       parents: [MONTH_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
     },
     {
       id: SLOT_CZ_04_ID,
-      name: "04 Bločky_hotovosť",
+      name: "04 Platby hotovosťou",
       parents: [MONTH_CZ_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
@@ -124,6 +132,25 @@ export function e2eDriveFixture(): DriveFileRecord[] {
       createdTime: "2026-01-20T00:00:00.000Z",
       mimeType: "application/pdf",
     },
+    // Late arrivals: Gamma's December is closed by the seed before these are first seen.
+    { id: SLOT_CZ_02_ID, name: "02 Prijaté faktúry", parents: [MONTH_CZ_ID], createdTime: "2026-01-01T00:00:00.000Z", mimeType: FOLDER_MIME },
+    { id: MONTH_CZ_CLOSED_ID, name: "2025_12", parents: [COMPANY_CZ_ID], createdTime: "2025-12-01T00:00:00.000Z", mimeType: FOLDER_MIME },
+    { id: SLOT_CZ_CLOSED_02_ID, name: "02 Prijaté faktúry", parents: [MONTH_CZ_CLOSED_ID], createdTime: "2025-12-01T00:00:00.000Z", mimeType: FOLDER_MIME },
+    { id: SLOT_CZ_CLOSED_03_ID, name: "03 Bankové výpisy", parents: [MONTH_CZ_CLOSED_ID], createdTime: "2025-12-01T00:00:00.000Z", mimeType: FOLDER_MIME },
+    {
+      id: "e2e-late-invoice",
+      name: "late-invoice.pdf",
+      parents: [SLOT_CZ_CLOSED_02_ID],
+      createdTime: "2025-12-20T00:00:00.000Z",
+      mimeType: "application/pdf",
+    },
+    {
+      id: "e2e-late-statement",
+      name: "late-statement.pdf",
+      parents: [SLOT_CZ_CLOSED_03_ID],
+      createdTime: "2025-12-31T00:00:00.000Z",
+      mimeType: "application/pdf",
+    },
   ];
 }
 
@@ -143,5 +170,7 @@ export function e2eDriveFileContents(): Record<string, Uint8Array> {
     "e2e-doc-vat": new Uint8Array(Buffer.from("%PDF-1.4 vat")),
     "e2e-doc-photo-jpeg": new Uint8Array(Buffer.from("jpeg-bytes")),
     "e2e-doc-photo-heic": new Uint8Array(Buffer.from("heic-bytes")),
+    "e2e-late-invoice": new Uint8Array(Buffer.from("%PDF-1.4 late invoice")),
+    "e2e-late-statement": new Uint8Array(Buffer.from("%PDF-1.4 late statement")),
   };
 }

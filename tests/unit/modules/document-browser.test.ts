@@ -6,12 +6,14 @@ import {
   documentBrowserNavigationKey,
   filterDocuments,
   filterReadOnlyFiles,
+  hasSubjectProblem,
   normalizeDocumentSearch,
   parseDocumentSortParams,
   projectDocuments,
   sortDocuments,
 } from "../../../src/modules/document-browser.ts";
 import type { DocumentListItem } from "../../../src/lib/documents/view.ts";
+import type { IntegrityVerdict } from "../../../src/modules/subject-integrity.ts";
 
 function document(
   id: string,
@@ -37,6 +39,8 @@ function document(
     arithmeticWarning: string | null;
     rolesFlagged: boolean;
     vatWarnings: string[];
+    supplierVerdict: IntegrityVerdict;
+    customerVerdict: IntegrityVerdict;
   }> = {},
 ): DocumentListItem {
   return {
@@ -56,6 +60,7 @@ function document(
     amountDisplay: "—",
     receiptDisplay: "—",
     issueDateDisplay: "—",
+    fileDateDisplay: "02.02.2026",
     derivedStatus: {
       kind: values.status ?? "awaiting-decision",
       hint: "",
@@ -107,6 +112,13 @@ function document(
       profileCountry: null,
       rolesFlagged: values.rolesFlagged ?? false,
       missingProfile: false,
+      roleContext: { profile: null, enrichmentEnabled: true, directory: {} },
+      partyIntegrity: {
+        supplier: { verdict: values.supplierVerdict ?? "unverifiable", findings: [] },
+        customer: { verdict: values.customerVerdict ?? "unverifiable", findings: [] },
+      },
+      partyIntegrityStored: false,
+      partyIntegrityIdentity: "",
       exportSectionOverride: null,
       exportSectionResolved: "T01",
     },
@@ -241,4 +253,67 @@ test("navigation key changes for folder and sort URL state, not ordinary rerende
     documentBrowserNavigationKey(base),
     documentBrowserNavigationKey({ ...base, folderFilter: "02 Prijaté faktúry" }),
   );
+});
+
+test("a party verdict of mismatch marks the document, and only that verdict", () => {
+  const verdicts: IntegrityVerdict[] = ["verified", "valid", "notice", "unverifiable", "unavailable"];
+  for (const verdict of verdicts) {
+    assert.equal(hasSubjectProblem(document("d", { supplierVerdict: verdict, customerVerdict: verdict })), false, verdict);
+  }
+  assert.equal(hasSubjectProblem(document("supplier", { supplierVerdict: "mismatch" })), true);
+  assert.equal(hasSubjectProblem(document("customer", { customerVerdict: "mismatch" })), true);
+  assert.equal(
+    hasSubjectProblem(document("notice", { supplierVerdict: "notice", customerVerdict: "notice" })),
+    false,
+    "a notice is worth a look but does not mark the row",
+  );
+});
+
+test("the integrity filter narrows to mismatched documents and composes with search and sort", () => {
+  const rows = [
+    document("alfa", { label: "Alfa", issueDateAt: "2026-04-01T00:00:00.000Z", supplierVerdict: "mismatch" }),
+    document("beta", { label: "Beta", issueDateAt: "2026-04-03T00:00:00.000Z", customerVerdict: "mismatch" }),
+    document("gamma", { label: "Gamma", issueDateAt: "2026-04-02T00:00:00.000Z", supplierVerdict: "notice" }),
+    document("delta", { label: "Alfa Delta", issueDateAt: "2026-04-05T00:00:00.000Z" }),
+  ];
+
+  const onlyProblems = projectDocuments(rows, { subjectProblemsOnly: true });
+  assert.deepEqual(onlyProblems.documents.map((row) => row.id), ["beta", "alfa"], "newest first, mismatches only");
+  assert.equal(onlyProblems.subjectProblemsOnly, true);
+  assert.equal(onlyProblems.subjectProblemCount, 2);
+  assert.equal(onlyProblems.totalCount, 4, "the total is the scope, not the filtered list");
+
+  const withSearch = projectDocuments(rows, { subjectProblemsOnly: true, search: "alfa" });
+  assert.deepEqual(withSearch.documents.map((row) => row.id), ["alfa"]);
+  assert.equal(withSearch.subjectProblemCount, 2, "the count names the scope's problems, not the search's");
+
+  const ascending = projectDocuments(rows, {
+    subjectProblemsOnly: true,
+    sortKey: "issueDate",
+    direction: "asc",
+  });
+  assert.deepEqual(ascending.documents.map((row) => row.id), ["alfa", "beta"]);
+
+  const off = projectDocuments(rows, { subjectProblemsOnly: false });
+  assert.equal(off.documents.length, 4, "the filter is off unless asked for");
+});
+
+test("the integrity filter keeps the folder scope it is given", () => {
+  const scoped = [
+    document("in-folder", { supplierVerdict: "mismatch" }),
+    document("other-folder", { supplierVerdict: "unverifiable" }),
+  ];
+  const projected = projectDocuments([scoped[1]!], { subjectProblemsOnly: true });
+  assert.deepEqual(projected.documents, []);
+  assert.equal(projected.subjectProblemCount, 0);
+  assert.equal(projected.totalCount, 1);
+  assert.deepEqual(projectDocuments(scoped, { subjectProblemsOnly: true }).documents.map((row) => row.id), ["in-folder"]);
+});
+
+test("an empty integrity filter reports zero problems and no rows", () => {
+  const rows = [document("clean"), document("unknown", { supplierVerdict: "unavailable" })];
+  const projected = projectDocuments(rows, { subjectProblemsOnly: true });
+  assert.deepEqual(projected.documents, []);
+  assert.equal(projected.subjectProblemCount, 0);
+  assert.equal(projected.totalCount, 2);
 });

@@ -61,7 +61,7 @@ export function useMonthExtraction({
     const refresh = () => startRefresh(() => router.refresh());
     return subscribeServerEvents((event) => {
       const here = current.current;
-      if (event.type === "document-read") {
+      if (event.type === "document-read" || event.type === "document-checked") {
         if (event.companyId === here.companyId && event.monthKey === here.monthKey) {
           refresh();
         }

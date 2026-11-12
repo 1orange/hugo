@@ -1,9 +1,15 @@
 import { Queue } from "bullmq";
 import { openRedisConnection, redisKeyPrefix } from "@/lib/redis/connection";
-import type { ExtractionJobData, ExtractionJobQueue } from "./port";
+import type {
+  ExtractionJobData,
+  ExtractionJobQueue,
+  SubjectVerificationJobData,
+  SubjectVerificationQueue,
+} from "./port";
 
 export const EXTRACTION_QUEUE = "extraction";
 export const SWEEP_QUEUE = "sweep";
+export const SUBJECT_QUEUE = "subject";
 
 export type SweepJobName = "poll" | "notified";
 
@@ -12,7 +18,11 @@ export function extractionJobId(driveFileId: string): string {
   return `doc-${driveFileId}`;
 }
 
-type Queues = { extraction?: Queue<ExtractionJobData>; sweep?: Queue };
+type Queues = {
+  extraction?: Queue<ExtractionJobData>;
+  sweep?: Queue;
+  subject?: Queue<SubjectVerificationJobData>;
+};
 const QUEUES_KEY = Symbol.for("hugo.bullmqQueues");
 
 function queues(): Queues {
@@ -29,6 +39,15 @@ export function extractionQueue(): Queue<ExtractionJobData> {
   return state.extraction;
 }
 
+export function subjectQueue(): Queue<SubjectVerificationJobData> {
+  const state = queues();
+  state.subject ??= new Queue<SubjectVerificationJobData>(SUBJECT_QUEUE, {
+    connection: openRedisConnection(),
+    prefix: redisKeyPrefix(),
+  });
+  return state.subject;
+}
+
 export function sweepQueue(): Queue {
   const state = queues();
   state.sweep ??= new Queue(SWEEP_QUEUE, { connection: openRedisConnection(), prefix: redisKeyPrefix() });
@@ -37,9 +56,10 @@ export function sweepQueue(): Queue {
 
 export async function closeQueues(): Promise<void> {
   const state = queues();
-  const open = [state.extraction, state.sweep].filter((queue) => queue !== undefined);
+  const open = [state.extraction, state.sweep, state.subject].filter((queue) => queue !== undefined);
   state.extraction = undefined;
   state.sweep = undefined;
+  state.subject = undefined;
   await Promise.all(open.map((queue) => queue.close()));
 }
 
@@ -66,3 +86,36 @@ export class BullmqExtractionJobQueue implements ExtractionJobQueue {
     return true;
   }
 }
+
+/** Attempts for a verification that was refused by the rate limit: one an hour at most, then given up. */
+const SUBJECT_ATTEMPTS = 60;
+const SUBJECT_RETRY_MS = 60_000;
+
+/**
+ * The party checks for any replica: one job per document, its id the document's,
+ * so a document queued twice is one job. A lookup refused by the rate limit is
+ * retried a minute later.
+ */
+export class BullmqSubjectVerificationQueue implements SubjectVerificationQueue {
+  async add(data: SubjectVerificationJobData): Promise<boolean> {
+    const queue = subjectQueue();
+    const jobId = subjectJobId(data.documentId);
+    if (await queue.getJob(jobId)) {
+      return false;
+    }
+    await queue.add("verify", data, {
+      jobId,
+      attempts: SUBJECT_ATTEMPTS,
+      backoff: { type: "fixed", delay: SUBJECT_RETRY_MS },
+      removeOnComplete: true,
+      removeOnFail: true,
+    });
+    return true;
+  }
+}
+
+/** BullMQ ids cannot contain ":"; document ids can hold "#", so they are encoded. */
+export function subjectJobId(documentId: string): string {
+  return `subject-${Buffer.from(documentId).toString("base64url")}`;
+}
+

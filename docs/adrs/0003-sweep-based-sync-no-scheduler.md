@@ -63,3 +63,31 @@ it, and she works the books monthly.
   handling and a backstop sweep anyway, to save a few API calls at this volume.
 - **Sweep on every page load unconditionally.** Simple, but re-reads Drive on every navigation.
 - **Webhook only.** Rejected as self-terminating, per the expiry analysis above.
+
+## Amendment, 2026-11-12 — the sweep reads Drive's change log; a page never waits for it
+
+The "at this volume" behind rejecting the Changes API did not hold. The office's shared drive holds
+about 20,700 items, and a full listing takes ~70 s: twenty-one pages of 1,000 at ~3 s each. The
+dashboard ran that listing inline whenever the last sweep was over five minutes old, so the first
+visit after a short break hung for a minute. So did every folder rename, undo and late-arrival move,
+each of which sweeps afterwards.
+
+- **A snapshot and the change log.** Every item the service account sees is kept in Postgres
+  (`drive_items`), with the change-log position it is current to. A sweep reads Drive's changes since
+  that position (~0.4 s), applies them to the snapshot, and diffs the snapshot exactly as it diffed a
+  full listing before. The diff, its events and its idempotence are unchanged.
+- **A full listing still backs it.** The first sweep, a token Drive no longer accepts, and a sweep a day
+  after the last full listing list every file. The token is taken before the listing, so a change made
+  during it is read again next time.
+- **What the app did is written through.** After a rename, its undo, or a move, the new name or parent
+  goes into the snapshot straight away, so the sweep that follows shows it even if Drive's log has not
+  caught up.
+- **A sweep writes only what changed.** File rows whose state is unchanged are not rewritten; their
+  `last_seen_at` (read by nothing) now means "the last sweep that changed the row". A quiet sweep
+  writes no file row.
+- **A page never waits for Drive.** The dashboard answers from the database and asks, after the
+  response (`after()`), for a sweep if the last is over a minute old; one already running is not waited
+  for. When the sweep finds a change, the screens render again (ADR 0021's events). The month page
+  queues its extraction and party checks after the response too.
+
+On the live drive, a sweep went from ~75 s to ~0.95 s; a page render's own work is 10–50 ms.

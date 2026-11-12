@@ -32,7 +32,7 @@ test("a receipt's label has no document number: the register holds only hers", (
     manifest: {
       monthKey: "2026_05",
       issued: [],
-      received: [{ driveFileId: "drive-2", matchKey: "IDk26007", folderSlot: "05 Bločky_firemná karta" }],
+      received: [{ driveFileId: "drive-2", matchKey: "IDk26007", folderSlot: "04 Bločky" }],
     },
   });
   assert.equal(label?.documentNumber, null);

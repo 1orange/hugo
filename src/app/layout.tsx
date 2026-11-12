@@ -1,26 +1,12 @@
 import type { Metadata } from "next";
-import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
 /*
- * Archivo for chrome and prose, IBM Plex Mono for every figure, identifier,
- * file name and month key. Both cover the full Slovak diacritic set, which most
- * grotesques quietly do not.
+ * The platform's own typeface (SF on her Mac), not a downloaded one: it ships
+ * optical sizing, the full Slovak diacritic set and tabular figures, and costs
+ * nothing to load.
  */
-const archivo = Archivo({
-  variable: "--font-archivo",
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
-  subsets: ["latin", "latin-ext"],
-  weight: ["400", "500"],
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Hugo",
@@ -34,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="sk">
-      <body className={`${archivo.variable} ${plexMono.variable} font-sans`}>
+      <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>

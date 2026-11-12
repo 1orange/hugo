@@ -1,4 +1,5 @@
-export const SWEEP_STALE_AFTER_MS = 5 * 60 * 1000;
+/** A sweep reads only Drive's changes (~0.5 s), so a page may ask for one this often. */
+export const SWEEP_STALE_AFTER_MS = 60 * 1000;
 
 export function isSweepStale(
   lastSweepAt: string | null,

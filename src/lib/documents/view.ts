@@ -19,12 +19,18 @@ import {
 import {
   checkArithmeticWarning,
   effectiveAmountDisplay,
-  mergeDocumentFields,
+  enrichmentEnabledFor,
   type EditableDocumentFields,
   type FieldProvenanceMap,
 } from "@/modules/document-fields";
+import type { DirectoryFactsByKey } from "@/modules/party-enrichment";
+import {
+  mergeDocumentFieldsWithDirectory,
+  type DirectoryFactsCache,
+} from "@/lib/subject-directory/directory-facts";
 import {
   editorFieldChecksFromModel,
+  withoutArithmeticChecks,
   type EditorScalarFieldChecks,
 } from "@/modules/editor-field-checks";
 import {
@@ -38,12 +44,28 @@ import {
 } from "@/modules/document-payload";
 import { folderSlotPrefix, formatDate, formatDateTime } from "@/modules/format-sk";
 import {
+  hasSubjectProblem,
   sortDocuments,
   type DocumentSortDirection,
   type DocumentSortKey,
 } from "@/modules/document-browser";
-import type { HomeCurrency } from "@/modules/company-profile";
-import type { DocTypeHint } from "@/modules/document-payload";
+import { companyDisplayName } from "@/modules/company-display-name";
+import type { CompanyProfileFields, HomeCurrency } from "@/modules/company-profile";
+import type {
+  AdvanceSettlementPayload,
+  DocTypeHint,
+  ExtractedPayload,
+  ConfirmedPayload,
+} from "@/modules/document-payload";
+import { withoutPartyChecks } from "@/modules/party-swap";
+import type { ClientIdentity } from "@/modules/party-roles";
+import {
+  checkDocumentParties,
+  clientIdentityOf,
+  parsePartyIntegrityRecord,
+  partyIdentityKey,
+  type SubjectCheck,
+} from "@/modules/subject-integrity";
 import {
   readExportSectionOverride,
   resolveExportSection,
@@ -63,6 +85,30 @@ export type DocumentFieldEditorView = {
   profileCountry: "SK" | "CZ" | null;
   rolesFlagged: boolean;
   missingProfile: boolean;
+  /** Settled by an advance: the amount is the supply, and VAT is never inferred from it. Absent reads as false. */
+  advanceSettled?: boolean;
+  /** The settlement in effect — detected, or hers over it. Null when the invoice is not settled. */
+  advanceSettlement?: AdvanceSettlementPayload | null;
+  /** Her decision on the settlement, when she has made one: true settled, false not settled. */
+  advanceSettlementOverride?: boolean | null;
+  /** Whether she can mark the invoice settled or not: it was read as an invoice. */
+  advanceSettlementAvailable?: boolean;
+  /** What the panel needs to judge the roles again after she swaps the parties. */
+  roleContext: {
+    profile: ClientIdentity | null;
+    enrichmentEnabled: boolean;
+    /** The directory's facts for both parties' subjects, by key: a swap keeps the keys (ADR 0022). */
+    directory: DirectoryFactsByKey;
+  };
+  /**
+   * The subject-integrity verdict of each party: the worker's stored verdict
+   * when it was judged for these values, else the offline checks (ADR 0022).
+   */
+  partyIntegrity: { supplier: SubjectCheck; customer: SubjectCheck };
+  /** Whether partyIntegrity is the worker's stored verdict (with the registers) rather than offline. */
+  partyIntegrityStored: boolean;
+  /** The identity the verdict was judged for, as the fields panel compares it with her draft. */
+  partyIntegrityIdentity: string;
   exportSectionOverride: ExportSectionOverride;
   exportSectionResolved: OmegaExportSection;
 };
@@ -79,7 +125,7 @@ export type DocumentListItem = {
   name: string;
   folderSlot: ProcessedFolderSlot;
   mimeType: string;
-  receiptKind: "cash" | "card" | null;
+  receiptKind: "receipt" | null;
   decision: "confirmed" | "not_relevant" | null;
   decidedAt: string | null;
   notRelevantReason: string | null;
@@ -88,6 +134,8 @@ export type DocumentListItem = {
   amountDisplay: string;
   receiptDisplay: string;
   issueDateDisplay: string;
+  /** When the file was created in Drive: the date the list shows until the document's own is read. */
+  fileDateDisplay: string;
   derivedStatus: DerivedDocumentStatus;
   extractionFailureReason: string | null;
   hasExtractedData: boolean;
@@ -99,6 +147,14 @@ export type DocumentListItem = {
   canReextract: boolean;
   typedEkasaUid: string | null;
   fieldEditor: DocumentFieldEditorView;
+};
+
+/** A document whose party failed integrity, named for the export warning. */
+export type SubjectProblemDocument = {
+  id: string;
+  label: string;
+  name: string;
+  folderSlot: string;
 };
 
 export type FolderFilterOption = {
@@ -131,14 +187,84 @@ export type MonthDocumentView = {
   folderFilter: string | null;
   sortKey: DocumentSortKey;
   sortDirection: DocumentSortDirection;
+  /** The company's home currency, as the rail's price sort groups by it. */
+  homeCurrency: HomeCurrency;
   folderFilters: FolderFilterOption[];
   documents: DocumentListItem[];
+  /**
+   * Documents with a party whose verdict is a mismatch, month-wide and never
+   * affected by the folder filter: the export warns about them. Dismissed
+   * documents are not listed, since the export never sends them.
+   */
+  subjectProblems: SubjectProblemDocument[];
   /**
    * Files at the month root with no folder slot — Omega's VAT outputs. Never
    * documents, never decided, shown so they are not invisible (ADR 0013).
    */
   readOnlyFiles: ReadOnlyFile[];
 };
+
+/**
+ * The field checks the extraction made, with her party decisions and her
+ * settlement decision applied: a swap drops the party checks, and a settlement
+ * decision drops the arithmetic verdicts (the panel judges them live).
+ */
+function editorChecksOf(input: {
+  payload: ExtractedPayload;
+  confirmed: ConfirmedPayload;
+  folderSlot: string;
+  profile: CompanyProfileFields | null;
+}): EditorScalarFieldChecks | null {
+  if (!isModelExtractedPayload(input.payload)) {
+    return null;
+  }
+  const checks = editorFieldChecksFromModel({
+    extracted: input.payload,
+    folderSlot: input.folderSlot,
+    profile: input.profile,
+  });
+  const partiesChecked = input.confirmed.partyProvenance !== undefined ? withoutPartyChecks(checks) : checks;
+  if (partiesChecked === null || input.confirmed.advanceSettlement === undefined) {
+    return partiesChecked;
+  }
+  return withoutArithmeticChecks(partiesChecked);
+}
+
+/** Her company as the panel judges roles; no address, which roles never read. */
+function roleContextOf(profile: CompanyProfileFields | null): ClientIdentity | null {
+  return clientIdentityOf(profile);
+}
+
+/**
+ * The verdict a page shows: the worker's stored one when it was judged for
+ * exactly these values and this profile; otherwise the offline checks, which
+ * the worker will replace. Pages never call a register (ADR 0022).
+ */
+function partyIntegrityOf(input: {
+  storedJson: string | null;
+  folderSlot: string;
+  fields: EditableDocumentFields;
+  profile: ClientIdentity | null;
+}): Pick<DocumentFieldEditorView, "partyIntegrity" | "partyIntegrityStored" | "partyIntegrityIdentity"> {
+  const identity = partyIdentityKey(input.fields, input.profile);
+  const stored = parsePartyIntegrityRecord(input.storedJson);
+  if (stored && stored.identity === identity) {
+    return {
+      partyIntegrity: { supplier: stored.supplier, customer: stored.customer },
+      partyIntegrityStored: true,
+      partyIntegrityIdentity: identity,
+    };
+  }
+  return {
+    partyIntegrity: checkDocumentParties({
+      folderSlot: input.folderSlot,
+      fields: input.fields,
+      profile: input.profile,
+    }),
+    partyIntegrityStored: false,
+    partyIntegrityIdentity: identity,
+  };
+}
 
 function formatReceiptAt(receiptAt: string | null): string {
   return formatDateTime(receiptAt);
@@ -234,8 +360,36 @@ export async function buildMonthDocumentView(
       .filter((document) => document.decision !== null || document.exportedAt !== null)
       .map((document) => document.driveFileId),
   );
+  // What the directory fills for a missing party value: read from its rows, never from a register (ADR 0022).
+  const directoryCache: DirectoryFactsCache = new Map();
+  const mergedByDocument = new Map<string, Awaited<ReturnType<typeof mergeDocumentFieldsWithDirectory>>>();
+  for (const document of documentRows) {
+    const file = fileById.get(document.driveFileId);
+    if (!file || file.deleted) {
+      continue;
+    }
+    const folderSlot = file.folderSlot ?? document.folderSlot;
+    if (!isProcessedFolderSlot(folderSlot)) {
+      continue;
+    }
+    mergedByDocument.set(
+      document.id,
+      await mergeDocumentFieldsWithDirectory(
+        parseExtractedPayload(document.extractedPayloadJson),
+        parseConfirmedPayload(document.confirmedPayloadJson),
+        {
+          folderSlot,
+          profile: companyProfile,
+          homeCurrency,
+          extractionPipelineVersion: document.extractionPipelineVersion,
+        },
+        directoryCache,
+      ),
+    );
+  }
+
   const documentItems = documentRows
-    .map((document) => {
+    .map((document): DocumentListItem | null => {
       const file = fileById.get(document.driveFileId);
       if (!file || file.deleted) {
         return null;
@@ -248,12 +402,7 @@ export async function buildMonthDocumentView(
 
       const payload = parseExtractedPayload(document.extractedPayloadJson);
       const confirmed = parseConfirmedPayload(document.confirmedPayloadJson);
-      const merged = mergeDocumentFields(payload, confirmed, {
-        folderSlot,
-        profile: companyProfile,
-        homeCurrency,
-        extractionPipelineVersion: document.extractionPipelineVersion,
-      });
+      const { merged, directory } = mergedByDocument.get(document.id)!;
       const amountDisplay = effectiveAmountDisplay(merged.fields);
       const receiptDisplay = formatReceiptAt(
         merged.fields.issueDateAt ?? merged.fields.receiptAt,
@@ -286,6 +435,7 @@ export async function buildMonthDocumentView(
         amountDisplay,
         receiptDisplay,
         issueDateDisplay,
+        fileDateDisplay: formatDate(file.driveCreatedTime),
         derivedStatus: deriveDocumentStatus({
           decision: document.decision,
           extractionStatus: document.extractionStatus,
@@ -314,13 +464,12 @@ export async function buildMonthDocumentView(
         fieldEditor: {
           fields: merged.fields,
           provenance: merged.provenance,
-          fieldChecks: isModelExtractedPayload(payload)
-            ? editorFieldChecksFromModel({
-                extracted: payload,
-                folderSlot,
-                profile: companyProfile,
-              })
-            : null,
+          fieldChecks: editorChecksOf({
+            payload,
+            confirmed,
+            folderSlot,
+            profile: companyProfile,
+          }),
           docTypeHint: isModelExtractedPayload(payload) ? payload.docTypeHint : null,
           arithmeticWarning: checkArithmeticWarning(merged.fields),
           vatWarnings: merged.vatWarnings ?? [],
@@ -329,6 +478,21 @@ export async function buildMonthDocumentView(
           profileCountry: companyProfile?.country ?? null,
           rolesFlagged: merged.rolesFlagged,
           missingProfile: merged.missingProfile,
+          advanceSettled: merged.advanceSettled,
+          advanceSettlement: merged.advanceSettlement,
+          advanceSettlementOverride: confirmed.advanceSettlement?.settled ?? null,
+          advanceSettlementAvailable: isModelExtractedPayload(payload),
+          roleContext: {
+            profile: roleContextOf(companyProfile),
+            enrichmentEnabled: enrichmentEnabledFor(document.extractionPipelineVersion),
+            directory,
+          },
+          ...partyIntegrityOf({
+            storedJson: document.partyIntegrityJson,
+            folderSlot,
+            fields: merged.fields,
+            profile: roleContextOf(companyProfile),
+          }),
           exportSectionOverride: readExportSectionOverride(confirmed),
           exportSectionResolved: resolveExportSection({
             extracted: payload,
@@ -386,7 +550,7 @@ export async function buildMonthDocumentView(
     .sort((left, right) => left.name.localeCompare(right.name, "sk"));
 
   return {
-    companyName: company.name,
+    companyName: companyDisplayName(company.name),
     monthKey,
     readOnly: monthReadOnly,
     isOpenMonth: openMonthKey === monthKey,
@@ -400,6 +564,10 @@ export async function buildMonthDocumentView(
     folderFilters,
     sortKey,
     sortDirection,
+    homeCurrency,
+    subjectProblems: sortedDocumentItems
+      .filter((item) => item.decision !== "not_relevant" && hasSubjectProblem(item))
+      .map((item) => ({ id: item.id, label: item.label, name: item.name, folderSlot: item.folderSlot })),
     documents: sortedDocumentItems.filter(
       (item) => !folderFilter || item.folderSlot === folderFilter,
     ),

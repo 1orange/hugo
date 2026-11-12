@@ -53,7 +53,7 @@ const baseFixture: DriveFileRecord[] = [
   file("doc-invoice", "invoice-001.pdf", [SLOT_01_ID]),
   file("doc-vat", "vat-report.pdf", [MONTH_01_ID]),
   folder(MONTH_05_ID, "2026_05", [COMPANY_ID]),
-  folder(SLOT_04_TYPO_ID, "04 Bločky_hotorvosť", [MONTH_05_ID]),
+  folder(SLOT_04_TYPO_ID, "04 Platby hotorvosťou", [MONTH_05_ID]),
   file("doc-receipt", "receipt-001.pdf", [SLOT_04_TYPO_ID]),
 ];
 
@@ -136,7 +136,7 @@ test("buildDriveTree emits FileMovedByClient when parent changes, not a second d
       driveFileId: "doc-receipt",
       companyDriveFolderId: COMPANY_ID,
       monthKey: "2026_05",
-      folderSlot: "04 Bločky_hotorvosť",
+      folderSlot: "04 Platby hotorvosťou",
       parentId: SLOT_04_TYPO_ID,
       name: "receipt-001.pdf",
       mimeType: "application/pdf",
@@ -189,7 +189,7 @@ test("buildDriveTree emits FileDeleted and retains row when file disappears", ()
       driveFileId: "doc-receipt",
       companyDriveFolderId: COMPANY_ID,
       monthKey: "2026_05",
-      folderSlot: "04 Bločky_hotorvosť",
+      folderSlot: "04 Platby hotorvosťou",
       parentId: SLOT_04_TYPO_ID,
       name: "receipt-001.pdf",
       mimeType: "application/pdf",
@@ -272,7 +272,7 @@ test("buildDriveTree emits FileRenamedInDrive when only the name changes", () =>
       driveFileId: "doc-receipt",
       companyDriveFolderId: COMPANY_ID,
       monthKey: "2026_05",
-      folderSlot: "04 Bločky_hotorvosť",
+      folderSlot: "04 Platby hotorvosťou",
       parentId: SLOT_04_TYPO_ID,
       name: "receipt-001.pdf",
       mimeType: "application/pdf",
@@ -352,4 +352,80 @@ test("buildDriveTree leaves out desktop.ini and .DS_Store, and forgets stored on
   const month = tree[0]!.months.find((entry) => entry.key === "2026_01")!;
   const names = [...month.folderSlots.flatMap((slot) => slot.documents), ...month.monthRootOutputs].map((doc) => doc.name);
   assert.deepEqual(names.sort(), ["invoice-001.pdf", "vat-report.pdf"]);
+});
+
+test("companies inside an accountant's folder are swept with her name as their group", () => {
+  const files = [
+    folder(PARENT_ID, "Shared drive", []),
+    folder("group-eva", "Eva – doklady klientov", [PARENT_ID]),
+    folder("group-kat", "Katarína – doklady klientov", [PARENT_ID]),
+    folder("group-arch", "Archív – doklady klientov", [PARENT_ID]),
+    folder("co-alfa", "Konto Alfa s.r.o.", ["group-eva"]),
+    folder("co-beta", "Beta s.r.o.", ["group-kat"]),
+    folder("co-old", "Stará firma", ["group-arch"]),
+    // A company at the root, as in the flat layouts before 2026-11-11: it holds months itself.
+    folder("co-root", "Konto Root s.r.o.", [PARENT_ID]),
+    folder("m-root", "2026_10", ["co-root"]),
+    folder("m-beta", "2026_11", ["co-beta"]),
+    folder("s-beta", "02 Prijaté faktúry", ["m-beta"]),
+    file("doc-beta", "fa.pdf", ["s-beta"]),
+  ];
+  const { tree, updatedFiles } = runTree(files);
+
+  assert.deepEqual(
+    tree.map((company) => [company.name, company.groupName]),
+    [
+      ["Beta s.r.o.", "Katarína"],
+      ["Konto Alfa s.r.o.", "Eva"],
+      ["Konto Root s.r.o.", null],
+      ["Stará firma", "Archív"],
+    ],
+    "the group folders themselves are not companies",
+  );
+  assert.deepEqual(
+    updatedFiles.map((stored) => [stored.driveFileId, stored.companyDriveFolderId, stored.monthKey]),
+    [["doc-beta", "co-beta", "2026_11"]],
+  );
+});
+
+test("an NFD-named group folder and a hyphen in place of the dash are still groups", () => {
+  const files = [
+    folder(PARENT_ID, "Shared drive", []),
+    folder("group-kat", "Katarína – doklady klientov".normalize("NFD"), [PARENT_ID]),
+    folder("group-eva", "Eva - doklady klientov", [PARENT_ID]),
+    folder("co-a", "A s.r.o.", ["group-kat"]),
+    folder("co-b", "B s.r.o.", ["group-eva"]),
+  ];
+  assert.deepEqual(
+    runTree(files).tree.map((company) => company.groupName),
+    ["Katarína", "Eva"],
+  );
+});
+
+test("every root folder is an accountant whatever it is called, and every folder in it a client", () => {
+  const files = [
+    folder(PARENT_ID, "Doklady klientov", []),
+    folder("g-zuz", "Zuzana", [PARENT_ID]),
+    folder("g-arch", "ARCHIV - doklady", [PARENT_ID]),
+    folder("co-1", "Alivion", ["g-zuz"]),
+    folder("co-2", "Doklady Paulíny SZČO", ["g-arch"]),
+    folder("m-1", "2027_01 január", ["co-1"]),
+    folder("s-1", "04 Bločky a pokladňa", ["m-1"]),
+    file("doc-1", "blocek.pdf", ["s-1"]),
+    folder("y-1", "2025", ["co-1"]),
+  ];
+  const { tree, updatedFiles } = runTree(files);
+  assert.deepEqual(
+    tree.map((company) => [company.name, company.groupName, company.archived, company.months.map((month) => month.key)]),
+    [
+      ["Alivion", "Zuzana", false, ["2027_01"]],
+      ["Doklady Paulíny SZČO", "ARCHIV", true, []],
+    ],
+    "a year folder at month level is ignored",
+  );
+  assert.deepEqual(
+    updatedFiles.map((stored) => [stored.driveFileId, stored.monthKey, stored.folderSlot]),
+    [["doc-1", "2027_01", "04 Bločky"]],
+    "from 2027_01 the folder is its code",
+  );
 });

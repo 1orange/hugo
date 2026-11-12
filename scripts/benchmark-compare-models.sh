@@ -49,7 +49,7 @@ done
 
 mkdir -p "$RESULTS_DIR"
 SUMMARY="$RESULTS_DIR/summary.tsv"
-echo -e "label\tthinking\texact_or_empty_flagged\twrong_plausible\tamount_wrong_arith_pass\tmedian_ms\tworst_ms\tmedian_tokens\tdocker_mem\toverall\tlog" >"$SUMMARY"
+echo -e "label\tthinking\texact_or_empty_flagged\twrong_plausible\tamount_wrong_arith_pass\tmedian_ms\tworst_ms\tmedian_tokens\tdocker_mem\toverall\tlog\texact_fields\tempty_flagged_fields\ttime_budget" >"$SUMMARY"
 
 wait_for_extractor() {
   local attempt
@@ -87,7 +87,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   EXTRACTOR_MODEL_FILE="$model_file" docker compose --env-file "$COMPOSE_ENV" up -d extractor
   # A model this llama.cpp cannot load fails its row, not the whole comparison.
   if ! wait_for_extractor; then
-    echo -e "${label}\t${thinking}\t?\t?\t?\t?\t?\t?\tn/a\tERROR (did not load)\t${log}" >>"$SUMMARY"
+    echo -e "${label}\t${thinking}\t?\t?\t?\t?\t?\t?\tn/a\tERROR (did not load)\t${log}\t?\t?\t?" >>"$SUMMARY"
     docker compose --env-file "$COMPOSE_ENV" logs --tail 20 extractor >"$log" 2>&1 || true
     continue
   fi
@@ -113,11 +113,17 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   worst="$(grep -E 'worst model time per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+) ms.*/\1/' || true)"
   tokens="$(grep -E 'median completion tokens per document:' "$log" | tail -1 | sed -E 's/.*: ([0-9]+|—).*/\1/' || true)"
   overall="$(grep -E 'overall:' "$log" | tail -1 | sed -E 's/.*overall: (PASS|FAIL).*/\1/' || echo "ERROR")"
+  exact_fields="$(grep -E '^  exact: ' "$log" | tail -1 | sed -E 's/.*: ([0-9]+).*/\1/' || true)"
+  empty_flagged_fields="$(grep -E '^  empty_flagged: ' "$log" | tail -1 | sed -E 's/.*: ([0-9]+).*/\1/' || true)"
+  time_budget="$(grep -E 'time budget.*model only' "$log" | tail -1 | sed -E 's/.*: (pass|fail).*/\1/' || true)"
+  if [[ "$time_budget" == "fail" ]]; then
+    overall="FAIL"
+  fi
   if [[ "$bench_status" -ne 0 ]]; then
     overall="ERROR"
   fi
 
-  echo -e "${label}\t${thinking}\t${exact:-?}\t${wrong:-?}\t${amount:-?}\t${median:-?}\t${worst:-?}\t${tokens:-?}\t${mem}\t${overall}\t${log}" >>"$SUMMARY"
+  echo -e "${label}\t${thinking}\t${exact:-?}\t${wrong:-?}\t${amount:-?}\t${median:-?}\t${worst:-?}\t${tokens:-?}\t${mem}\t${overall}\t${log}\t${exact_fields:-0}\t${empty_flagged_fields:-0}\t${time_budget:-?}" >>"$SUMMARY"
 
   docker compose --env-file "$COMPOSE_ENV" stop extractor >/dev/null 2>&1 || true
 done <"$MODELS_ENV"

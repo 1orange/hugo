@@ -37,6 +37,7 @@ export type DocumentRow = {
   stagedExtractionStatus: string | null;
   stagedExtractionFailureReason: string | null;
   confirmedPayloadJson: string;
+  partyIntegrityJson: string | null;
   note: string | null;
   exportedAt: string | null;
   exportBatch: string | null;
@@ -135,25 +136,31 @@ export async function ensureDocumentsForMonth(
     return 0;
   }
 
-  const existingSlots = new Map(
+  const existingPlaces = new Map(
     (
       await db
-        .select({ id: documents.id, folderSlot: documents.folderSlot })
+        .select({
+          id: documents.id,
+          companyId: documents.companyId,
+          monthKey: documents.monthKey,
+          folderSlot: documents.folderSlot,
+        })
         .from(documents)
         .where(inArray(documents.id, eligible.map((file) => file.driveFileId)))
-    ).map((row) => [row.id, row.folderSlot]),
+    ).map((row) => [row.id, row]),
   );
 
   let created = 0;
   for (const file of eligible) {
     const folderSlot = file.folderSlot!;
-    const existingSlot = existingSlots.get(file.driveFileId);
-    if (existingSlot !== undefined) {
-      if (existingSlot !== folderSlot) {
-        // Every receipt read out of the file moves with it.
+    const existing = existingPlaces.get(file.driveFileId);
+    if (existing !== undefined) {
+      if (existing.folderSlot !== folderSlot || existing.monthKey !== monthKey || existing.companyId !== companyId) {
+        // Every receipt read out of the file moves with it: to another folder, or
+        // to another month (a late arrival moved into the open month, ADR 0006).
         await db
           .update(documents)
-          .set({ folderSlot })
+          .set({ folderSlot, monthKey, companyId })
           .where(eq(documents.driveFileId, file.driveFileId));
       }
       continue;
@@ -262,6 +269,12 @@ export async function writeExtractedPayload(
     .where(eq(documents.id, documentId))
     .returning();
   return row;
+}
+
+/** The worker's party verdicts for the document (ADR 0018 amendment); pages only read them. */
+export async function writePartyIntegrity(documentId: string, json: string): Promise<void> {
+  const db = getDb();
+  await db.update(documents).set({ partyIntegrityJson: json }).where(eq(documents.id, documentId));
 }
 
 export async function writeConfirmedPayload(
@@ -380,6 +393,45 @@ export async function extractionAlreadyAttempted(documentId: string): Promise<bo
 export async function recordExtractionCrash(documentId: string, error: unknown): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   await writeExtractedPayload(documentId, {}, "failed", `Reading the document failed: ${message}`);
+}
+
+/**
+ * Closes a background re-read of an undecided result (PRD 0004). `written` is
+ * whether the read wrote a result: when the service was unreachable it wrote
+ * nothing, the result stays as it was and is read again later. A fresh
+ * complete read stands; a failed one restores the earlier complete result.
+ * Either way the document is marked as read by the current pipeline, so a
+ * deterministic failure is not retried on every sweep.
+ */
+export async function finishPipelineReread(
+  driveFileId: string,
+  priorExtractedPayloadJson: string,
+  written: boolean,
+): Promise<void> {
+  if (!written) {
+    return;
+  }
+  const db = getDb();
+  const current = await getDocument(driveFileId);
+  if (!current) {
+    return;
+  }
+  if (current.extractionStatus === "failed") {
+    await db
+      .update(documents)
+      .set({
+        extractedPayloadJson: priorExtractedPayloadJson,
+        extractionStatus: "complete",
+        extractionFailureReason: null,
+        extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION,
+      })
+      .where(eq(documents.id, current.id));
+    return;
+  }
+  await db
+    .update(documents)
+    .set({ extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION })
+    .where(eq(documents.id, current.id));
 }
 
 /** Marks a document as being read now, by the current pipeline. */

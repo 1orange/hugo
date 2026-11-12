@@ -20,7 +20,7 @@ test.beforeAll(async () => {
         const initial = mergeDocumentFields({}, emptyConfirmedPayload());
         initial.fields.vatRecap = [{ rateLiteral: "23", baseLiteral: "100.00", baseCents: 10000, vatLiteral: "23.00", vatCents: 2300 }];
         const initialDocument = {
-          id: "test-document", sameReceiptAs: [],
+          id: "test-document", sameReceiptAs: [], folderSlot: "01 Vystavené faktúry",
           fieldEditor: { ...initial, fieldChecks: null, homeCurrency: "EUR", exportSectionResolved: "T01" },
         };
         window.saveCount = 0;
@@ -90,10 +90,15 @@ for (const id of ["field-amount", "field-recap-base", "field-recap-vat", "field-
     await input.fill("");
     await input.pressSequentially("12abc3,45");
     await expect(input).toHaveValue("123,45");
-    for (const invalid of ["EUR 12", "1e3", "-12", "+12", "1,2.3", "12.345", "12 34"]) {
+    for (const invalid of ["EUR 12", "1e3", "+12", "1,2.3", "12.345", "12 34", "1-2"]) {
       await input.fill(invalid);
       await expect(input).toHaveValue("123,45");
     }
+    // Negative amounts are valid (credit notes, advance settlement rows).
+    await input.fill("-12,5");
+    await expect(input).toHaveValue("-12,5");
+    await input.fill("123,45");
+    await expect(input).toHaveValue("123,45");
     await input.fill("123.");
     await expect(input).toHaveValue("123.");
     await input.pressSequentially("45");

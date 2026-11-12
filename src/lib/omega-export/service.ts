@@ -10,11 +10,22 @@ import {
 } from "@/adapters/store/documents";
 import { getFileByDriveId } from "@/adapters/store/files";
 import { upsertPartner } from "@/adapters/store/partners";
+import type { SubjectRow } from "@/adapters/store/subjects";
 import { getSettings, type SettingsRow } from "@/adapters/store/settings";
 import { appendUserEvent } from "@/adapters/store/events";
 import type { CompanyCountry } from "@/modules/company-profile";
 import { homeCurrencyForCountry } from "@/modules/company-profile";
-import { mergeDocumentFields } from "@/modules/document-fields";
+import { mergeDocumentFields, type FieldProvenance } from "@/modules/document-fields";
+import {
+  mergeDocumentFieldsWithDirectory,
+  type DirectoryFactsCache,
+} from "@/lib/subject-directory/directory-facts";
+import { directoryDepsFor } from "@/lib/subject-directory/runtime";
+import {
+  subjectForExport,
+  type DirectoryDeps,
+} from "@/lib/subject-directory/service";
+import { subjectCountryOf } from "@/modules/subject-directory";
 import {
   parseConfirmedPayload,
   parseExtractedPayload,
@@ -80,6 +91,23 @@ function supplierNameForDocument(input: {
   return input.mergedSupplierName.trim();
 }
 
+/**
+ * A partner value from the subject directory (ADR 0022). A value she typed on the document
+ * itself stands; otherwise the subject's value (a register answer, or her correction of the
+ * subject) is exported, and the document's value only where the subject has none.
+ */
+function partnerValue(input: {
+  documentValue: string;
+  provenance: FieldProvenance;
+  subjectValue: string | null | undefined;
+}): string {
+  const typed = input.documentValue.trim();
+  if (input.provenance === "confirmed" && typed.length > 0) {
+    return typed;
+  }
+  return (input.subjectValue ?? "").trim() || typed;
+}
+
 async function resolvePartner(input: {
   companyId: number;
   country: CompanyCountry;
@@ -87,32 +115,29 @@ async function resolvePartner(input: {
   ico: string;
   dic: string;
   icDph: string;
-  register: CompanyRegister | null;
+  provenance: { name: FieldProvenance; dic: FieldProvenance; icDph: FieldProvenance };
+  /** The counterparty's subject in the directory, when it is known or was looked up (ADR 0019, ADR 0022). */
+  subject: SubjectRow | null;
   now: string;
 }): Promise<OmegaPartnerRecord> {
   const normalizedIco = input.ico.replace(/\s/g, "");
-  let street = "";
-  let psc = "";
-  let city = "";
-  let legalName = input.name.trim();
-  let dic = input.dic.trim();
-  let icDph = input.icDph.trim();
-
-  if (normalizedIco.length > 0 && input.register) {
-    // A register that is down costs the partner's address, not the export
-    // (ADR 0018): the document's own name and DIČ stand.
-    const lookup = await input.register
-      .lookupByIco(normalizedIco, input.country)
-      .catch(() => null);
-    if (lookup) {
-      legalName = lookup.legalName.trim() || legalName;
-      dic = lookup.dic.trim() || dic;
-      const parts = splitAddress(lookup.address);
-      street = parts.street;
-      psc = parts.psc;
-      city = parts.city;
-    }
-  }
+  const subject = input.subject;
+  const legalName = partnerValue({
+    documentValue: input.name,
+    provenance: input.provenance.name,
+    subjectValue: subject?.legalName,
+  });
+  const dic = partnerValue({
+    documentValue: input.dic,
+    provenance: input.provenance.dic,
+    subjectValue: subject?.dic,
+  });
+  const icDph = partnerValue({
+    documentValue: input.icDph,
+    provenance: input.provenance.icDph,
+    subjectValue: subject?.icDph,
+  });
+  const { street, psc, city } = splitAddress(subject?.address ?? "");
 
   if (normalizedIco.length > 0) {
     await upsertPartner({
@@ -281,7 +306,10 @@ export type MonthExportPreview = {
 export async function buildMonthOmegaExport(input: {
   companyId: number;
   monthKey: string;
+  /** The register unknown or stale subjects are looked up in, through the directory. Null: the directory is only read. */
   register?: CompanyRegister | null;
+  /** The directory's dependencies, when the caller has them (tests, the worker). Overrides `register`. */
+  directory?: DirectoryDeps | null;
   now?: string;
   persist?: boolean;
 }): Promise<{
@@ -298,6 +326,12 @@ export async function buildMonthOmegaExport(input: {
   const profileCountry: CompanyCountry = profile?.country ?? "SK";
   const homeCurrency = homeCurrencyForCountry(profileCountry);
   const register = input.register ?? null;
+  const directory: DirectoryDeps | null =
+    input.directory !== undefined
+      ? input.directory
+      : register
+        ? directoryDepsFor({ register, refreshDays: settings.subjectRefreshDays, now: () => now })
+        : null;
 
   const confirmed = monthDocuments.filter((document) => document.decision === "confirmed");
 
@@ -307,6 +341,7 @@ export async function buildMonthOmegaExport(input: {
     documents: confirmed,
   });
 
+  const directoryCache: DirectoryFactsCache = new Map();
   const invoices: OmegaInvoiceDraft[] = [];
   const receipts: OmegaReceiptDraft[] = [];
   const partners: OmegaPartnerRecord[] = [];
@@ -352,11 +387,12 @@ export async function buildMonthOmegaExport(input: {
     });
     sectionByDocument.set(document.id, section);
 
-    const merged = mergeDocumentFields(extracted, confirmedPayload, {
+    // The export carries the effective values: what the directory fills counts as the document's (ADR 0022).
+    const { merged } = await mergeDocumentFieldsWithDirectory(extracted, confirmedPayload, {
       folderSlot: document.folderSlot,
       profile: profile ?? null,
       extractionPipelineVersion: document.extractionPipelineVersion,
-    });
+    }, directoryCache);
 
     const counterpartySource =
       section === "T01" && document.folderSlot.startsWith("01 ")
@@ -365,6 +401,11 @@ export async function buildMonthOmegaExport(input: {
             ico: merged.fields.customerIco,
             dic: merged.fields.customerDic,
             icDph: merged.fields.customerIcDph,
+            provenance: {
+              name: merged.provenance.customerName,
+              dic: merged.provenance.customerDic,
+              icDph: merged.provenance.customerIcDph,
+            },
           }
         : {
             name: supplierNameForDocument({
@@ -374,7 +415,27 @@ export async function buildMonthOmegaExport(input: {
             ico: merged.fields.ico,
             dic: merged.fields.dic,
             icDph: merged.fields.icDph,
+            provenance: {
+              name: merged.provenance.supplierName,
+              dic: merged.provenance.dic,
+              icDph: merged.provenance.icDph,
+            },
           };
+
+    // The directory first: a known, fresh counterparty is read with no register call; an unknown or
+    // stale one is looked up once and recorded there (ADR 0022). A register outage costs nothing known.
+    const counterpartyParty = {
+      name: counterpartySource.name,
+      ico: counterpartySource.ico,
+      dic: counterpartySource.dic,
+      icDph: counterpartySource.icDph,
+    };
+    const subject = await subjectForExport(
+      counterpartyParty,
+      subjectCountryOf(counterpartyParty) ?? profileCountry,
+      directory,
+      { documentId: document.id },
+    );
 
     const counterparty = await resolvePartner({
       companyId: input.companyId,
@@ -383,7 +444,8 @@ export async function buildMonthOmegaExport(input: {
       ico: counterpartySource.ico,
       dic: counterpartySource.dic,
       icDph: counterpartySource.icDph,
-      register,
+      provenance: counterpartySource.provenance,
+      subject,
       now,
     });
     partners.push(counterparty);

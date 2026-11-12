@@ -63,6 +63,43 @@ export type EkasaExtractedPayload = {
 
 import type { ExtractionCheckFlags } from "./extraction-checks";
 
+/**
+ * An invoice settled by an advance (ADR 0017 amendment, 2026-11-11): the
+ * payload's amount and VAT recap are the supply; the advance deducted and the
+ * amount due are kept beside them, and the deduction's own recap rows for audit.
+ */
+export type AdvanceSettlementPayload = {
+  /** `detected` from the text; `manual` when she marked the invoice settled. */
+  source: "detected" | "manual";
+  /** `extracted` when the supply total is a printed gross total; `derived` when summed from the supply rows. */
+  totalProvenance: "extracted" | "derived";
+  advanceDeductedCents: number;
+  advanceDeductedLiteral: string;
+  amountDueCents: number;
+  amountDueLiteral: string;
+  advanceDocumentNumbers: string[];
+  /** Recap rows of the deduction. Never used for VAT. */
+  settlementRows: DocumentVatRecapRow[];
+  /**
+   * The amount and recap as the model read them, before the settlement. Kept so
+   * that marking the invoice not settled restores the plain extraction. Absent
+   * on results read before they were kept.
+   */
+  originalAmountCents?: number | null;
+  originalAmountLiteral?: string | null;
+  originalVatRecap?: DocumentVatRecapRow[];
+  /** Set when the printed amount due does not follow from total − advance (informational). */
+  identityWarning?: string | null;
+  /** What she should look at, other than the identity; in Slovak. */
+  findings?: string[];
+};
+
+/** Her decision on whether the invoice is settled by an advance; it wins over detection (ADR 0010). */
+export type AdvanceSettlementOverride = {
+  settled: boolean;
+  source: "manual";
+};
+
 export type ModelExtractedPayload = {
   kind: "extracted";
   /**
@@ -91,6 +128,8 @@ export type ModelExtractedPayload = {
   outsideEkasa?: true;
   /** The UID she typed into the UID box, kept even when the lookup knew nothing. */
   typedEkasaUid?: string;
+  /** Set when an advance was deducted: amount and vatRecap are then the supply. */
+  advanceSettlement?: AdvanceSettlementPayload;
 };
 
 /** No parser produced data; she fills the document in, possibly after typing a UID. */
@@ -204,6 +243,26 @@ export type ConfirmedPayload = {
   vatRecap?: DocumentVatRecapRow[];
   /** Forces T01 vs T00 in the Omega export when set. */
   exportSection?: "T01" | "T00" | null;
+  /** Her decision on the advance settlement, over what the text shows. */
+  advanceSettlement?: AdvanceSettlementOverride;
+  /**
+   * Where each confirmed party value came from, recorded when she swaps the
+   * parties: the values themselves are her correction, but their badges keep
+   * the source they were read from. Absent means every confirmed value is hers.
+   */
+  partyProvenance?: Partial<
+    Record<
+      | "supplierName"
+      | "ico"
+      | "dic"
+      | "icDph"
+      | "customerName"
+      | "customerIco"
+      | "customerDic"
+      | "customerIcDph",
+      "empty" | "extracted" | "confirmed" | "profile" | "derived" | "register" | "directory"
+    >
+  >;
   /** Field-level dependency metadata for values calculated by the pipeline. */
   derived?: Record<
     string,

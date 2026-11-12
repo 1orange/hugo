@@ -231,21 +231,21 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
     driveFileId: "ekasa-rcpt",
     companyId,
     monthKey: "2026_05",
-    folderSlot: "05 Bločky_firemná karta",
+    folderSlot: "04 Bločky",
     name: "ekasa.pdf",
   });
   await seedFile(db, {
     driveFileId: "typed-rcpt",
     companyId,
     monthKey: "2026_05",
-    folderSlot: "04 Bločky_hotovosť",
+    folderSlot: "04 Bločky",
     name: "scan.pdf",
   });
   await seedFile(db, {
     driveFileId: "bolt-inv",
     companyId,
     monthKey: "2026_05",
-    folderSlot: "05 Bločky_firemná karta",
+    folderSlot: "04 Bločky",
     name: "bolt.pdf",
   });
 

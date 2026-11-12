@@ -81,3 +81,29 @@ renamed it again since, undo refuses and explains, rather than silently discardi
   same safety.
 - **Hardcoding the movable folder list.** Correct today, but it is a filing convention rather than
   a law, and it belongs in settings.
+
+## Amendment, 2026-11-11 — Hugo no longer creates folders (PRD 0004)
+
+The third kind of mutation, creating month folders, is withdrawn together with the last sentence of
+the decision: **if the destination slot does not exist in the open month, the move is not proposed.**
+The late arrival stays in the log as `pending`, with a warning naming the missing folder and a link
+to the company's structure view. Once someone creates the folder in Drive, the next sweep turns the
+warning back into a move proposal.
+
+Hugo's Drive mutations are therefore moves of late arrivals and renames of near-miss folders, both
+proposed, recorded before Drive is touched, and undoable as before. The default movable list follows
+the office's folder names: `02 Prijaté faktúry`, `04 Platby hotovosťou`, `05 Platby kartou`,
+`06 Iné doklady`. A stored list is migrated only if it still equals the old default.
+
+## Amendment, 2026-11-12 — late-arrival moves as built (PRD 0004 issue 19)
+
+- The capability check reads `canMoveItemWithinDrive` from the last sweep (stored per file); a file
+  Drive will not move is a warning, not a proposal. Drive may still refuse at the time of the move:
+  the mutation is then marked failed with Drive's reason, and the rest of the batch goes on.
+- A batch confirmation moves every pending proposal of one company; the moved documents follow their
+  file into the open month with extraction kept.
+- Undo moves the file back to the recorded previous parent only while the file is still where the
+  move put it, its documents are undecided and unexported, and the month it was moved to is open;
+  otherwise it refuses and says why. An undone late arrival is pending again.
+- `files.list` asks `corpora=allDrives`: in the default corpus the files of a shared drive the
+  service account belongs to are not listed at all, which would have left a shared drive unswept.

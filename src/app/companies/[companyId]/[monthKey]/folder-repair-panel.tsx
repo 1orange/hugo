@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   confirmFolderRenameAction,
@@ -80,43 +81,47 @@ export function FolderRepairPanel({
   }
 
   return (
-    <div className="space-y-2.5 rounded-md border border-warn/30 bg-warn-soft p-2.5 text-[12.5px]">
+    <div className="space-y-2 rounded-lg bg-surface p-3 text-[13px] shadow-[0_0_0_1px_rgb(0_0_0/0.06)]">
       {showRepairUi ? (
         <>
-          <p className="font-medium text-ink">
+          <p className="font-semibold text-warn">
             {observedName}
+            {kind === "repair-candidate" && proposedTargetName ? (
+              <span className="block font-normal text-ink-3">→ {proposedTargetName}</span>
+            ) : null}
           </p>
-          <p className="text-ink-2">
+          <p className="text-[12.5px] text-ink-2">
             {kind === "repair-candidate"
               ? "Názov priečinka je blízky kanonickému, ale nie presný. Doklady v ňom sa nezobrazujú, kým sa neopraví."
               : "Tento priečinok nie je rozpoznaný. Ak patrí do štandardnej štruktúry mesiaca, vyber kanonický cieľ."}
           </p>
-          <p className="text-[11.5px] text-ink-3">
+          <p className="text-[12px] text-ink-3">
             Premenovanie priečinka v Drive nerozbije odkazy klientov — ID súborov a
             priečinkov zostávajú rovnaké, takže skratky a zdieľané odkazy fungujú
             ďalej.
           </p>
         </>
       ) : (
-        <p className="text-[11.5px] text-ink-3">
+        <p className="text-[12.5px] text-ink-3">
+          <span className="block font-semibold text-ink">{observedName}</span>
           Tento priečinok premenovala aplikácia. Vrátenie obnoví predchádzajúci
           názov v Drive.
         </p>
       )}
 
       {renameBlockedReason ? (
-        <p className="text-[11.5px] text-bad" data-testid="rename-blocked-warning">
+        <p className="text-[12.5px] text-bad" data-testid="rename-blocked-warning">
           {renameBlockedReason}
         </p>
       ) : null}
 
       {kind === "unknown" ? (
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-medium text-ink-2">
-            Kanonický cieľ
+          <span className="text-[12.5px] font-medium text-ink-2">
+            Správny názov
           </span>
           <select
-            className="rounded-md border border-line-2 bg-surface px-2 py-1"
+            className="rounded-lg bg-fill px-2.5 py-1.5"
             value={manualTarget}
             onChange={(event) => setManualTarget(event.target.value)}
             disabled={pending}
@@ -136,7 +141,7 @@ export function FolderRepairPanel({
         {showRepairUi && canRename && targetName ? (
           <button
             type="button"
-            className="rounded-md bg-warn px-3 py-1.5 text-[11.5px] font-semibold text-warn-soft disabled:opacity-50"
+            className="press rounded-lg bg-accent-soft px-3 py-1.5 text-[12.5px] font-semibold text-accent disabled:opacity-50"
             onClick={onConfirm}
             disabled={pending}
             data-testid="confirm-folder-rename"
@@ -147,7 +152,7 @@ export function FolderRepairPanel({
         {activeMutationId ? (
           <button
             type="button"
-            className="rounded-md border border-line-2 bg-surface px-3 py-1.5 text-[11.5px] font-medium text-ink-2 disabled:opacity-50"
+            className="press rounded-lg bg-fill px-3 py-1.5 text-[12.5px] font-medium text-ink disabled:opacity-50"
             onClick={onUndo}
             disabled={pending}
             data-testid="undo-folder-rename"
@@ -158,10 +163,18 @@ export function FolderRepairPanel({
       </div>
 
       {error ? (
-        <p className="text-[11.5px] text-bad" data-testid="folder-repair-error">
+        <p className="text-[12.5px] text-bad" data-testid="folder-repair-error">
           {error}
         </p>
       ) : null}
+
+      <Link
+        href={`/companies/${companyId}/structure`}
+        className="inline-block text-[12.5px] font-medium text-accent hover:underline"
+        data-testid="folder-repair-structure-link"
+      >
+        Štruktúra Drive pre túto firmu
+      </Link>
     </div>
   );
 }

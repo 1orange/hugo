@@ -9,6 +9,7 @@ import { getCompanyProfile } from "../../../src/adapters/store/company-profiles.
 import { events, companies } from "../../../src/lib/db/schema.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import {
+  loadCompanyProfileView,
   lookupCompanyRegister,
   saveCompanyProfileForUser,
   searchCompanyRegister,
@@ -112,6 +113,71 @@ test("czech profile saves without IČ DPH and uses ARES source", async () => {
   assert.equal(profile.country, "CZ");
   assert.equal(profile.icDph, "");
   assert.equal(profile.registerSource, "ares");
+});
+
+test("a Slovak company without DIČ or IČ DPH saves; a malformed IČ DPH is still refused", async () => {
+  await freshTestDb();
+  await getDb().insert(companies).values({ id: 3, driveFolderId: "co-3", name: "Delta s.r.o.", active: true });
+  const base = {
+    country: "SK" as const,
+    legalName: "Delta s.r.o.",
+    address: "Hlavná 1, Bratislava",
+    ico: "31333532",
+    registerSource: "ruz",
+  };
+
+  const saved = await saveCompanyProfileForUser(3, { ...base, dic: "", icDph: "" }, "2026-11-12T12:00:00.000Z");
+  assert.equal(saved.ok, true);
+  const profile = await getCompanyProfile(3);
+  assert.equal(profile?.dic, "");
+  assert.equal(profile?.icDph, "");
+
+  const malformed = await saveCompanyProfileForUser(3, { ...base, dic: "", icDph: "SK123" }, "2026-11-12T12:01:00.000Z");
+  assert.equal(malformed.ok, false);
+
+  const withVat = await saveCompanyProfileForUser(
+    3,
+    { ...base, dic: "2020311335", icDph: "sk2020311335" },
+    "2026-11-12T12:02:00.000Z",
+  );
+  assert.equal(withVat.ok, true);
+  assert.equal((await getCompanyProfile(3))?.icDph, "SK2020311335");
+});
+
+test("a Konto-prefixed folder is searched, shown and prefilled without the prefix; the stored name keeps it", async () => {
+  await freshTestDb();
+
+  const db = getDb();
+  await db.insert(companies)
+    .values({ id: 1, driveFolderId: "co-1", name: "Konto Beta s.r.o.", active: true });
+
+  const queries: string[] = [];
+  const register: CompanyRegister = {
+    async searchByName(name) {
+      queries.push(name);
+      return [];
+    },
+    async lookupByIco() {
+      return null;
+    },
+  };
+
+  // The profile form prefills its search with the empty query: the folder's display name.
+  const search = await searchCompanyRegister(1, "", "SK", { register });
+  assert.equal(search.ok, true);
+  assert.deepEqual(queries, ["Beta s.r.o."]);
+  if (search.ok) {
+    assert.equal(search.companyName, "Beta s.r.o.");
+  }
+
+  const view = await loadCompanyProfileView(1);
+  assert.equal(view?.companyName, "Beta s.r.o.");
+
+  const rows = await listCompanySummaries();
+  assert.equal(rows[0]?.name, "Beta s.r.o.");
+
+  const [stored] = await db.select().from(companies).where(eq(companies.id, 1));
+  assert.equal(stored?.name, "Konto Beta s.r.o.");
 });
 
 async function withDb(): Promise<void> {

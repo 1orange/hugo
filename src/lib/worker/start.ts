@@ -3,6 +3,7 @@ import { createCashDiscoveryDeps } from "@/lib/cash-discovery/schedule";
 import { scheduleDrivePoll } from "@/lib/drive-watch/drive-watch";
 import { startExtractionWorker } from "./extraction-worker";
 import { startServiceMonitor } from "./service-monitor";
+import { startSubjectWorker } from "./subject-worker";
 import { startSweepWorker } from "./sweep-worker";
 
 /** Documents read at once across every worker: the model server's slots (EXTRACTOR_PARALLEL). */
@@ -25,10 +26,11 @@ export async function startWorker(env: NodeJS.ProcessEnv = process.env): Promise
 
   const extraction = startExtractionWorker(deps, concurrency);
   const sweep = startSweepWorker(env);
+  const subject = startSubjectWorker(env);
   const stopMonitor = startServiceMonitor(env);
   await scheduleDrivePoll(env);
 
-  for (const { worker } of [extraction, sweep]) {
+  for (const { worker } of [extraction, sweep, subject]) {
     worker.on("failed", (job, error) => console.warn(`[worker] ${worker.name} job ${job?.id} failed`, error));
     worker.on("error", (error) => console.warn(`[worker] ${worker.name}`, error));
   }
@@ -42,6 +44,7 @@ export async function startWorker(env: NodeJS.ProcessEnv = process.env): Promise
       await Promise.all([
         extraction.worker.close(!extraction.busy()),
         sweep.worker.close(!sweep.busy()),
+        subject.worker.close(!subject.busy()),
       ]);
     },
   };

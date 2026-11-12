@@ -56,10 +56,7 @@ import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
  * Literal names rather than positions in the canonical list, which is editable in
  * settings and would otherwise silently repoint this.
  */
-export const RECEIPT_FOLDER_SLOTS = [
-  "04 Bločky_hotovosť",
-  "05 Bločky_firemná karta",
-] as const;
+export const RECEIPT_FOLDER_SLOTS = ["04 Bločky"] as const;
 
 export type CashDiscoveryDeps = {
   driveClient: DriveClient;

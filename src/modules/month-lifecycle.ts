@@ -1,4 +1,4 @@
-import type { FolderClassification } from "./folder-taxonomy";
+import { slotsFilledBy, type FolderClassification } from "./folder-taxonomy";
 
 export type CompanyStage = "idle" | "collect" | "extract" | "tick" | "export" | "close";
 
@@ -12,27 +12,52 @@ export type CompanyStageView = {
   awaitingCount: number | null;
 };
 
-const MONTH_KEY_PATTERN = /^(\d{4})_(\d{2})$/;
+/** The office's calendar: month boundaries are read here, not in UTC. */
+export const OFFICE_TIME_ZONE = "Europe/Bratislava";
 
-export function nextMonthKey(monthKey: string): string | null {
-  const match = MONTH_KEY_PATTERN.exec(monthKey);
-  if (!match) {
-    return null;
+/**
+ * The `YYYY_MM` key of the calendar month an instant falls in on the office
+ * clock. Takes the instant as input, so callers decide what "now" is.
+ */
+export function monthKeyAt(instant: Date, timeZone: string = OFFICE_TIME_ZONE): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(instant);
+  const year = parts.find((part) => part.type === "year")!.value;
+  const month = parts.find((part) => part.type === "month")!.value;
+  return `${year}_${month}`;
+}
+
+/**
+ * A future month is one whose key is after the current calendar month. Keys
+ * are zero-padded `YYYY_MM`, so they compare correctly as strings.
+ */
+export function isFutureMonth(monthKey: string, currentMonthKey: string): boolean {
+  return monthKey > currentMonthKey;
+}
+
+/**
+ * The open month: the newest month without `closedAt` whose key is not after
+ * the current month. The office pre-creates every month of the year, so
+ * "newest unclosed" alone would make December open in November (ADR 0005,
+ * amended 2026-11-11).
+ */
+export function selectOpenMonthKey(
+  months: ReadonlyArray<{ monthKey: string; closedAt: string | null }>,
+  currentMonthKey: string,
+): string | null {
+  let open: string | null = null;
+  for (const month of months) {
+    if (month.closedAt !== null || isFutureMonth(month.monthKey, currentMonthKey)) {
+      continue;
+    }
+    if (open === null || month.monthKey > open) {
+      open = month.monthKey;
+    }
   }
-
-  let year = Number(match[1]);
-  let month = Number(match[2]);
-  if (month < 1 || month > 12) {
-    return null;
-  }
-
-  month += 1;
-  if (month > 12) {
-    month = 1;
-    year += 1;
-  }
-
-  return `${year}_${String(month).padStart(2, "0")}`;
+  return open;
 }
 
 function folderSlotPrefix(name: string): string | null {
@@ -43,12 +68,12 @@ function folderSlotPrefix(name: string): string | null {
 export type SlotOccupancy =
   /** The folder exists, or a repair candidate will become it. */
   | { state: "present" }
-  /** Nothing occupies the slot; scaffolding will create it. */
+  /** Nothing occupies the slot. Hugo never creates it; the office does. */
   | { state: "absent" }
   /**
    * A folder sharing the slot's number exists but is not that folder. Creating
    * the canonical name anyway would leave two folders competing for one slot,
-   * so scaffolding stays out and she decides.
+   * so the slot is reported with the folder that blocks it and she decides.
    */
   | { state: "blocked"; byFolderName: string };
 
@@ -61,17 +86,8 @@ function slotOccupancy(
   for (const folder of existingFolders) {
     const { classification } = folder;
 
-    if (
-      classification.kind === "canonical" &&
-      classification.name === canonicalName
-    ) {
-      return { state: "present" };
-    }
-
-    if (
-      classification.kind === "repair-candidate" &&
-      classification.targetName === canonicalName
-    ) {
+    // Its own folder, an older name for it, or the near-miss that will become it.
+    if (slotsFilledBy(classification).includes(canonicalName)) {
       return { state: "present" };
     }
   }
@@ -91,26 +107,16 @@ function slotOccupancy(
   return { state: "absent" };
 }
 
-export function planMonthScaffolding(
-  existingFolders: ExistingMonthFolder[],
-  canonicalFolderNames: readonly string[],
-): string[] {
-  return canonicalFolderNames.filter(
-    (canonicalName) =>
-      slotOccupancy(canonicalName, existingFolders).state === "absent",
-  );
-}
-
 export type MissingSlot = {
   canonicalName: string;
   blockedByFolderName: string | null;
 };
 
 /**
- * Canonical slots that have no folder. Without this the blocked case is
- * invisible: scaffolding declines to create the folder and the month view only
- * lists folders that exist, so documents would have nowhere to go and nothing
- * would say why.
+ * Canonical slots that have no folder. The office owns the Drive structure
+ * (ADR 0005 and 0006, amended 2026-11-11), so a missing slot stays missing until
+ * someone creates it. The month view lists only folders that exist, so without
+ * this the gap would be invisible and documents would have nowhere to go.
  */
 export function describeMissingSlots(
   existingFolders: ExistingMonthFolder[],

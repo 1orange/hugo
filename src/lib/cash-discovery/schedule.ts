@@ -31,4 +31,5 @@ export async function scheduleDocumentExtractionForMonth(companyId: number, mont
   } catch (error) {
     console.warn(`[queue] could not queue ${companyId}/${monthKey}`, error);
   }
+
 }

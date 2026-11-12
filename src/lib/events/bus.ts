@@ -17,6 +17,13 @@ export type AppEvent =
       driveFileId: string;
       outcome: "complete" | "failed";
     }
+  /** A document's parties were checked against the registers; its verdicts are stored (ADR 0022). */
+  | {
+      type: "document-checked";
+      companyId: number;
+      monthKey: string;
+      driveFileId: string;
+    }
   /** A sweep found files added, moved, renamed or gone in these months. */
   | { type: "files-changed"; months: Array<{ companyId: number; monthKey: string }> }
   /** The model's or OCR's state, as the worker sees it, changed. */
