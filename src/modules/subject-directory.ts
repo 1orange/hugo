@@ -18,7 +18,7 @@ import { coreCompanyName, normalizeCompanyName } from "./register-search";
 
 export type SubjectCountry = "SK" | "CZ" | "foreign";
 export type SubjectRegisterStatus = "active" | "dissolved" | "unknown";
-export type SubjectSource = "register" | "vies" | "manual" | "profile";
+export type SubjectSource = "register" | "vies" | "manual";
 export type SubjectField =
   | "legalName"
   | "formerNames"
@@ -54,8 +54,8 @@ const VIES_PREFIXES = new Set([
 
 export type SubjectFinding = {
   field: SubjectField;
-  kind: "register-disagrees" | "profile-disagrees";
-  /** The value the other side holds: the register's, or the profile's direction reversed. */
+  kind: "register-disagrees";
+  /** The value the register holds. */
   value: string;
   at: string;
 };
@@ -425,23 +425,4 @@ export function viesAnswerOf(record: ViesRecord): ViesAnswer {
     holderName: record.holderName,
     ...(record.lapsedAt !== null ? { lapsed: true } : {}),
   };
-}
-
-/**
- * Where her client's profile and the directory disagree (ADR 0022): the profile
- * wins, and the directory's value is flagged. Only fields both sides hold count.
- */
-export function profileFindings(
-  subject: SubjectState,
-  profile: { legalName: string; dic: string },
-  now: string,
-): SubjectFinding[] {
-  const findings: SubjectFinding[] = [];
-  if (subject.legalName && coreCompanyName(subject.legalName) !== coreCompanyName(profile.legalName)) {
-    findings.push({ field: "legalName", kind: "profile-disagrees", value: subject.legalName, at: now });
-  }
-  if (subject.dic && profile.dic && comparableDic(subject.dic) !== comparableDic(profile.dic)) {
-    findings.push({ field: "dic", kind: "profile-disagrees", value: subject.dic, at: now });
-  }
-  return findings;
 }

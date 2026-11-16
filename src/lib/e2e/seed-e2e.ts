@@ -7,7 +7,6 @@ import { setDriveParentFolderId } from "@/adapters/store/settings";
 import { getDb } from "@/lib/db/client";
 import {
   companies,
-  companyProfiles,
   documents,
   driveMutations,
   events,
@@ -60,7 +59,6 @@ export async function seedE2eDatabase(): Promise<void> {
       driveMutations,
       documents,
       partners,
-      companyProfiles,
       files,
       monthFolders,
       months,

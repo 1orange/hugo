@@ -1,7 +1,7 @@
 # 01 — A client company's profile is its Adresár subject
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 

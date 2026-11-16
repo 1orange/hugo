@@ -5,7 +5,6 @@ import {
   correctSubjectField,
   isStale,
   pickAliasSubject,
-  profileFindings,
   registerAnswerOf,
   subjectCountryOf,
   subjectKeyOf,
@@ -115,10 +114,7 @@ test("a register answer that agrees with a manual value clears the earlier findi
 
 test("her correction is manual, kept over refreshes, and resolves the disagreement about that field", () => {
   const flagged = subject({
-    findings: [
-      { field: "legalName", kind: "register-disagrees", value: "Alfa s.r.o.", at: daysBefore(2) },
-      { field: "legalName", kind: "profile-disagrees", value: "Alfa s.r.o.", at: daysBefore(2) },
-    ],
+    findings: [{ field: "legalName", kind: "register-disagrees", value: "Alfa s.r.o.", at: daysBefore(2) }],
   });
 
   const update = correctSubjectField(flagged, "legalName", "  Alfa Holding s.r.o. ", NOW);
@@ -126,10 +122,7 @@ test("her correction is manual, kept over refreshes, and resolves the disagreeme
   assert.equal(update.legalName, "Alfa Holding s.r.o.");
   assert.deepEqual(update.manualFields, ["legalName"]);
   assert.equal(update.sources?.legalName, "manual");
-  assert.deepEqual(
-    update.findings?.map((finding) => finding.kind),
-    ["profile-disagrees"],
-  );
+  assert.deepEqual(update.findings, []);
 });
 
 test("only the fields an accountant may correct can be corrected", () => {
@@ -153,23 +146,3 @@ test("a subject with register data answers the integrity check with it; one with
   assert.equal(registerAnswerOf(subject({ registerStatus: "dissolved" }))?.status, "dissolved");
 });
 
-test("the profile wins where the directory differs, and the directory is flagged", () => {
-  const findings = profileFindings(
-    subject({ legalName: "Delta Holding s.r.o.", dic: "2020311335" }),
-    { legalName: "Delta s.r.o.", dic: "2020399999" },
-    NOW,
-  );
-  assert.deepEqual(
-    findings.map((finding) => [finding.field, finding.kind]),
-    [
-      ["legalName", "profile-disagrees"],
-      ["dic", "profile-disagrees"],
-    ],
-  );
-
-  assert.deepEqual(
-    profileFindings(subject({ legalName: "Delta, a. s." }), { legalName: "DELTA a.s.", dic: "" }, NOW),
-    [],
-    "the same name in another legal form is no disagreement",
-  );
-});

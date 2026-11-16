@@ -1,14 +1,12 @@
 import type { CompanyRegister } from "@/adapters/company-register/port";
 import type { VatNumberCheck, VatRegister } from "@/adapters/vat-register/port";
 import {
-  findCompanyProfileByIco,
   findSubjectByIco,
   findSubjectByVatId,
   findSubjectsByAlias,
   getSubject,
   insertSubject,
   recordAliasSighting,
-  unlinkCompanySubjectsExcept,
   updateSubject,
   type SubjectPatch,
   type SubjectRow,
@@ -27,7 +25,6 @@ import {
   isStale,
   nextViesRecord,
   pickAliasSubject,
-  profileFindings,
   recordVatGroupFromVies,
   registerAnswerOf,
   subjectCountryOf,
@@ -189,9 +186,9 @@ async function currentFor(
 }
 
 /**
- * One sighting: the name it was printed under counts once for this document, and a
- * client's subject is linked to its company. Every party with a name is recorded;
- * only a party without an IČO is resolved by its name (resolveSubject).
+ * One sighting: the name it was printed under counts once for this document. Every
+ * party with a name is recorded; only a party without an IČO is resolved by its name
+ * (resolveSubject). A client's subject is its profile, so it is already linked.
  */
 async function sighted(
   subject: SubjectRow,
@@ -210,15 +207,7 @@ async function sighted(
       now,
     });
   }
-  let current = (await updateSubject(subject.id, { lastSeenAt: now })) ?? subject;
-  if (current.linkedCompanyId === null && current.ico && current.country !== "foreign") {
-    const profile = await findCompanyProfileByIco(current.country, current.ico);
-    if (profile) {
-      current =
-        (await linkSubject(current, { companyId: profile.companyId, legalName: profile.legalName, dic: profile.dic }, now)) ??
-        current;
-    }
-  }
+  const current = (await updateSubject(subject.id, { lastSeenAt: now })) ?? subject;
   return { subjectId: current.id, register: answerOf(current) };
 }
 
@@ -594,58 +583,6 @@ async function checkIcoWithoutCountry(
     subjectId: null,
     register: unavailable ? ({ unavailable: true } satisfies Unavailable) : ({ notFound: true } satisfies NotFound),
   };
-}
-
-async function linkSubject(
-  subject: SubjectRow,
-  profile: { companyId: number; legalName: string; dic: string },
-  now: string,
-): Promise<SubjectRow | null> {
-  await unlinkCompanySubjectsExcept(profile.companyId, subject.id);
-  const kept = subject.findings.filter((finding) => finding.kind !== "profile-disagrees");
-  return updateSubject(subject.id, {
-    linkedCompanyId: profile.companyId,
-    findings: [...kept, ...profileFindings(stateOf(subject), profile, now)],
-  });
-}
-
-/**
- * Her client's own company as a subject (ADR 0022): found or created by its
- * profile's IČO and linked to it. The profile wins where they disagree; the
- * directory's value is flagged. No register is asked here: the profile was
- * set up from one.
- */
-export async function linkClientCompany(input: {
-  companyId: number;
-  country: "SK" | "CZ";
-  ico: string;
-  legalName: string;
-  address: string;
-  dic: string;
-  icDph: string;
-  now: string;
-}): Promise<SubjectRow | null> {
-  const ico = compact(input.ico);
-  if (!/^\d{8}$/.test(ico)) {
-    await unlinkCompanySubjectsExcept(input.companyId, -1);
-    return null;
-  }
-  let subject = await findSubjectByIco(input.country, ico);
-  if (!subject) {
-    const vat = input.country === "SK" ? input.icDph : input.dic;
-    subject = await insertSubject({
-      country: input.country,
-      ico,
-      vatId: compact(vat).toUpperCase() || null,
-      legalName: input.legalName,
-      dic: input.dic || null,
-      icDph: input.icDph || null,
-      address: input.address || null,
-      sources: { legalName: "profile", dic: input.dic ? "profile" : undefined, address: "profile" },
-      now: input.now,
-    });
-  }
-  return linkSubject(subject, { companyId: input.companyId, legalName: input.legalName, dic: input.dic }, input.now);
 }
 
 /** Her correction of a subject's field (ADR 0022): kept over every register refresh. */

@@ -44,10 +44,14 @@ export type DirectoryListRow = {
   verdictLabel: string;
   verdictTone: VerdictTone;
   lastSeenLabel: string;
+  /** Set for a client's subject (its profile is this record): the company it is. */
+  client: { href: string } | null;
 };
 
 export type DirectoryList = {
   query: string;
+  /** Only the clients' subjects were asked for. */
+  clientsOnly: boolean;
   rows: DirectoryListRow[];
   /** Every subject that matched, not just the rows shown. */
   total: number;
@@ -66,12 +70,19 @@ function groupAliases(aliases: SubjectAliasRow[]): Map<number, SubjectAliasRow[]
   return grouped;
 }
 
-/** The subjects matching the query, most recently seen first; `rows` holds at most `limit`. */
+/**
+ * The subjects matching the query, most recently seen first; `rows` holds at most `limit`.
+ * With `clientsOnly`, only the subjects that are a client company's profile.
+ */
 export async function listSubjectDirectory(
   query: string | null | undefined,
   limit: number = DIRECTORY_PAGE_SIZE,
+  options: { clientsOnly?: boolean } = {},
 ): Promise<DirectoryList> {
-  const [subjects, aliases] = await Promise.all([listAllSubjects(), listAllSubjectAliases()]);
+  const [allSubjects, aliases] = await Promise.all([listAllSubjects(), listAllSubjectAliases()]);
+  const subjects = options.clientsOnly
+    ? allSubjects.filter((subject) => subject.linkedCompanyId !== null)
+    : allSubjects;
   const aliasesBySubject = groupAliases(aliases);
   const searchable = subjects.map((subject) => ({
     subject,
@@ -94,6 +105,7 @@ export async function listSubjectDirectory(
   const byId = new Map(searchable.map((entry) => [entry.subject.id, entry]));
   return {
     query: (query ?? "").trim(),
+    clientsOnly: options.clientsOnly === true,
     total,
     rows: rows.map((match) => {
       const { subject, aliases: names } = byId.get(match.id)!;
@@ -109,6 +121,8 @@ export async function listSubjectDirectory(
         verdictLabel: verdict.label,
         verdictTone: verdict.tone,
         lastSeenLabel: formatDateTime(subject.lastSeenAt),
+        client:
+          subject.linkedCompanyId === null ? null : { href: `/companies/${subject.linkedCompanyId}/activity` },
       };
     }),
   };

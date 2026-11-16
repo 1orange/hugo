@@ -8,7 +8,7 @@ import { countWithNoun } from "@/modules/format-sk";
 import { listSubjectDirectory, DIRECTORY_PAGE_SIZE, type DirectoryListRow } from "@/lib/subject-directory/screen";
 
 type AdresarPageProps = {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; klienti?: string }>;
 };
 
 const TONE_CLASSES: Record<DirectoryListRow["verdictTone"], string> = {
@@ -20,15 +20,31 @@ const TONE_CLASSES: Record<DirectoryListRow["verdictTone"], string> = {
 
 const SUBJECT_FORMS = ["subjekt", "subjekty", "subjektov"] as const;
 
-function countText(total: number, shown: number, query: string): string {
+function countText(total: number, shown: number, query: string, clientsOnly: boolean): string {
   if (total === 0) {
-    return query ? "Nič sa nenašlo." : "Adresár je zatiaľ prázdny.";
+    if (query) {
+      return "Nič sa nenašlo.";
+    }
+    return clientsOnly ? "Zatiaľ nemá profil v adresári žiadny klient." : "Adresár je zatiaľ prázdny.";
   }
   const noun = countWithNoun(total, SUBJECT_FORMS);
   if (shown < total) {
     return `Zobrazených ${shown} z ${noun}. Upresnite hľadanie.`;
   }
   return `${noun}${query ? " zodpovedá hľadaniu" : ""}.`;
+}
+
+/** The list's address for a search and a scope; the scope's links keep the search. */
+function listHref(query: string, clientsOnly: boolean): string {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (clientsOnly) {
+    params.set("klienti", "1");
+  }
+  const search = params.toString();
+  return search ? `/adresar?${search}` : "/adresar";
 }
 
 /** The office's subject directory (ADR 0022): searched on the server, so the list is what the search finds. */
@@ -44,8 +60,9 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
     redirect("/auth/refused");
   }
 
-  const { q } = await searchParams;
-  const directory = await listSubjectDirectory(q ?? "", DIRECTORY_PAGE_SIZE);
+  const { q, klienti } = await searchParams;
+  const clientsOnly = klienti === "1";
+  const directory = await listSubjectDirectory(q ?? "", DIRECTORY_PAGE_SIZE, { clientsOnly });
   const settings = await getSettings();
 
   return (
@@ -65,7 +82,27 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
           </p>
         </header>
 
+        <div role="group" aria-label="Zobrazenie subjektov" className="segmented" data-testid="directory-scope">
+          <Link
+            href={listHref(directory.query, false)}
+            aria-pressed={!clientsOnly}
+            data-testid="directory-scope-all"
+            className="segment"
+          >
+            Všetky
+          </Link>
+          <Link
+            href={listHref(directory.query, true)}
+            aria-pressed={clientsOnly}
+            data-testid="directory-scope-clients"
+            className="segment"
+          >
+            Klienti
+          </Link>
+        </div>
+
         <form method="get" role="search" className="flex flex-wrap items-center gap-2">
+          {clientsOnly ? <input type="hidden" name="klienti" value="1" /> : null}
           <input
             type="search"
             name="q"
@@ -82,15 +119,15 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
           >
             Hľadať
           </button>
-          {directory.query ? (
-            <Link href="/adresar" className="text-[12.5px] text-ink-3 hover:text-accent">
+          {directory.query || clientsOnly ? (
+            <Link href={listHref("", clientsOnly)} className="text-[12.5px] text-ink-3 hover:text-accent">
               Zrušiť hľadanie
             </Link>
           ) : null}
         </form>
 
         <p className="text-[12px] text-ink-3" data-testid="directory-count">
-          {countText(directory.total, directory.rows.length, directory.query)}
+          {countText(directory.total, directory.rows.length, directory.query, clientsOnly)}
         </p>
 
         {directory.rows.length > 0 ? (
@@ -118,6 +155,15 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
                       >
                         {row.name}
                       </Link>
+                      {row.client ? (
+                        <Link
+                          href={row.client.href}
+                          data-testid={`directory-client-${row.id}`}
+                          className="ml-2 inline-flex whitespace-nowrap rounded-full bg-accent-soft px-2 py-[2px] align-middle text-[11px] font-semibold text-accent"
+                        >
+                          Klient
+                        </Link>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.country}</td>
                     <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.ico ?? "—"}</td>

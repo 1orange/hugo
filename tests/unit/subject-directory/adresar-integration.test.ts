@@ -180,9 +180,10 @@ test("the directory is found by name, alias, IČO, DIČ and IČ DPH, and the lis
   assert.deepEqual(await names("sk 2020322832"), [alfaId], "an IČ DPH with its prefix and spaces");
   assert.deepEqual(await names("nic-taketo"), []);
 
+  // The client's own company is a subject too: its profile is its record in the Adresár (ADR 0022, amended).
   const all = await listSubjectDirectory("");
-  assert.equal(all.total, 2);
-  assert.equal(all.rows.length, 2);
+  assert.equal(all.total, 3);
+  assert.equal(all.rows.length, 3);
 });
 
 test("the list caps its rows and still says how many subjects matched", async () => {
@@ -194,8 +195,9 @@ test("the list caps its rows and still says how many subjects matched", async ()
       { documentId: `gamma-${index}` },
     );
   }
+  // Three gammas and the client's own company (Delta s.r.o.) match.
   const capped = await listSubjectDirectory("s.r.o.", 2);
-  assert.equal(capped.total, 3);
+  assert.equal(capped.total, 4);
   assert.equal(capped.rows.length, 2);
 });
 

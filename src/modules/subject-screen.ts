@@ -36,7 +36,6 @@ const SOURCE_LABELS: Record<SubjectSource, string> = {
   register: "z registra",
   vies: "z VIES",
   manual: "ručne",
-  profile: "z profilu",
 };
 
 /** Where a value came from: a field nothing has set reads as a dash, not as a source. */
@@ -86,10 +85,7 @@ export function viesStatusLabel(record: ViesRecord): string {
 /** A directory finding as one Slovak sentence; the detail screen lists them. */
 export function directoryFindingMessage(finding: SubjectFinding): string {
   const label = correctableFieldLabel(finding.field);
-  if (finding.kind === "register-disagrees") {
-    return `${label}: register dnes uvádza „${finding.value}“, ručná oprava sa líši.`;
-  }
-  return `${label}: v adresári je „${finding.value}“, ale profil klienta platí.`;
+  return `${label}: register dnes uvádza „${finding.value}“, ručná oprava sa líši.`;
 }
 
 export function isCorrectableSubjectField(field: string): field is CorrectableSubjectField {

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { asc, eq } from "drizzle-orm";
-import { listCompanyProfiles } from "../../../src/adapters/store/company-profiles.ts";
-import { companies, companyProfiles, events } from "../../../src/lib/db/schema.ts";
+import { listCompanyProfiles, saveCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
+import { companies, events } from "../../../src/lib/db/schema.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { applyClientSheet, previewClientSheet } from "../../../src/lib/client-sheet/service.ts";
 import { formatActivityEntry } from "../../../src/modules/activity-log.ts";
@@ -17,7 +17,10 @@ async function seed(): Promise<void> {
   await freshTestDb();
   const db = getDb();
   await db.insert(companies).values(FIXTURE_COMPANIES);
-  await db.insert(companyProfiles).values(FIXTURE_PROFILES);
+  // Saved as the app saves them: each profile is its client's Adresár subject.
+  for (const { companyId, ...profile } of FIXTURE_PROFILES) {
+    await saveCompanyProfile(companyId, { ...profile, country: "SK" });
+  }
 }
 
 async function importEvents() {
