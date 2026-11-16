@@ -18,6 +18,7 @@ import { subscribeAppEvents, type AppEvent } from "../../../src/lib/events/bus.t
 import type { CashDiscoveryDeps } from "../../../src/lib/cash-discovery/discover-cash-payments.ts";
 import { enqueueMonthExtraction } from "../../../src/lib/extraction-queue/enqueue.ts";
 import { loadQueueSnapshot } from "../../../src/lib/extraction-queue/snapshot.ts";
+import type { FinishedJobView } from "../../../src/lib/extraction-queue/types.ts";
 import { closeRedis, redis, redisKey, redisKeyPrefix } from "../../../src/lib/redis/connection.ts";
 import { startExtractionWorker } from "../../../src/lib/worker/extraction-worker.ts";
 import { startModelWorker } from "../../../src/lib/worker/model-worker.ts";
@@ -213,6 +214,43 @@ test("while the model is busy on one document, an eKasa receipt and an ISDOC inv
     assert.equal(recorded.filter((row) => row.driveFileId === RECEIPT).length, 1);
   } finally {
     model.release();
+    await lanes.stop();
+    reads.stop();
+  }
+});
+
+test("a document handed to the model lane is recorded once, with the stages of both lanes", { skip }, async () => {
+  // The model reports its split as llama.cpp times it, so the record can hold it.
+  const timed: Extractor = {
+    async extract(input: ExtractorInput): Promise<ExtractorOutput> {
+      return {
+        ...(await createStubExtractor().extract(input)),
+        timing: { promptMs: 28_400, promptTokens: 1087, answerMs: 45_400, answerTokens: 332 },
+      };
+    },
+  };
+  const reads = recordReads();
+  const lanes = await startLanes({ extractor: timed, ocr: new FakeOcr({ boxes: OCR_BOXES }) });
+  try {
+    // The month is queued, as the page's first open does: its rows are what the lanes write.
+    await enqueueMonthExtraction(new BullmqExtractionJobQueue(), COMPANY, MONTH);
+    await eventually(() => reads.outcomeOf(LONG_DOCUMENT).length === 1, "the document never finished");
+
+    const recorded = (await redis().lrange(redisKey("extraction", "recent"), 0, -1))
+      .map((raw) => JSON.parse(raw) as FinishedJobView)
+      .filter((row) => row.driveFileId === LONG_DOCUMENT);
+    assert.equal(recorded.length, 1);
+    const stages = recorded[0]!.stages ?? [];
+    assert.ok(stages.some((timing) => timing.stage === "download"), "the reading lane's download is kept");
+    assert.ok(stages.some((timing) => timing.stage === "text"), "the reading lane's text is kept");
+    assert.deepEqual(
+      stages.filter((timing) => timing.stage === "prompt" || timing.stage === "answer"),
+      [
+        { stage: "prompt", durationMs: 28_400, tokens: 1087 },
+        { stage: "answer", durationMs: 45_400, tokens: 332 },
+      ],
+    );
+  } finally {
     await lanes.stop();
     reads.stop();
   }

@@ -11,7 +11,7 @@ import {
   normalizeModelVariableSymbol,
 } from "../../modules/model-output-normalize";
 import type { DocTypeHint, ModelExtractedPayload } from "../../modules/document-payload";
-import type { Extractor, ExtractorInput, ExtractorOutput, ExtractorProgress } from "./port";
+import type { Extractor, ExtractorInput, ExtractorOutput, ExtractorProgress, ModelTiming } from "./port";
 import {
   MODEL_EXTRACTED_JSON_SCHEMA,
   type ModelExtractionResponseBody,
@@ -34,6 +34,8 @@ export type HttpExtractorOptions = {
   /** The server's context size (llama.cpp `-c`); the text is cut to fit it. */
   contextTokens?: number;
   fetchImpl?: FetchLike;
+  /** Milliseconds; Date.now unless a test drives the stream's timing. */
+  clock?: () => number;
 };
 
 /** Ten minutes: the adoption bar's median is one; a thinking 4B on CPU runs several. */
@@ -161,12 +163,29 @@ function completionTokensOf(raw: unknown): number | undefined {
   return typeof usage?.completion_tokens === "number" ? usage.completion_tokens : undefined;
 }
 
+/** llama.cpp's own timing of a request, in its final stream chunk (or in a plain body). */
+type ServerTimings = {
+  prompt_n?: number;
+  prompt_ms?: number;
+  predicted_n?: number;
+  predicted_ms?: number;
+};
+
 type StreamChunk = {
   choices?: Array<{ delta?: { content?: string | null; reasoning_content?: string | null } }>;
   usage?: { completion_tokens?: unknown };
   /** llama.cpp with `return_progress`: how much of the prompt it has read. */
   prompt_progress?: { total?: number; processed?: number };
+  timings?: ServerTimings;
   error?: { message?: string };
+};
+
+/** What the stream's own clock saw: when the first and last tokens arrived. */
+type StreamClock = {
+  promptTotal?: number;
+  firstTokenAt?: number;
+  lastTokenAt?: number;
+  endedAt: number;
 };
 
 /**
@@ -178,7 +197,8 @@ type StreamChunk = {
  */
 async function readStreamedCompletion(
   response: Response,
-  onProgress?: (progress: ExtractorProgress) => void,
+  onProgress: ((progress: ExtractorProgress) => void) | undefined,
+  clock: () => number,
 ): Promise<unknown> {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -190,6 +210,9 @@ async function readStreamedCompletion(
   let generated = 0;
   let usage: StreamChunk["usage"];
   let prompt: StreamChunk["prompt_progress"];
+  let timings: ServerTimings | undefined;
+  let firstTokenAt: number | undefined;
+  let lastTokenAt: number | undefined;
   const readLine = (line: string) => {
     const data = line.trim().replace(/^data:\s*/, "");
     if (!line.trim().startsWith("data:") || data === "[DONE]") {
@@ -204,8 +227,12 @@ async function readStreamedCompletion(
     if (delta?.content || delta?.reasoning_content) {
       content += delta.content ?? "";
       generated += 1;
+      const now = clock();
+      firstTokenAt ??= now;
+      lastTokenAt = now;
     }
     usage = chunk.usage ?? usage;
+    timings = chunk.timings ?? timings;
     if (onProgress && (chunk.prompt_progress || generated !== generatedBefore)) {
       prompt = chunk.prompt_progress ?? prompt;
       onProgress({
@@ -228,7 +255,54 @@ async function readStreamedCompletion(
   // Each streamed delta is one token when the server sends no usage.
   const completionTokens =
     typeof usage?.completion_tokens === "number" ? usage.completion_tokens : generated;
-  return { choices: [{ message: { content } }], usage: { completion_tokens: completionTokens } };
+  const streamClock: StreamClock = {
+    promptTotal: prompt?.total,
+    firstTokenAt,
+    lastTokenAt,
+    endedAt: clock(),
+  };
+  return {
+    choices: [{ message: { content } }],
+    usage: { completion_tokens: completionTokens },
+    timings,
+    stream: streamClock,
+  };
+}
+
+/**
+ * How the model's time split between the prompt and the answer. llama.cpp times
+ * both itself, so its `timings` are used when sent. Otherwise the stream is
+ * timed: up to its first token is the prompt, from there to its last is the
+ * answer. Undefined for a plain body without timings: nothing to split.
+ */
+export function modelTimingOf(raw: unknown, requestStartedAt: number): ModelTiming | undefined {
+  const envelope = raw as { timings?: ServerTimings; stream?: StreamClock } | null;
+  if (!envelope || typeof envelope !== "object") {
+    return undefined;
+  }
+  const server = envelope.timings;
+  if (typeof server?.prompt_ms === "number" && typeof server.predicted_ms === "number") {
+    return {
+      promptMs: server.prompt_ms,
+      answerMs: server.predicted_ms,
+      ...(typeof server.prompt_n === "number" ? { promptTokens: server.prompt_n } : {}),
+      ...(typeof server.predicted_n === "number" ? { answerTokens: server.predicted_n } : {}),
+    };
+  }
+  const stream = envelope.stream;
+  if (!stream) {
+    return undefined;
+  }
+  // A stream with no token at all spent its whole time on the prompt.
+  const firstAt = stream.firstTokenAt ?? stream.endedAt;
+  const lastAt = stream.lastTokenAt ?? firstAt;
+  const answerTokens = completionTokensOf(raw);
+  return {
+    promptMs: firstAt - requestStartedAt,
+    answerMs: lastAt - firstAt,
+    ...(stream.promptTotal !== undefined ? { promptTokens: stream.promptTotal } : {}),
+    ...(answerTokens !== undefined ? { answerTokens } : {}),
+  };
 }
 
 function isTimeout(error: unknown): boolean {
@@ -237,6 +311,7 @@ function isTimeout(error: unknown): boolean {
 
 export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const clock = options.clock ?? Date.now;
   const url = chatCompletionsUrl(options.baseUrl);
   const maxTokens =
     options.maxTokens ??
@@ -248,7 +323,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
 
   return {
     async extract(input: ExtractorInput): Promise<ExtractorOutput> {
-      const started = Date.now();
+      const started = clock();
       const body: Record<string, unknown> = {
         model: options.model,
         temperature: 0,
@@ -303,7 +378,7 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
 
         // A server that ignores `stream` answers with one JSON body.
         raw = (response.headers.get("content-type") ?? "").includes("text/event-stream")
-          ? await readStreamedCompletion(response, input.onProgress)
+          ? await readStreamedCompletion(response, input.onProgress, clock)
           : await response.json();
       } catch (error) {
         if (isTimeout(error)) {
@@ -320,9 +395,10 @@ export function createHttpExtractor(options: HttpExtractorOptions): Extractor {
       }
 
       return {
-        durationMs: Date.now() - started,
+        durationMs: clock() - started,
         payload: mapResponseBody(parsed),
         completionTokens: completionTokensOf(raw),
+        timing: modelTimingOf(raw, started),
       };
     },
   };

@@ -135,9 +135,10 @@ test("a job reads its document and reports each stage", async () => {
 
   assert.deepEqual(result, { outcome: "complete", reason: null });
   assert.equal(await extractionStatus("doc-invoice-a"), "complete");
+  // The embedded-invoice check (ISDOC/MOL) is its own stage, before the text layer is read.
   assert.deepEqual(
     flushed.map((progress) => progress.stage),
-    ["text", "model"],
+    ["isdoc", "text", "model"],
   );
   assert.equal(labelOf(reporter.current), "Model píše odpoveď · 40 tokenov");
   const percent = percentOf(reporter.current, Date.now());

@@ -66,8 +66,51 @@ const view = {
       startedAt: null,
     }),
   ],
-  recent: [],
+  recent: [
+    // Pipeline order is not the order the record lists them in: the panel sorts them.
+    finished({
+      driveFileId: "doc-r1",
+      fileName: "vyuctovanie-a.pdf",
+      durationMs: 76_300,
+      stages: [
+        { stage: "answer", durationMs: 45_400, tokens: 332 },
+        { stage: "download", durationMs: 400 },
+        { stage: "text", durationMs: 1_200 },
+        { stage: "ocr", durationMs: 42_000, pages: 3 },
+        { stage: "prompt", durationMs: 28_400, tokens: 1087 },
+      ],
+    }),
+    finished({
+      driveFileId: "doc-r2",
+      fileName: "pohonne-b.pdf",
+      durationMs: 50_000,
+      stages: [
+        { stage: "download", durationMs: 200 },
+        { stage: "text", durationMs: 900 },
+        { stage: "prompt", durationMs: 20_000, tokens: 900 },
+        { stage: "answer", durationMs: 30_000, tokens: 200 },
+      ],
+    }),
+    // Written before stages were kept: its total is all it has.
+    finished({ driveFileId: "doc-r3", fileName: "stary-c.pdf", durationMs: 50_000 }),
+  ],
 };
+
+function finished(overrides: Record<string, unknown>) {
+  return {
+    driveFileId: "doc-r",
+    kind: "document",
+    companyId: 1,
+    companyName: "Delta s.r.o.",
+    monthKey: "2026_01",
+    fileName: "doklad.pdf",
+    finishedAt: "2026-01-12T10:05:00.000Z",
+    durationMs: 1000,
+    outcome: "complete",
+    reason: null,
+    ...overrides,
+  };
+}
 
 test.beforeAll(async () => {
   const result = await build({
@@ -128,4 +171,34 @@ test("a document waiting for OCR says so, in the reading lane's delayed list", a
 test("the footer names both concurrency limits, and where the model's comes from", async ({ page }) => {
   await expect(page.getByText("READ_CONCURRENCY")).toBeVisible();
   await expect(page.getByText("(podľa -np na serveri)")).toBeVisible();
+});
+
+test("a recent document shows its stages in pipeline order, with their time and count", async ({ page }) => {
+  const row = page.getByTestId("queue-recent-job").filter({ hasText: "vyuctovanie-a.pdf" });
+  await expect(row.getByTestId("queue-recent-stages").locator("li")).toHaveText([
+    /^Sťahovanie z Drive 0,4 s$/,
+    /^Text PDF 1,2 s$/,
+    /^OCR 42,0 s · 3 strany$/,
+    /^Model číta text 28,4 s · 1\s087 tokenov$/,
+    /^Model píše odpoveď 45,4 s · 332 tokenov$/,
+  ]);
+});
+
+test("the summary gives the median and the 90th percentile of each stage over the recent list", async ({ page }) => {
+  const rows = page.getByTestId("queue-stage-summary-row");
+  await expect(rows).toHaveCount(5);
+  // Answer: 45.4 s and 30.0 s; the median is their mean, the 90th percentile lies 90 % of the way from 30.0 s to 45.4 s.
+  const answer = rows.filter({ hasText: "Model píše odpoveď" });
+  await expect(answer).toContainText("37,7 s");
+  await expect(answer).toContainText("43,9 s");
+  // Download: 0.4 s and 0.2 s.
+  await expect(rows.filter({ hasText: "Sťahovanie z Drive" })).toContainText("0,3 s");
+  await expect(rows.filter({ hasText: "OCR" })).toContainText("42,0 s");
+});
+
+test("a document written before stages were kept shows its total, with no breakdown", async ({ page }) => {
+  await expect(page.getByTestId("queue-recent-job")).toHaveCount(3);
+  const old = page.getByTestId("queue-recent-job").filter({ hasText: "stary-c.pdf" });
+  await expect(old).toContainText("0:50");
+  await expect(old.getByTestId("queue-recent-stages")).toHaveCount(0);
 });

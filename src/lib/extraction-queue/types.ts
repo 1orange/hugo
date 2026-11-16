@@ -1,4 +1,5 @@
 import type { ExtractionStage } from "@/modules/extraction-progress";
+import type { StageTiming } from "@/modules/extraction-timing";
 
 /** The reading lane (download, text, OCR) and the model lane (ADR 0020). */
 export type QueueLane = "read" | "model";
@@ -37,9 +38,12 @@ export type QueueOutcome = "complete" | "failed" | "waiting";
 
 export type FinishedJobView = QueueJobIdentity & {
   finishedAt: string;
+  /** The whole of the document, from the reading lane's start to its end. */
   durationMs: number;
   outcome: "complete" | "failed";
   reason: string | null;
+  /** Absent on records written before stages were kept: they show their total only. */
+  stages?: StageTiming[];
 };
 
 /**

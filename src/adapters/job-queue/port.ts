@@ -1,3 +1,5 @@
+import type { StageTiming } from "@/modules/extraction-timing";
+
 /** One file for the reading lane: a receipt (eKasa first) or a document. */
 export type ExtractionJobData = {
   kind: "receipt" | "document";
@@ -38,6 +40,12 @@ export type ModelJobData = {
   lines: string[];
   /** When the reading lane began the document: the duration recorded is the whole of it. */
   readStartedAt: number;
+  /**
+   * The stages the reading lane timed, so the record the model lane writes
+   * holds every stage of the document. Absent on hand-overs queued before
+   * stages were kept.
+   */
+  stages?: StageTiming[];
   /** ISO time the file was queued for reading. */
   enqueuedAt: string;
   /** Set while it waits for the model to come back. */

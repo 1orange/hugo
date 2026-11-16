@@ -65,6 +65,7 @@ export async function runLaneJob<T extends LaneJobData>(
     durationMs: Date.now() - (options.startedAt ?? reporter.current.startedAt),
     outcome,
     reason: result.reason,
+    stages: reporter.stages,
   });
   announce({
     type: "document-read",

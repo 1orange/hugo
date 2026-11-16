@@ -10,6 +10,14 @@ import { companyDisplayName } from "@/modules/company-display-name";
 import { extractionFailureMessage } from "@/modules/extraction-failure";
 import { formatElapsed } from "@/modules/extraction-progress";
 import { countWithNoun, DOKLAD_FORMS, formatTime, monthLabel } from "@/modules/format-sk";
+import {
+  formatStageDuration,
+  stageDetail,
+  summarizeStages,
+  TIMED_STAGE_LABEL,
+  TIMED_STAGES,
+  type StageTiming,
+} from "@/modules/extraction-timing";
 
 const STATE_CHIP: Record<ServiceState, { label: string; className: string; dot: string; icon: string }> = {
   ok: { label: "beží", className: "text-good", dot: "bg-good-dot", icon: "bg-good-soft text-good" },
@@ -108,6 +116,69 @@ const OUTCOME_CHIP: Record<FinishedJobView["outcome"], { label: string; classNam
   complete: { label: "Prečítaný", className: "text-good", mark: "✓", dot: "bg-good-dot" },
   failed: { label: "Zlyhal", className: "text-bad", mark: "!", dot: "bg-bad-dot" },
 };
+
+/** A finished document's stages, in the order they ran, each with its time and count. */
+function StageBreakdown({ stages }: { stages: StageTiming[] }) {
+  const ordered = TIMED_STAGES.flatMap((stage) => stages.filter((timing) => timing.stage === stage));
+  if (ordered.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="mt-1.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[12.5px] text-ink-3" data-testid="queue-recent-stages">
+      {ordered.map((timing) => {
+        const detail = stageDetail(timing);
+        return (
+          <li key={timing.stage} className="whitespace-nowrap">
+            {TIMED_STAGE_LABEL[timing.stage]} <span className="tabular text-ink-2">{formatStageDuration(timing.durationMs)}</span>
+            {detail ? <span> · {detail}</span> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Per stage, the median and the 90th percentile over the recent documents that
+ * kept their stages: a change to the worker or the node is judged by these.
+ */
+function StageSummary({ records }: { records: FinishedJobView[] }) {
+  const summaries = summarizeStages(records);
+  const timed = records.filter((job) => job.stages !== undefined).length;
+  return (
+    <Section title="Časy fáz" count={timed}>
+      {summaries.length > 0 ? (
+        <div data-testid="queue-stage-summary">
+          <p className="px-4 pt-3 text-[12.5px] text-ink-3">Medián a 90. percentil za posledné doklady s rozpisom.</p>
+          <ul>
+            <li className="mt-1 grid grid-cols-[1fr_auto_auto] gap-x-6 border-t border-line px-4 py-2 text-[12.5px] text-ink-3">
+              <span>Fáza</span>
+              <span className="text-right">Medián</span>
+              <span className="text-right">90. %</span>
+            </li>
+            {summaries.map((summary) => (
+              <li
+                key={summary.stage}
+                className="grid grid-cols-[1fr_auto_auto] gap-x-6 border-t border-line px-4 py-2.5 text-[14px]"
+                data-testid="queue-stage-summary-row"
+              >
+                <span>
+                  {TIMED_STAGE_LABEL[summary.stage]} <span className="text-[12.5px] text-ink-3">· {summary.count}</span>
+                </span>
+                <span className="tabular text-right">{formatStageDuration(summary.medianMs)}</span>
+                <span className="tabular text-right text-ink-2">{formatStageDuration(summary.p90Ms)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="px-4 py-3.5 text-[14px] text-ink-3">
+          Rozpis fáz sa ukladá pri každom ďalšom doklade. Staršie doklady ho nemajú.
+        </p>
+      )}
+    </Section>
+  );
+}
 
 function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
@@ -252,6 +323,8 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
         </Section>
       ) : null}
 
+      <StageSummary records={view.recent} />
+
       <Section title="Naposledy" count={view.recent.length}>
         {view.recent.length > 0 ? (
           <ul>
@@ -275,6 +348,7 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
                       <JobWhere job={job} />
                       <span className={`text-[12.5px] ${chip.className}`}>· {chip.label}</span>
                     </span>
+                    {job.stages ? <StageBreakdown stages={job.stages} /> : null}
                     {job.reason ? <p className="mt-0.5 text-[12.5px] text-ink-2">{extractionFailureMessage(job.reason)}</p> : null}
                   </div>
                 </li>

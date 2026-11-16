@@ -1,7 +1,7 @@
 # 01 — Show where a document's time goes
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 
@@ -30,11 +30,11 @@ Prompt speed is about 40 tokens/s and answer speed 7.8 tokens/s. The answer take
 
 ## Acceptance criteria
 
-- [ ] A finished job's record carries each stage's duration, plus prompt and answer token counts when the model was used.
-- [ ] *Spracovanie* shows a document's stages and a median and p90 per stage over the recent list.
-- [ ] Records written before this change still display (stages missing, total kept).
-- [ ] Unit tests: stage timing in the progress reporter, and llama.cpp `timings` parsed from a recorded stream (fallback when absent).
-- [ ] A UI test covers the stage breakdown on *Spracovanie*.
+- [x] A finished job's record carries each stage's duration, plus prompt and answer token counts when the model was used.
+- [x] *Spracovanie* shows a document's stages and a median and p90 per stage over the recent list.
+- [x] Records written before this change still display (stages missing, total kept).
+- [x] Unit tests: stage timing in the progress reporter, and llama.cpp `timings` parsed from a recorded stream (fallback when absent).
+- [x] A UI test covers the stage breakdown on *Spracovanie*.
 
 ## Blocked by
 

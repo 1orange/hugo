@@ -371,3 +371,32 @@ test("a file that is not a PDF fails in the reading lane, without the model", as
   assert.equal(result.outcome, "failed");
   assert.equal(queue.modelJobs.size, 0);
 });
+
+test("the reading lane's stages travel with the hand-off, and the model lane adds the model's halves", async () => {
+  const driveClient = await sweptMonth();
+  const queue = new MemoryExtractionJobQueue();
+  await enqueueMonthExtraction(queue, 1, "2026_01");
+
+  const reading = new ProgressReporter(() => {});
+  assert.equal((await readLane(queue, "doc-invoice-a", deps(driveClient), reading)).outcome, "handed");
+  const carried = queue.modelJobs.get("doc-invoice-a")!.data.stages!;
+  assert.ok(carried.some((timing) => timing.stage === "download"));
+  assert.ok(carried.some((timing) => timing.stage === "text"));
+
+  // The model reports its split as llama.cpp times it; the record then holds both lanes' stages.
+  const timed: Extractor = {
+    async extract(input) {
+      return {
+        ...(await createStubExtractor().extract(input)),
+        timing: { promptMs: 28_400, promptTokens: 1087, answerMs: 45_400, answerTokens: 332 },
+      };
+    },
+  };
+  const modelling = new ProgressReporter(() => {});
+  assert.equal((await modelLane(queue, "doc-invoice-a", timed, modelling)).outcome, "complete");
+  assert.deepEqual(modelling.stages, [
+    ...carried,
+    { stage: "prompt", durationMs: 28_400, tokens: 1087 },
+    { stage: "answer", durationMs: 45_400, tokens: 332 },
+  ]);
+});

@@ -17,6 +17,7 @@ export async function processModelJob(
   deps: { extractor: Extractor; now?: () => string },
   reporter: ProgressReporter,
 ): Promise<ExtractionJobResult> {
+  reporter.carry(data.stages);
   reporter.stage("model");
   let written = true;
   try {

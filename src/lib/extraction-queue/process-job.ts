@@ -53,8 +53,7 @@ async function readExtractionJob(
     if (data.reread === true && data.kind === "document") {
       priorPayloadJson = (await getDocument(data.driveFileId))?.extractedPayloadJson ?? null;
     }
-    reporter.stage("download");
-    const fileBytes = await deps.driveClient.download(data.driveFileId);
+    const fileBytes = await reporter.timed("download", () => deps.driveClient.download(data.driveFileId));
     const input = {
       companyId: data.companyId,
       monthKey: data.monthKey,
@@ -81,6 +80,7 @@ async function readExtractionJob(
                 source: text.source ?? "model",
                 lines: text.lines,
                 readStartedAt: reporter.current.startedAt,
+                stages: reporter.stages,
                 enqueuedAt: data.enqueuedAt,
                 priorPayloadJson,
               });
