@@ -2,6 +2,7 @@ import type { DomainEvent } from "./drive-tree";
 import { formatDateTime } from "./format-sk";
 import type { SubjectField } from "./subject-directory";
 import { correctableFieldLabel } from "./subject-screen";
+import { PROFILE_FIELD_LABELS, type FieldKey } from "./client-sheet";
 
 /**
  * Single source of truth for the append-only event vocabulary (ADR 0012).
@@ -27,6 +28,7 @@ export const USER_COMPANY_EVENT_TYPES = [
   "Confirmed",
   "Exported",
   "CompanyProfileSaved",
+  "ImportedFromClientSheet",
   "ExportSectionChanged",
   "PartiesSwapped",
   "PartyTakenFromRegister",
@@ -75,6 +77,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   Confirmed: "Doklad potvrdený",
   Exported: "Mesiac exportovaný",
   CompanyProfileSaved: "Profil firmy uložený",
+  ImportedFromClientSheet: "Profil firmy doplnený z klientskeho hárku",
   ExportSectionChanged: "Zmenená sekcia exportu",
   PartiesSwapped: "Strany dokladu vymenené",
   PartyTakenFromRegister: "Údaje strany prevzaté z registra",
@@ -122,6 +125,16 @@ function readPayload(payloadJson: string): Record<string, unknown> {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** Field keys stored in a payload, shown with their Slovak labels; unknown keys are dropped. */
+function fieldLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((key): key is FieldKey => typeof key === "string" && key in PROFILE_FIELD_LABELS)
+    .map((key) => PROFILE_FIELD_LABELS[key]);
 }
 
 export function eventMonthKey(
@@ -281,6 +294,13 @@ export function summarizeEventPayload(
       const legalName = text(payload.legalName) ?? "firma";
       const ico = text(payload.ico);
       return ico ? `${legalName} (IČO ${ico})` : legalName;
+    }
+    case "ImportedFromClientSheet": {
+      const legalName = text(payload.legalName) ?? "firma";
+      const written = fieldLabels(payload.fields);
+      const overwritten = fieldLabels(payload.overwritten);
+      const base = `${legalName} — z klientskeho hárku: ${written.join(", ") || "bez zmien"}`;
+      return overwritten.length > 0 ? `${base}; prepísané ručne uložené: ${overwritten.join(", ")}` : base;
     }
     case "PartiesSwapped":
       return `Vymenené strany dokladu ${text(payload.driveFileId) ?? "?"}`;

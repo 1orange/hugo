@@ -18,6 +18,15 @@ export async function listCompanies(): Promise<CompanyRow[]> {
   return db.select().from(companies).where(eq(companies.active, true));
 }
 
+/**
+ * Every company, the inactive ones too: a client-sheet row for a company Drive no
+ * longer lists still names that company, and must not read as an unmatched row.
+ */
+export async function listAllCompanies(): Promise<CompanyRow[]> {
+  const db = getDb();
+  return db.select().from(companies);
+}
+
 export async function upsertCompany(
   driveFolderId: string,
   name: string,

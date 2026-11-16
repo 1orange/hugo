@@ -426,6 +426,7 @@ export function SettingsForm({
             { href: "/queue?from=%2Fsettings", label: "Spracovanie dokladov" },
             { href: "/activity", label: "Celý denník aktivity" },
             { href: "/adresar", label: "Adresár subjektov" },
+            { href: "/settings/clients", label: "Klienti z hárku" },
           ].map((item) => (
             <Link
               key={item.href}

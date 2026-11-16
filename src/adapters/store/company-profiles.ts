@@ -28,6 +28,22 @@ export async function getCompanyProfile(companyId: number): Promise<CompanyProfi
   };
 }
 
+export async function listCompanyProfiles(): Promise<CompanyProfileRow[]> {
+  const db = getDb();
+  const rows = await db.select().from(companyProfiles);
+  return rows.map((row) => ({
+    companyId: row.companyId,
+    country: row.country as CompanyProfileFields["country"],
+    legalName: row.legalName,
+    address: row.address,
+    ico: row.ico,
+    dic: row.dic,
+    icDph: row.icDph,
+    registerSource: row.registerSource,
+    savedAt: row.savedAt,
+  }));
+}
+
 export async function listCompanyIdsWithoutProfile(companyIds: readonly number[]): Promise<Set<number>> {
   if (companyIds.length === 0) {
     return new Set();
