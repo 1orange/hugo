@@ -65,3 +65,9 @@ next-env.d.ts
 # Local k3s (scripts/k3s-local.sh): kubeconfig, secrets, the generated config
 /.k3s-local
 /deploy/k3s-local/local.env
+
+# Client material (sheets, the drive-structure doc): personal data, never committed
+/.agents/ctx/
+
+# Claude Code agent worktrees
+/.claude/worktrees/
