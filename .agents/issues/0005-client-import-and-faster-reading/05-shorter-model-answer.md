@@ -1,7 +1,7 @@
 # 05 — A shorter answer from the model
 
 Type: AFK
-Status: open
+Status: done (not adopted)
 
 ## What to build
 
@@ -27,3 +27,14 @@ Score it with the benchmark against the current schema on the same fixtures.
 ## Blocked by
 
 None - can start immediately
+
+## Outcome (2026-11-16): not adopted
+
+Three alternatives were benchmarked against the current answer on the same fixtures and server:
+short property names under the JSON schema; short names under a whitespace-limited grammar; and
+the current names under that grammar. The short names raised the answer to 371 tokens (328 now);
+the grammars cut it by 3% and 13%. All three lowered exact-or-empty-flagged (95.1% now; 69.7% to
+78.9%). None is kept, so the acceptance
+criteria are not met as written: the mapping, the grammar and the schema are unchanged. The
+numbers and the reasons are in ADR 0017 (amendment, 2026-11-16). Every answer field is read by the
+app, so none could be dropped.

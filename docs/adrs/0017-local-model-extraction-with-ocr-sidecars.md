@@ -487,3 +487,38 @@ VAT are therefore the values of the supply, not the amount due.**
   settled invoice is a *flag* on an invoice or advance tax document, not a new document type; the
   existing *proforma* hint is unchanged. The extraction pipeline version is bumped so open months are
   re-read.
+
+### Amendment, 2026-11-16: a shorter answer, not adopted
+
+The answer is the larger part of the wait on the node: 328 tokens median, at 7.8 tokens/s. Three
+ways to write the same payload in fewer tokens were benchmarked on the same server (Qwen3 4B
+Q4_0, thinking off) and the same labelled documents: 15 read by the model, and 2 scans skipped
+because OCR was not running, as in the other runs here.
+
+| Answer written as | Exact or empty-flagged | Wrong-but-plausible | Amount wrong, arithmetic OK | Median answer tokens | Median model time | Worst model time |
+|---|---|---|---|---|---|---|
+| Current: long names, JSON schema | 95.1% | 2.1% | 0 | 328 | 47.8 s | 118.1 s |
+| Short names, JSON schema | 78.9% | 2.8% | 0 | 371 | 57.2 s | 91.7 s |
+| Short names, grammar, one space after `:` and `,` | 69.7% | 2.8% | 0 | 318 | 36.7 s | 50.6 s |
+| Long names, grammar, one space after `:` and `,` | 78.9% | 1.4% | 0 | 285 | 40.3 s | 71.7 s |
+
+Token counts are exact and comparable. Times varied between runs on the same machine, so they
+are indicative only.
+
+- **Layout is most of the cost.** One answer took 362 tokens pretty-printed, 313 with one space
+  after each colon and comma, and 268 with no whitespace at all. llama.cpp's JSON schema lets the
+  model write newlines and indentation, which is what it does. A grammar (GBNF) can allow only the
+  single space, and that alone (long names kept) cut the answer by 13% but left 14 fields empty
+  without a flag, where the current answer leaves one. Without any separator the model derailed on
+  one document: it closed an empty party list and wrote a 525-character party name.
+- **Short names cost accuracy.** The model fills a VAT row less carefully under `rate`, `base`,
+  `vat` than under `rateLiteral`, `baseLiteral`, `vatLiteral`: rates that are not on the document,
+  and extra rows. The VAT recap was flagged wrong on seven documents, against one now, and the
+  answers grew to 371 tokens.
+- **Nothing can be dropped.** Every field of the answer is read by the app: the parties' name,
+  IČO, DIČ and IČ DPH (`document-fields.ts`); the document number, variable symbol, the three
+  dates, currency, amount and VAT recap (`document-fields.ts`, `extraction-checks.ts`); the document
+  type (`fields-panel.tsx`, `omega-export-section.ts`).
+
+**Decision:** not adopted. The schema, the grammar and the mapping are as before; the prompt is
+unchanged. The three alternatives fail the accuracy rule (exact or empty-flagged not lower).
