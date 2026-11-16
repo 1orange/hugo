@@ -142,7 +142,7 @@ test("return to the register's value: the field is overené again, and it is no 
 test("a sheet value is overené when the register confirms it, and neoverené with the register's value when it does not", async () => {
   const subjectId = await seedClient();
   // What a client sheet import leaves: values from the sheet, not yet confirmed.
-  const sheet = "sheet" as unknown as SubjectSource;
+  const sheet: SubjectSource = "sheet";
   await updateSubject(subjectId, {
     legalName: "Alfa s.r.o.",
     address: "Bratislava",

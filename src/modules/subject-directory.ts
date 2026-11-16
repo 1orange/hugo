@@ -134,6 +134,14 @@ export function subjectKeyOf(party: PartyIdentity, country: SubjectCountry | nul
   return null;
 }
 
+/**
+ * A client of the office (0006/04): a client company's profile, or an office client with no company
+ * (a sheet client with an IČO and no Doklady folder). A linked company is a client regardless of the flag.
+ */
+export function isClientSubject(subject: { linkedCompanyId: number | null; officeClient: boolean }): boolean {
+  return subject.linkedCompanyId !== null || subject.officeClient;
+}
+
 /** Register data is stale once it is `refreshDays` old, and never fetched is stale too. */
 export function isStale(verifiedAt: string | null, now: string, refreshDays: number): boolean {
   if (!verifiedAt) {

@@ -57,6 +57,11 @@ export type SubjectRow = {
   manualFields: SubjectField[];
   findings: SubjectFinding[];
   linkedCompanyId: number | null;
+  /** An office client (0006/04): a client of the office with no company in Hugo. */
+  officeClient: boolean;
+  /** *Vedie* and *Spolupráca* from the client sheet; null where the sheet never said. */
+  officeKeeper: string | null;
+  officeCooperation: string | null;
   verifiedAt: string | null;
   lastSeenAt: string;
   createdAt: string;
@@ -77,6 +82,9 @@ export type SubjectPatch = Partial<
     | "manualFields"
     | "findings"
     | "linkedCompanyId"
+    | "officeClient"
+    | "officeKeeper"
+    | "officeCooperation"
     | "verifiedAt"
     | "lastSeenAt"
     | "ico"
@@ -121,6 +129,9 @@ export function toSubject(row: SubjectDbRow): SubjectRow {
     manualFields: parseJson<SubjectField[]>(row.manualFieldsJson, []),
     findings: parseJson<SubjectFinding[]>(row.findingsJson, []),
     linkedCompanyId: row.linkedCompanyId,
+    officeClient: row.officeClient,
+    officeKeeper: row.officeKeeper,
+    officeCooperation: row.officeCooperation,
     verifiedAt: row.verifiedAt,
     lastSeenAt: row.lastSeenAt,
     createdAt: row.createdAt,
@@ -143,6 +154,9 @@ export function toColumns(patch: SubjectPatch): Partial<typeof subjects.$inferIn
   if (patch.manualFields !== undefined) columns.manualFieldsJson = JSON.stringify(patch.manualFields);
   if (patch.findings !== undefined) columns.findingsJson = JSON.stringify(patch.findings);
   if (patch.linkedCompanyId !== undefined) columns.linkedCompanyId = patch.linkedCompanyId;
+  if (patch.officeClient !== undefined) columns.officeClient = patch.officeClient;
+  if (patch.officeKeeper !== undefined) columns.officeKeeper = patch.officeKeeper;
+  if (patch.officeCooperation !== undefined) columns.officeCooperation = patch.officeCooperation;
   if (patch.verifiedAt !== undefined) columns.verifiedAt = patch.verifiedAt;
   if (patch.lastSeenAt !== undefined) columns.lastSeenAt = patch.lastSeenAt;
   return columns;

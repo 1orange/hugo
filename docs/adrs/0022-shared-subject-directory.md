@@ -96,3 +96,12 @@ source. A company's IČO that another company's profile already holds is refused
 
 Each company has at most one linked subject (a unique index on `linked_company_id`). Changing a
 company's IČO unlinks it from the old subject, which stays in the Adresár as an ordinary subject.
+
+## Amendment, 2026-11-16 — office clients without a folder
+
+A sheet client with an IČO that no company in Hugo holds (so no Doklady folder) is an **office
+client**: an Adresár subject with the flag `office_client`, its accountant (*Vedie*) and its
+cooperation (*Spolupráca*) from the sheet. It is not linked to a company, has no months, and is
+queued for the register check like a linked client. A linked company is a client regardless of the
+flag. A later profile save with its IČO links the same subject and keeps the office data. A sheet
+row without an IČO is still only reported.

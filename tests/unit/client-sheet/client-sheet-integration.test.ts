@@ -46,8 +46,9 @@ test("the preview writes nothing: no profile changes and no activity", async () 
     return;
   }
   assert.equal(preview.plan.counts.new, 1);
-  assert.equal(preview.plan.counts.changed, 2);
-  assert.equal(preview.plan.counts.unmatched, 1);
+  assert.equal(preview.plan.counts.changed, 3, "Alfa and Gama change, Zeta gets its office data");
+  assert.equal(preview.plan.counts.adresar, 1, "Delta has an IČO and no company: into the Adresár");
+  assert.equal(preview.plan.counts.unmatched, 1, "Neznáma has no IČO: only reported");
 
   assert.deepEqual(await listCompanyProfiles(), before);
   assert.equal((await importEvents()).length, 0);
@@ -57,7 +58,9 @@ test("a confirmed write fills what the sheet has, keeps hand-saved values, and l
   await seed();
 
   const first = await applyClientSheet(FIXTURE_CSV, { confirmedRows: [], tickedFields: [] }, FIRST);
-  assert.deepEqual(first, { ok: true, applied: { companies: 2, fields: 5 } });
+  // Alfa: its empty IČ DPH and the office data; Gama: four fills and the office data; Zeta: the office data;
+  // Delta: a new office client, with its five identity fields, its country and its office data.
+  assert.deepEqual(first, { ok: true, applied: { companies: 3, adresar: 1, fields: 19 } });
 
   // Alfa's hand-saved address stays; only her empty IČ DPH is filled.
   const alfa = await profileOf(1);
@@ -74,15 +77,16 @@ test("a confirmed write fills what the sheet has, keeps hand-saved values, and l
   assert.equal(gama?.dic, "2020000003");
   assert.equal(gama?.icDph, "SK2020000003");
 
-  // Beta is a guess nobody confirmed, Epsilon is malformed, Zeta matches exactly, Neznáma is unmatched.
+  // Beta is a guess nobody confirmed, Epsilon is malformed, Neznáma has no IČO.
   assert.equal(await profileOf(2), null);
   assert.equal((await profileOf(4)), null);
+  // Zeta's profile is not saved again: only its office data is written, and its profile keeps its metadata.
   const zeta = await profileOf(5);
-  assert.equal(zeta?.registerSource, "manual", "an unchanged profile is not touched");
+  assert.equal(zeta?.registerSource, "manual", "an unchanged profile is not re-saved");
   assert.equal(zeta?.savedAt, "2026-10-03T08:00:00.000Z");
 
   const logged = await importEvents();
-  assert.deepEqual(logged.map((event) => event.companyId), [1, 3]);
+  assert.deepEqual(logged.map((event) => event.companyId), [1, 3, 5]);
   assert.ok(logged.every((event) => event.actor === "user"), "she confirmed these writes, so they are hers");
 });
 
@@ -95,8 +99,9 @@ test("a second confirmed write with a confirmed guess and a ticked change writes
     { confirmedRows: [2], tickedFields: [tickKey(1, "address")] },
     SECOND,
   );
-  // Gama is complete now, so only Alfa's ticked address and the confirmed Beta are left to write.
-  assert.deepEqual(second, { ok: true, applied: { companies: 2, fields: 6 } });
+  // Gama and Zeta are complete now, so only Alfa's ticked address and the confirmed Beta are left to write.
+  // Beta's five identity fields and its two office fields make seven.
+  assert.deepEqual(second, { ok: true, applied: { companies: 2, adresar: 0, fields: 8 } });
 
   assert.equal((await profileOf(1))?.address, "Pod Hradom 2, Bratislava", "the ticked change replaces her value");
   assert.equal((await profileOf(1))?.legalName, "Alfa s.r.o.", "the rest of her profile is kept");
@@ -107,7 +112,7 @@ test("a second confirmed write with a confirmed guess and a ticked change writes
   assert.equal(beta?.registerSource, "client-sheet");
 
   const logged = await importEvents();
-  assert.equal(logged.length, 4);
+  assert.equal(logged.length, 5, "one event per company written: Alfa, Gama, Zeta, then Alfa and Beta");
   const overwrite = logged.find((event) => event.companyId === 1 && event.timestamp === SECOND);
   assert.ok(overwrite);
   const entry = formatActivityEntry({
@@ -119,7 +124,7 @@ test("a second confirmed write with a confirmed guess and a ticked change writes
     payloadJson: overwrite!.payloadJson,
   });
   assert.equal(entry.typeLabel, "Profil firmy doplnený z klientskeho hárku");
-  assert.match(entry.summary, /prepísané ručne uložené: Sídlo/);
+  assert.match(entry.summary, /prepísané uložené hodnoty: Sídlo/);
 });
 
 test("once the sheet and the profiles agree, a confirm writes nothing and logs nothing", async () => {
@@ -132,7 +137,7 @@ test("once the sheet and the profiles agree, a confirm writes nothing and logs n
     { confirmedRows: [2], tickedFields: [tickKey(1, "address")] },
     SECOND,
   );
-  assert.deepEqual(again, { ok: true, applied: { companies: 0, fields: 0 } });
+  assert.deepEqual(again, { ok: true, applied: { companies: 0, adresar: 0, fields: 0 } });
   assert.equal((await importEvents()).length, eventsBefore);
 });
 
@@ -170,6 +175,8 @@ test("a confirmed import writes the Adresár entry: linked to the company, value
   assert.equal(beta.dic, "2020000002");
   assert.deepEqual(beta.sources, { legalName: "sheet", address: "sheet", dic: "sheet" });
   assert.deepEqual(beta.manualFields, []);
+  assert.equal(beta.officeKeeper, "Eva", "every client subject carries Vedie");
+  assert.equal(beta.officeCooperation, "aktívna", "and Spolupráca");
 
   // Gama had only an IČO: its existing subject is filled, every value it gained carries the sheet's source.
   const gama = await adresarEntryOf(3);
@@ -179,6 +186,8 @@ test("a confirmed import writes the Adresár entry: linked to the company, value
   assert.equal(gama.icDph, "SK2020000003");
   assert.deepEqual(gama.sources, { legalName: "sheet", address: "sheet", dic: "sheet", icDph: "sheet" });
   assert.deepEqual(gama.manualFields, []);
+  assert.equal(gama.officeKeeper, "Archív");
+  assert.equal(gama.officeCooperation, "ukončená");
 
   // Alfa's address was hand-saved and is not ticked: it keeps its manual source; the empty IČ DPH is filled as sheet.
   const alfa = await adresarEntryOf(1);
@@ -207,7 +216,7 @@ test("a manual field is replaced only when ticked, and then carries the sheet's 
 
   // Ticked: the sheet's value replaces hers, its source is sheet, and it is no longer manual.
   const ticked = await applyClientSheet(FIXTURE_CSV, { confirmedRows: [], tickedFields: [tickKey(1, "address")] }, SECOND);
-  assert.deepEqual(ticked, { ok: true, applied: { companies: 1, fields: 1 } });
+  assert.deepEqual(ticked, { ok: true, applied: { companies: 1, adresar: 0, fields: 1 } });
 
   const replaced = await adresarEntryOf(1);
   assert.equal(replaced?.address, "Pod Hradom 2, Bratislava");

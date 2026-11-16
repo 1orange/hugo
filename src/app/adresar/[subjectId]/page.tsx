@@ -110,6 +110,17 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
             Adresár je spoločný pre všetky firmy, ktoré tento subjekt používajú. Doklady, ktoré ho obsahujú, sú
             vypísané nižšie.
           </p>
+          {detail.office.client || detail.office.keeper || detail.office.cooperation ? (
+            <p className="text-[12.5px] text-ink-2" data-testid="subject-office">
+              {[
+                detail.office.client ? "Klient kancelárie" : null,
+                detail.office.keeper ? `vedie: ${detail.office.keeper}` : null,
+                detail.office.cooperation ? `spolupráca: ${detail.office.cooperation}` : null,
+              ]
+                .filter((part): part is string => part !== null)
+                .join(" · ")}
+            </p>
+          ) : null}
         </header>
 
         <section aria-label="Údaje" className="flex flex-col gap-3">

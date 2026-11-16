@@ -6,7 +6,7 @@ import {
   type SubjectPatch,
   type SubjectRow,
 } from "@/adapters/store/subjects";
-import { restoreRegisterValueOf, type SubjectField } from "@/modules/subject-directory";
+import { isClientSubject, restoreRegisterValueOf, type SubjectField } from "@/modules/subject-directory";
 import {
   isCorrectableSubjectField,
   validateSubjectCorrection,
@@ -71,8 +71,8 @@ export async function correctSubjectByHand(input: CorrectionInput): Promise<Corr
     previous,
     next: check.value,
   });
-  // A client's subject is asked the register again: its answer is what shows the register's value beside her edit (0006/03).
-  if (updated.linkedCompanyId !== null) {
+  // A client's subject (an office client too, 0006/04) is asked the register again: its answer is what shows the register's value beside her edit (0006/03).
+  if (isClientSubject(updated)) {
     await scheduleClientSubjectCheckForSubject(updated.id);
   }
 

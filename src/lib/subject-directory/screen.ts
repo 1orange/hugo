@@ -18,6 +18,7 @@ import {
   type IdentitySummary,
 } from "@/modules/identity-states";
 import { searchSubjects } from "@/modules/subject-search";
+import { isClientSubject } from "@/modules/subject-directory";
 import { verdictLabel, type IntegrityVerdict } from "@/modules/subject-integrity";
 import {
   correctableFieldLabel,
@@ -51,8 +52,14 @@ export type DirectoryListRow = {
   verdictLabel: string;
   verdictTone: VerdictTone;
   lastSeenLabel: string;
-  /** Set for a client's subject (its profile is this record): the company it is. */
-  client: { href: string } | null;
+  /**
+   * Set for a client's subject: `href` is the company it is (its profile is this record), and null
+   * for an office client that no company holds (0006/04).
+   */
+  client: { href: string | null } | null;
+  /** The office's own data (0006/04): *Vedie* and *Spolupráca* from the client sheet. */
+  keeper: string | null;
+  cooperation: string | null;
   /** How many of the identity fields are overené, upravené ručne and neoverené. */
   identity: IdentitySummary;
 };
@@ -81,7 +88,7 @@ function groupAliases(aliases: SubjectAliasRow[]): Map<number, SubjectAliasRow[]
 
 /**
  * The subjects matching the query, most recently seen first; `rows` holds at most `limit`.
- * With `clientsOnly`, only the subjects that are a client company's profile.
+ * With `clientsOnly`, only the clients: a client company's profile and the office clients.
  */
 export async function listSubjectDirectory(
   query: string | null | undefined,
@@ -89,9 +96,7 @@ export async function listSubjectDirectory(
   options: { clientsOnly?: boolean } = {},
 ): Promise<DirectoryList> {
   const [allSubjects, aliases] = await Promise.all([listAllSubjects(), listAllSubjectAliases()]);
-  const subjects = options.clientsOnly
-    ? allSubjects.filter((subject) => subject.linkedCompanyId !== null)
-    : allSubjects;
+  const subjects = options.clientsOnly ? allSubjects.filter(isClientSubject) : allSubjects;
   const aliasesBySubject = groupAliases(aliases);
   const searchable = subjects.map((subject) => ({
     subject,
@@ -130,8 +135,13 @@ export async function listSubjectDirectory(
         verdictLabel: verdict.label,
         verdictTone: verdict.tone,
         lastSeenLabel: formatDateTime(subject.lastSeenAt),
-        client:
-          subject.linkedCompanyId === null ? null : { href: `/companies/${subject.linkedCompanyId}/activity` },
+        client: isClientSubject(subject)
+          ? {
+              href: subject.linkedCompanyId === null ? null : `/companies/${subject.linkedCompanyId}/activity`,
+            }
+          : null,
+        keeper: subject.officeKeeper,
+        cooperation: subject.officeCooperation,
         identity: identitySummary(identityRowsOf(subject)),
       };
     }),
@@ -169,6 +179,8 @@ export type SubjectDetail = {
   findings: Array<{ field: string; kind: string; message: string }>;
   vies: Array<{ vatId: string; label: string; checkedLabel: string }>;
   linkedCompany: { id: number; name: string; href: string } | null;
+  /** The office's data on the subject (0006/04). */
+  office: { client: boolean; keeper: string | null; cooperation: string | null };
   references: {
     companies: Array<{ id: number; name: string; href: string }>;
     documents: Array<{
@@ -285,6 +297,7 @@ export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetai
     linkedCompany: linked
       ? { id: linked.id, name: companyDisplayName(linked.name), href: `/companies/${linked.id}/activity` }
       : null,
+    office: { client: subject.officeClient, keeper: subject.officeKeeper, cooperation: subject.officeCooperation },
     references: {
       companies: [...companies.entries()].map(([id, name]) => ({ id, name, href: `/companies/${id}/activity` })),
       documents: references.map((reference) => ({

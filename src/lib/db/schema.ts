@@ -294,6 +294,15 @@ export const subjects = pgTable("subjects", {
   profileRegisterSource: text("profile_register_source"),
   /** Client subjects only: when her profile was last saved. */
   profileSavedAt: text("profile_saved_at"),
+  /**
+   * An office client (0006/04): a client of the office from the client sheet with an IČO but no
+   * company in Hugo, so no Doklady folder. A linked company is a client regardless of this flag.
+   */
+  officeClient: boolean("office_client").notNull().default(false),
+  /** The accountant who keeps the client: *Vedie* on the client sheet. */
+  officeKeeper: text("office_keeper"),
+  /** The cooperation state from the client sheet: *Spolupráca* (aktívna, ukončená). */
+  officeCooperation: text("office_cooperation"),
   /** When the register (or VIES) last answered; null while never. */
   verifiedAt: text("verified_at"),
   lastSeenAt: text("last_seen_at").notNull(),

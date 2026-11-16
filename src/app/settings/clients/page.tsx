@@ -40,7 +40,7 @@ export default async function ClientSheetPage() {
         <header className="mt-2.5 mb-7">
           <h1 className="title-large">Klienti z hárku</h1>
           <p className="mt-1.5 text-[15px] text-ink-3">
-            Nahraj tabuľku Klienti ako CSV. Najprv uvidíš náhľad; firmy sa zapíšu až po potvrdení.
+            Nahraj tabuľku Klienti ako CSV. Najprv uvidíš náhľad; firmy a klienti do Adresára sa zapíšu až po potvrdení.
           </p>
         </header>
 

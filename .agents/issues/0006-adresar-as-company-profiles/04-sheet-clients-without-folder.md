@@ -1,7 +1,7 @@
 # 04 — Sheet clients without a Doklady folder go into the Adresár
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 

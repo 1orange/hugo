@@ -19,7 +19,7 @@ import {
 
 const NOW = "2026-11-16T09:00:00.000Z";
 /** The client sheet's source: a value no register confirmed, which the sheet import writes. */
-const SHEET = "sheet" as unknown as SubjectSource;
+const SHEET: SubjectSource = "sheet";
 
 // The state function, alone: each case is one field with its value, source and the register's answer.
 const STATE_CASES: Array<{

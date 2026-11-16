@@ -1,7 +1,7 @@
 import type { SubjectVerificationQueue } from "@/adapters/job-queue/port";
 import { getCompanyProfile } from "@/adapters/store/company-profiles";
 import { getSettings } from "@/adapters/store/settings";
-import { getSubjectLinkedTo } from "@/adapters/store/subjects";
+import { getSubjectLinkedTo, listAllSubjects } from "@/adapters/store/subjects";
 import { isStale } from "@/modules/subject-directory";
 import {
   getDocument,
@@ -120,6 +120,31 @@ export async function scheduleStaleClientSubjectCheck(companyId: number): Promis
     }
   } catch (error) {
     console.warn(`[subject] could not queue the stale client check for company ${companyId}`, error);
+  }
+}
+
+/**
+ * When the Adresár is looked at: its office clients (0006/04) whose register answer is as old as the
+ * refresh age, or never came, are checked again. A client's company page does this for a linked
+ * client; an office client has no page, so the list does it. Never throws.
+ */
+export async function scheduleStaleOfficeClientChecks(): Promise<void> {
+  try {
+    const { subjectRefreshDays } = await getSettings();
+    const now = new Date().toISOString();
+    for (const subject of await listAllSubjects()) {
+      if (
+        subject.officeClient &&
+        subject.linkedCompanyId === null &&
+        subject.country !== "foreign" &&
+        subject.ico !== null &&
+        isStale(subject.verifiedAt, now, subjectRefreshDays)
+      ) {
+        await queueClientSubjectCheck(subject.id);
+      }
+    }
+  } catch (error) {
+    console.warn("[subject] could not queue the stale office client checks", error);
   }
 }
 
