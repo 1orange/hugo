@@ -25,3 +25,7 @@ It says plainly when the sheet is not shared with the service account, naming th
 ## Blocked by
 
 - 09 — Fill company profiles from the office's client sheet
+
+## Note, 2026-11-16
+
+The import writes to the Adresár (0006/02 and 0006/04), not to company profiles. Blocked by 0006/04 as well.
