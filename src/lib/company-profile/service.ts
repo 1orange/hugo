@@ -10,6 +10,7 @@ import {
   type CompanyProfileRow,
 } from "@/adapters/store/company-profiles";
 import { appendUserEvent } from "@/adapters/store/events";
+import { scheduleClientSubjectCheck } from "@/lib/subject-directory/schedule";
 import type {
   CompanyCountry,
   RegisterLookup,
@@ -281,6 +282,8 @@ export async function saveCompanyProfileForUser(
     ico: profile.ico,
     registerSource: profile.registerSource,
   });
+  // What the subject holds has just changed: the register and VIES are asked about it (0006/03).
+  await scheduleClientSubjectCheck(companyId);
 
   return { ok: true, profile };
 }

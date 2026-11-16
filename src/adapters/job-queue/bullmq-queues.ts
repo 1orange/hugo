@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import { openRedisConnection, redis, redisKey, redisKeyPrefix } from "@/lib/redis/connection";
 import {
   priorityFor,
+  type ClientSubjectVerificationJobData,
   type ExtractionJobData,
   type ExtractionJobQueue,
   type ModelJobData,
@@ -41,7 +42,7 @@ type Queues = {
   extraction?: Queue<ExtractionJobData>;
   extractionModel?: Queue<ModelJobData>;
   sweep?: Queue;
-  subject?: Queue<SubjectVerificationJobData>;
+  subject?: Queue<SubjectVerificationJobData | ClientSubjectVerificationJobData>;
 };
 const QUEUES_KEY = Symbol.for("hugo.bullmqQueues");
 
@@ -68,9 +69,9 @@ export function extractionModelQueue(): Queue<ModelJobData> {
   return state.extractionModel;
 }
 
-export function subjectQueue(): Queue<SubjectVerificationJobData> {
+export function subjectQueue(): Queue<SubjectVerificationJobData | ClientSubjectVerificationJobData> {
   const state = queues();
-  state.subject ??= new Queue<SubjectVerificationJobData>(SUBJECT_QUEUE, {
+  state.subject ??= new Queue<SubjectVerificationJobData | ClientSubjectVerificationJobData>(SUBJECT_QUEUE, {
     connection: openRedisConnection(),
     prefix: redisKeyPrefix(),
   });
@@ -184,6 +185,10 @@ async function raiseWaiting<D extends ExtractionJobData | ModelJobData>(
 const SUBJECT_ATTEMPTS = 60;
 const SUBJECT_RETRY_MS = 60_000;
 
+/** The job names on the subject queue: a document's party check, or one client subject's check. */
+export const DOCUMENT_SUBJECT_JOB = "verify";
+export const CLIENT_SUBJECT_JOB = "verify-client";
+
 /**
  * The party checks for any replica: one job per document, its id the document's,
  * so a document queued twice is one job. A lookup refused by the rate limit is
@@ -191,23 +196,39 @@ const SUBJECT_RETRY_MS = 60_000;
  */
 export class BullmqSubjectVerificationQueue implements SubjectVerificationQueue {
   async add(data: SubjectVerificationJobData): Promise<boolean> {
-    const queue = subjectQueue();
-    const jobId = subjectJobId(data.documentId);
-    if (await queue.getJob(jobId)) {
-      return false;
-    }
-    await queue.add("verify", data, {
-      jobId,
-      attempts: SUBJECT_ATTEMPTS,
-      backoff: { type: "fixed", delay: SUBJECT_RETRY_MS },
-      removeOnComplete: true,
-      removeOnFail: true,
-    });
-    return true;
+    return addSubjectJob(subjectJobId(data.documentId), DOCUMENT_SUBJECT_JOB, data);
   }
+
+  async addClientSubject(data: ClientSubjectVerificationJobData): Promise<boolean> {
+    return addSubjectJob(clientSubjectJobId(data.subjectId), CLIENT_SUBJECT_JOB, data);
+  }
+}
+
+async function addSubjectJob(
+  jobId: string,
+  name: string,
+  data: SubjectVerificationJobData | ClientSubjectVerificationJobData,
+): Promise<boolean> {
+  const queue = subjectQueue();
+  if (await queue.getJob(jobId)) {
+    return false;
+  }
+  await queue.add(name, data, {
+    jobId,
+    attempts: SUBJECT_ATTEMPTS,
+    backoff: { type: "fixed", delay: SUBJECT_RETRY_MS },
+    removeOnComplete: true,
+    removeOnFail: true,
+  });
+  return true;
 }
 
 /** BullMQ ids cannot contain ":"; document ids can hold "#", so they are encoded. */
 export function subjectJobId(documentId: string): string {
   return `subject-${Buffer.from(documentId).toString("base64url")}`;
+}
+
+/** One job per client subject, whichever replica queues it. */
+export function clientSubjectJobId(subjectId: number): string {
+  return `subject-client-${subjectId}`;
 }

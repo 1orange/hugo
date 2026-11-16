@@ -1,5 +1,6 @@
 import {
   getSubject,
+  getSubjectLinkedTo,
   listAllSubjectAliases,
   listAllSubjects,
   listSubjectAliases,
@@ -10,6 +11,12 @@ import {
 import { getCompanyById } from "@/adapters/store/companies";
 import { companyDisplayName } from "@/modules/company-display-name";
 import { formatDateTime, monthLabel } from "@/modules/format-sk";
+import {
+  identityRowsOf,
+  identitySummary,
+  type IdentityRow,
+  type IdentitySummary,
+} from "@/modules/identity-states";
 import { searchSubjects } from "@/modules/subject-search";
 import { verdictLabel, type IntegrityVerdict } from "@/modules/subject-integrity";
 import {
@@ -46,6 +53,8 @@ export type DirectoryListRow = {
   lastSeenLabel: string;
   /** Set for a client's subject (its profile is this record): the company it is. */
   client: { href: string } | null;
+  /** How many of the identity fields are overené, upravené ručne and neoverené. */
+  identity: IdentitySummary;
 };
 
 export type DirectoryList = {
@@ -123,6 +132,7 @@ export async function listSubjectDirectory(
         lastSeenLabel: formatDateTime(subject.lastSeenAt),
         client:
           subject.linkedCompanyId === null ? null : { href: `/companies/${subject.linkedCompanyId}/activity` },
+        identity: identitySummary(identityRowsOf(subject)),
       };
     }),
   };
@@ -138,6 +148,8 @@ export type DetailField = {
   manual: boolean;
   /** Whether she can correct the field on the screen. */
   correctable: boolean;
+  /** The identity state of an identity field (IČO, name, address, DIČ, IČ DPH); absent for the others. */
+  identity?: IdentityRow;
 };
 
 export type SubjectDetail = {
@@ -196,6 +208,34 @@ function fieldsOf(subject: SubjectRow): DetailField[] {
   return [...identity, ...corrected, status];
 }
 
+/** A client company's identity as its profile page shows it: the states, the register's standing, VIES. */
+export type ProfileIdentity = {
+  subjectId: number;
+  verifiedAtLabel: string;
+  registerStatusLabel: string;
+  rows: IdentityRow[];
+  vies: Array<{ vatId: string; label: string; checkedLabel: string }>;
+};
+
+/** The identity states of a client company's profile (its linked subject), or null for a company without one. */
+export async function loadProfileIdentity(companyId: number): Promise<ProfileIdentity | null> {
+  const subject = await getSubjectLinkedTo(companyId);
+  if (!subject) {
+    return null;
+  }
+  return {
+    subjectId: subject.id,
+    verifiedAtLabel: subject.verifiedAt ? formatDateTime(subject.verifiedAt) : "nikdy",
+    registerStatusLabel: registerStatusLabelOf(subject.registerStatus),
+    rows: identityRowsOf(subject),
+    vies: Object.entries(subject.viesStatus).map(([vatId, record]) => ({
+      vatId,
+      label: viesStatusLabel(record),
+      checkedLabel: formatDateTime(record.checkedAt),
+    })),
+  };
+}
+
 /** Where a subject is shown and what it holds, or null when there is no such subject. */
 export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetail | null> {
   const subject = await getSubject(subjectId);
@@ -214,6 +254,7 @@ export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetai
     companies.set(reference.companyId, companyDisplayName(reference.companyName));
   }
 
+  const identityByField = new Map(identityRowsOf(subject).map((row) => [row.field, row]));
   return {
     id: subject.id,
     country: subject.country,
@@ -225,7 +266,10 @@ export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetai
     registerStatusLabel: registerStatusLabelOf(subject.registerStatus),
     verifiedAtLabel: subject.verifiedAt ? formatDateTime(subject.verifiedAt) : "nikdy",
     lastSeenLabel: formatDateTime(subject.lastSeenAt),
-    fields: fieldsOf(subject),
+    fields: fieldsOf(subject).map((field) => ({
+      ...field,
+      identity: identityByField.get(field.field as IdentityRow["field"]),
+    })),
     formerNames: subject.formerNames,
     aliases: aliases.map((alias) => ({ displayName: alias.displayName, count: alias.count })),
     findings: subject.findings.map((finding) => ({

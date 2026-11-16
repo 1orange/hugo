@@ -1,6 +1,7 @@
 import { writeClientSheetProfiles } from "@/adapters/store/client-sheet";
 import { listAllCompanies } from "@/adapters/store/companies";
 import { listCompanyProfiles } from "@/adapters/store/company-profiles";
+import { scheduleClientSubjectCheck } from "@/lib/subject-directory/schedule";
 import {
   parseClientSheet,
   planClientSheet,
@@ -46,6 +47,10 @@ export async function applyClientSheet(
   }
   const writes = selectClientSheetWrites(preview.plan, decisions);
   await writeClientSheetProfiles(writes, timestamp);
+  // The imported values are checked against the registers, as a profile save's are (0006/03).
+  for (const write of writes) {
+    await scheduleClientSubjectCheck(write.companyId);
+  }
   return {
     ok: true,
     applied: {

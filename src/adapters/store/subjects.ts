@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   companies,
   documents,
@@ -170,6 +170,24 @@ export async function findSubjectsByIco(ico: string): Promise<SubjectRow[]> {
     .where(and(eq(subjects.ico, ico), sql`${subjects.country} <> 'foreign'`))
     .limit(2);
   return rows.map(toSubject);
+}
+
+/** The subject a client company's profile is (ADR 0022, amended 2026-11-16), or null for a company without one. */
+export async function getSubjectLinkedTo(companyId: number): Promise<SubjectRow | null> {
+  const [row] = await getDb().select().from(subjects).where(eq(subjects.linkedCompanyId, companyId)).limit(1);
+  return row ? toSubject(row) : null;
+}
+
+/** The register's standing of each listed company's linked subject, where a company has one. */
+export async function listClientRegisterStatuses(companyIds: readonly number[]): Promise<Map<number, SubjectRegisterStatus>> {
+  if (companyIds.length === 0) {
+    return new Map();
+  }
+  const rows = await getDb()
+    .select({ companyId: subjects.linkedCompanyId, registerStatus: subjects.registerStatus })
+    .from(subjects)
+    .where(inArray(subjects.linkedCompanyId, [...companyIds]));
+  return new Map(rows.map((row) => [row.companyId as number, row.registerStatus as SubjectRegisterStatus]));
 }
 
 /** By VAT ID, whatever the IČO column holds: a subject learned with its IČO keeps its VAT ID. */

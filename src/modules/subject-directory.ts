@@ -214,6 +214,8 @@ export type SubjectUpdate = Partial<
 export type SubjectIcDphUpdate = {
   icDph: string;
   sources: SubjectState["sources"];
+  /** Set when VIES confirms a number she had typed: it is the register's now, not hers alone. */
+  manualFields?: SubjectField[];
 };
 
 /** A change to the subject's VAT group or VIES answers: no register was asked. */
@@ -224,23 +226,50 @@ export type SubjectVatUpdate = Partial<{
   manualFields: SubjectField[];
 }>;
 
-function sameValue(left: string | null, right: string): boolean {
-  return (left ?? "").trim() === right.trim();
+/**
+ * Whether two values of one identity field are the same thing: the spacing and the
+ * letter case of a name or an address do not make it another one, and the DIČ's
+ * country prefix does not either.
+ */
+export function sameIdentityValue(field: SubjectField, left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = left ?? "";
+  const b = right ?? "";
+  if (field === "dic") {
+    return comparableDic(a) === comparableDic(b);
+  }
+  if (field === "icDph") {
+    return compact(a).toUpperCase() === compact(b).toUpperCase();
+  }
+  const words = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+  return words(a) === words(b);
 }
 
 /**
- * The directory's update for a fresh register answer. A field the accountant
- * corrected keeps her value; a fresh register value that disagrees becomes a
- * `register-disagrees` finding for that field, and clears once they agree.
- * Other fields take the register's value, with the source `register`.
+ * A field the register does not own: her own typing (`manual`), or a value another
+ * source put there (the client sheet). A refresh keeps such a value and reports what
+ * the register says; only a value the register or VIES confirmed is the register's.
+ */
+export function isKeptField(subject: SubjectState, field: SubjectField): boolean {
+  if (subject.manualFields.includes(field)) {
+    return true;
+  }
+  const source = (subject.sources as Partial<Record<string, string>>)[field];
+  return source !== undefined && source !== "register" && source !== "vies";
+}
+
+/** The identity fields the register owns: a name, an address and a DIČ. */
+type OwnedField = "legalName" | "address" | "dic";
+
+/**
+ * The directory's update for a fresh register answer (ADR 0022, 0006/03). A kept field
+ * (see isKeptField) keeps its value: when the register says the same, the value becomes
+ * the register's, confirmed; when it says otherwise, a `register-disagrees` finding
+ * carries the register's value. Other fields take the register's value, source `register`.
  */
 export function applyRegisterFacts(subject: SubjectState, facts: RegisterFacts, now: string): SubjectUpdate {
-  const manual = new Set(subject.manualFields);
   const sources = { ...subject.sources };
+  let manualFields = [...subject.manualFields];
   const findings = subject.findings.filter((finding) => finding.kind !== "register-disagrees");
-  const disagree = (field: SubjectField, value: string) => {
-    findings.push({ field, kind: "register-disagrees", value, at: now });
-  };
   const update: SubjectUpdate = {
     formerNames: facts.formerNames,
     registerStatus: facts.status,
@@ -249,38 +278,60 @@ export function applyRegisterFacts(subject: SubjectState, facts: RegisterFacts, 
   sources.formerNames = "register";
   sources.registerStatus = "register";
 
-  if (manual.has("legalName")) {
-    if (!sameValue(subject.legalName, facts.legalName)) {
-      disagree("legalName", facts.legalName);
+  const owned: Array<[OwnedField, string | null]> = [
+    ["legalName", facts.legalName],
+    ["address", facts.address || null],
+    ["dic", facts.dic],
+  ];
+  for (const [field, registerValue] of owned) {
+    if (registerValue === null) {
+      continue;
     }
-  } else {
-    update.legalName = facts.legalName;
-    sources.legalName = "register";
-  }
-
-  if (manual.has("address")) {
-    if (facts.address && !sameValue(subject.address, facts.address)) {
-      disagree("address", facts.address);
+    if (!isKeptField(subject, field)) {
+      update[field] = registerValue;
+      sources[field] = "register";
+      continue;
     }
-  } else if (facts.address) {
-    update.address = facts.address;
-    sources.address = "register";
-  }
-
-  if (facts.dic) {
-    if (manual.has("dic")) {
-      if (comparableDic(subject.dic ?? "") !== comparableDic(facts.dic)) {
-        disagree("dic", facts.dic);
-      }
+    if (sameIdentityValue(field, subject[field], registerValue)) {
+      // Her value is the register's now: confirmed, so the register keeps it up to date from here on.
+      sources[field] = "register";
+      manualFields = manualFields.filter((kept) => kept !== field);
     } else {
-      update.dic = facts.dic;
-      sources.dic = "register";
+      findings.push({ field, kind: "register-disagrees", value: registerValue, at: now });
     }
   }
 
   update.sources = sources;
+  update.manualFields = manualFields;
   update.findings = findings;
   return update;
+}
+
+/** What a return to the register's value stores: the value, and the subject's state without the disagreement. */
+export type RegisterRestoreUpdate = {
+  value: string;
+  sources: SubjectState["sources"];
+  manualFields: SubjectField[];
+  findings: SubjectFinding[];
+};
+
+/**
+ * The one-click return to the register's value (0006/03): a field with a register
+ * disagreement takes the value the register holds, its source becomes `register`, it
+ * leaves the manual list, and the disagreement is resolved. Null when there is no
+ * disagreement to return to.
+ */
+export function restoreRegisterValueOf(subject: SubjectState, field: SubjectField): RegisterRestoreUpdate | null {
+  const disagreement = subject.findings.find((finding) => finding.field === field && finding.kind === "register-disagrees");
+  if (!disagreement) {
+    return null;
+  }
+  return {
+    value: disagreement.value,
+    sources: { ...subject.sources, [field]: "register" },
+    manualFields: subject.manualFields.filter((kept) => kept !== field),
+    findings: subject.findings.filter((finding) => !(finding.field === field && finding.kind === "register-disagrees")),
+  };
 }
 
 /**
@@ -399,7 +450,19 @@ export function icDphConfirmedByVies(
   if (coreCompanyName(holder) !== coreCompanyName(subject.legalName)) {
     return null;
   }
-  if (compact(subject.icDph).toUpperCase() === vatId || subject.manualFields.includes("icDph")) {
+  const current = compact(subject.icDph).toUpperCase();
+  if (subject.manualFields.includes("icDph")) {
+    // Her own number is kept, unless it is the one VIES confirms: then it is confirmed, and no longer hers alone.
+    if (current !== vatId) {
+      return null;
+    }
+    return {
+      icDph: vatId,
+      sources: { ...subject.sources, icDph: "vies" },
+      manualFields: subject.manualFields.filter((field) => field !== "icDph"),
+    };
+  }
+  if (current === vatId) {
     return null;
   }
   return { icDph: vatId, sources: { ...subject.sources, icDph: "vies" } };

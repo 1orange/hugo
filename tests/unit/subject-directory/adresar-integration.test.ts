@@ -235,7 +235,7 @@ test("the detail shows each value with its source, the register and VIES statuse
   assert.equal(byField.icDph!.sourceLabel, "z VIES");
   assert.equal(byField.legalName!.manual, false);
   assert.deepEqual(detail.formerNames, ["Alfa Trade, s.r.o."]);
-  assert.equal(detail.registerStatusLabel, "Aktívna");
+  assert.equal(detail.registerStatusLabel, "aktívny");
   assert.deepEqual(detail.vies.map((vies) => [vies.vatId, vies.label]), [["SK2020322832", "platné"]]);
   assert.equal(detail.verdict, "verified");
   assert.match(detail.verifiedAtLabel, /06\.04\.2026/);

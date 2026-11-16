@@ -6,6 +6,7 @@ import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { countWithNoun } from "@/modules/format-sk";
 import { listSubjectDirectory, DIRECTORY_PAGE_SIZE, type DirectoryListRow } from "@/lib/subject-directory/screen";
+import { IdentityStateSummary } from "@/components/identity/identity-states";
 
 type AdresarPageProps = {
   searchParams: Promise<{ q?: string; klienti?: string }>;
@@ -141,6 +142,7 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
                   <th className="px-3 py-2 font-semibold">DIČ</th>
                   <th className="px-3 py-2 font-semibold">IČ DPH</th>
                   <th className="px-3 py-2 font-semibold">Stav</th>
+                  <th className="px-3 py-2 font-semibold">Údaje</th>
                   <th className="px-3 py-2 font-semibold">Naposledy videný</th>
                 </tr>
               </thead>
@@ -176,6 +178,9 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
                       >
                         {row.verdictLabel}
                       </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <IdentityStateSummary summary={row.identity} testId={`directory-identity-${row.id}`} />
                     </td>
                     <td className="px-3 py-2 text-[12px] text-ink-3">{row.lastSeenLabel}</td>
                   </tr>

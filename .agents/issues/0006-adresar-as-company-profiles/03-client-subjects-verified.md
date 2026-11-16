@@ -1,7 +1,7 @@
 # 03 — Client subjects are checked against the registers, and each field shows its state
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 

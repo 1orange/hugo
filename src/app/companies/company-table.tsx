@@ -28,6 +28,7 @@ import {
   type ChaseSeverity,
 } from "@/modules/chase-list";
 import { profileMissingLabel, profileSetupActionLabel } from "@/modules/company-profile";
+import { registerStatusLabelOf } from "@/modules/subject-screen";
 import { structureBadgeLabel } from "@/modules/drive-structure";
 import {
   formatDate,
@@ -471,6 +472,16 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
                           >
                             <Dot className="size-1.5 bg-warn-dot" />
                             {structureBadgeLabel(company.structureDeviations)}
+                          </Link>
+                        ) : null}
+                        {company.registerStanding ? (
+                          <Link
+                            href={`/companies/${company.id}/profile`}
+                            data-testid={`company-register-${company.id}`}
+                            className="inline-flex items-center gap-1.5 text-ink-3 hover:text-ink-2"
+                          >
+                            <Dot className="size-1.5 bg-bad-dot" />
+                            Klient {registerStatusLabelOf(company.registerStanding)} v registri
                           </Link>
                         ) : null}
                       </div>

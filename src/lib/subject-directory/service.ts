@@ -128,7 +128,7 @@ function emptyStateOf(country: SubjectCountry, ico: string | null, vatId: string
   };
 }
 
-function factsOf(lookup: RegisterLookup): RegisterFacts {
+export function factsOf(lookup: RegisterLookup): RegisterFacts {
   return {
     legalName: lookup.legalName,
     formerNames: lookup.formerNames ?? [],
@@ -275,7 +275,7 @@ export async function subjectForExport(
  * the answer; otherwise VIES is asked, once across the replicas, and a VIES outage
  * answers with the record held, or unavailable when there is none.
  */
-async function viesAnswerFor(
+export async function viesAnswerFor(
   subject: SubjectRow,
   vatId: string,
   deps: DirectoryDeps,
