@@ -49,6 +49,10 @@ export type RegisterLookup = {
   address: string;
   ico: string;
   dic: string;
+  /** Names the entity held before (RPO's history). Absent where the register does not say. */
+  formerNames?: string[];
+  /** Absent where the register does not say; an entity it lists is taken as active. */
+  status?: RegisterEntityStatus;
 };
 
 const SK_IC_DPH = /^SK\d{10}$/;

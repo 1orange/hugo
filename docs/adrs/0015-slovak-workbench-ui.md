@@ -158,3 +158,27 @@ later action happened to refresh the page. It looked like parsing started on cli
 Discovery is also kicked off for each company's open month when the **chase list** loads, so the
 receipts that arrived since her last visit are usually already read by the time she clicks into a
 client. Already-attempted files are skipped, so a repeat visit costs nothing.
+
+## Amendment, 2026-11-12 — Apple-style chrome: quiet surfaces, popovers, one floating decision bar
+
+Agreed with the user from a reviewed design canvas. The workbench's structure is unchanged — list,
+preview, fields — and so is the Slovak copy; the chrome around it changes.
+
+- **Type and colour.** The platform's system font (SF on her Mac) replaces Archivo and IBM Plex Mono;
+  figures use tabular numerals, not a monospace face. Neutral greys on a cool ground, the petrol accent
+  kept; every grey used for text passes 4.5:1.
+- **Chrome.** One translucent app bar on every screen; refresh, *Adresár*, *Nastavenia* are icons, and
+  sign-out sits in an account menu. Pages open with a large title.
+- **Firmy.** The summary figures are buttons that filter the table to what they count (the same rule
+  that counts them); scope and accountant group are segmented controls.
+- **Month.** Month chips become a segmented control; the folder check and the Omega export are toolbar
+  buttons with a count, opening popovers. The export preview is a sheet (a modal dialog), not a panel
+  that takes the bottom of the screen. The decision bar floats over the foot of the preview;
+  *Nerelevantné…* asks why, with the common reasons one tap away, and every decision shows a short
+  notice with *Späť*. The list shows each document's VAT, note and reason; the fields are grouped rows,
+  label left, value right; a pipeline failure is shown in Slovak (`extractionFailureMessage`).
+- **Nastavenia.** Grouped lists with switches. The document types are one list, each with its own
+  *Presúvať neskoré* switch, so the movable list can no longer name a type that is not in the list;
+  changes are saved from a bar that appears only when something changed.
+- **Motion.** Feedback on press; popovers and sheets grow from where they open; reduced motion turns
+  movement into cross-fades, reduced transparency makes the translucent surfaces solid.

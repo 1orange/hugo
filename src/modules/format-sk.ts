@@ -248,3 +248,12 @@ export function folderSlotPrefix(folderSlot: string): string {
   const match = /^(\d{2})\s/.exec(folderSlot);
   return match ? match[1]! : folderSlot;
 }
+
+/** A euro amount in Slovak notation: comma decimal, thousands grouped by a non-breaking space (1 248,52). */
+export function formatSkMoney(cents: number): string {
+  const negative = cents < 0;
+  const absolute = Math.abs(cents);
+  const whole = String(Math.floor(absolute / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const fraction = String(absolute % 100).padStart(2, "0");
+  return `${negative ? "−" : ""}${whole},${fraction}`;
+}

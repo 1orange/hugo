@@ -14,6 +14,8 @@ import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts
 import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { documents } from "../../../src/lib/db/schema.ts";
+import { ensureDocumentsForMonth } from "../../../src/adapters/store/documents.ts";
+import { EXTRACTION_PIPELINE_VERSION } from "../../../src/modules/extraction-pipeline.ts";
 import { subscribeAppEvents, type AppEvent } from "../../../src/lib/events/bus.ts";
 import { enqueueMonthExtraction } from "../../../src/lib/extraction-queue/enqueue.ts";
 import { processExtractionJob } from "../../../src/lib/extraction-queue/process-job.ts";
@@ -133,9 +135,10 @@ test("a job reads its document and reports each stage", async () => {
 
   assert.deepEqual(result, { outcome: "complete", reason: null });
   assert.equal(await extractionStatus("doc-invoice-a"), "complete");
+  // The embedded-invoice check (ISDOC/MOL) is its own stage, before the text layer is read.
   assert.deepEqual(
     flushed.map((progress) => progress.stage),
-    ["text", "model"],
+    ["isdoc", "text", "model"],
   );
   assert.equal(labelOf(reporter.current), "Model píše odpoveď · 40 tokenov");
   const percent = percentOf(reporter.current, Date.now());
@@ -189,4 +192,108 @@ test("the bar never goes back when a later stage starts lower", () => {
   // A receipt's QR retry after the model: the bar stays where it was.
   reporter.stage("qr");
   assert.ok(percentOf(reporter.current, now) >= before);
+});
+
+/** A document read by an earlier pipeline: complete, undecided, zero amount, no supply. */
+async function completeFromOlderPipeline(driveFileId: string) {
+  await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
+  await getDb()
+    .update(documents)
+    .set({
+      extractionStatus: "complete",
+      extractionPipelineVersion: EXTRACTION_PIPELINE_VERSION - 1,
+      extractedPayloadJson: JSON.stringify({
+        kind: "extracted",
+        source: "model",
+        parties: [],
+        documentNumber: null,
+        variableSymbol: null,
+        issueDate: null,
+        taxableSupplyDate: null,
+        dueDate: null,
+        currency: "EUR",
+        amountCents: 0,
+        amountLiteral: "0.00",
+        vatRecap: [],
+        docTypeHint: "invoice",
+      }),
+    })
+    .where(eq(documents.driveFileId, driveFileId));
+}
+
+test("an undecided complete result from an older pipeline is queued to be read again, without going pending", async () => {
+  await sweptMonth();
+  await completeFromOlderPipeline("doc-invoice-a");
+  const queue = new MemoryExtractionJobQueue();
+
+  assert.equal(await enqueueMonthExtraction(queue, 1, "2026_01"), 2);
+  assert.equal(queue.jobs.get("doc-invoice-a")!.data.reread, true);
+  assert.equal(queue.jobs.get("doc-invoice-b")!.data.reread, undefined);
+  assert.equal(await extractionStatus("doc-invoice-a"), "complete");
+  assert.equal(await extractionStatus("doc-invoice-b"), "pending");
+});
+
+test("a re-read job replaces the earlier result and marks it current", async () => {
+  const { driveClient, pdfAccess } = await sweptMonth();
+  await completeFromOlderPipeline("doc-invoice-a");
+  const queue = new MemoryExtractionJobQueue();
+  await enqueueMonthExtraction(queue, 1, "2026_01");
+  const settled: Extractor = {
+    async extract() {
+      return {
+        durationMs: 0,
+        payload: {
+          kind: "extracted",
+          source: "model",
+          parties: [],
+          documentNumber: null,
+          variableSymbol: null,
+          issueDate: null,
+          taxableSupplyDate: null,
+          dueDate: null,
+          currency: "EUR",
+          amountCents: 0,
+          amountLiteral: "0.00",
+          vatRecap: [{ rateLiteral: "23", baseLiteral: "364.65", baseCents: 36465, vatLiteral: "83.87", vatCents: 8387 }],
+          docTypeHint: "invoice",
+        },
+      };
+    },
+  };
+
+  const result = await processExtractionJob(
+    queue.jobs.get("doc-invoice-a")!.data,
+    deps(driveClient, pdfAccess, settled),
+    new ProgressReporter(() => {}),
+  );
+
+  assert.deepEqual(result, { outcome: "complete", reason: null });
+  const [row] = await getDb().select().from(documents).where(eq(documents.driveFileId, "doc-invoice-a")).limit(1);
+  assert.equal(row!.extractionPipelineVersion, EXTRACTION_PIPELINE_VERSION);
+  assert.match(row!.extractedPayloadJson, /"baseCents":36465/);
+});
+
+test("a re-read whose model is down keeps the earlier result and waits to be tried again", async () => {
+  const { driveClient, pdfAccess } = await sweptMonth();
+  await completeFromOlderPipeline("doc-invoice-a");
+  const queue = new MemoryExtractionJobQueue();
+  await enqueueMonthExtraction(queue, 1, "2026_01");
+  const down: Extractor = {
+    async extract() {
+      throw new Error("Extractor is unreachable: EXTRACTOR_URL and EXTRACTOR_MODEL are not set.");
+    },
+  };
+
+  const result = await processExtractionJob(
+    queue.jobs.get("doc-invoice-a")!.data,
+    deps(driveClient, pdfAccess, down),
+    new ProgressReporter(() => {}),
+  );
+
+  assert.equal(result.outcome, "waiting");
+  assert.match(result.reason ?? "", /EXTRACTOR_URL/);
+  const [row] = await getDb().select().from(documents).where(eq(documents.driveFileId, "doc-invoice-a")).limit(1);
+  assert.equal(row!.extractionStatus, "complete");
+  assert.equal(row!.extractionPipelineVersion, EXTRACTION_PIPELINE_VERSION - 1);
+  assert.match(row!.extractedPayloadJson, /"amountLiteral":"0.00"/);
 });

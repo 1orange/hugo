@@ -19,7 +19,7 @@ test("document workbench: filter, confirm, dismiss and persist", async ({ page }
 
   // Folders filter the list rather than navigating away from it.
   await page.goto(
-    "/companies/1/2026_01?folder=" + encodeURIComponent("06 Iné doklady"),
+    "/companies/1/2026_01?folder=" + encodeURIComponent("06 Ostatné dokumenty"),
   );
   await expect(
     documentRow(page, "e2e-doc-photo-jpeg"),
@@ -126,4 +126,20 @@ test("closed months are reachable from the month rail and render read-only", asy
     "aria-current",
     "page",
   );
+});
+
+test("the month page is exactly the window: only its columns scroll, never the page", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/sign-in");
+  await page.getByTestId("e2e-email").fill("allowed@example.com");
+  await page.getByTestId("e2e-submit").click();
+  await expect(page).toHaveURL(/\/companies$/);
+  await page.goto("/companies/1/2026_01");
+  await expect(page.getByTestId("document-field-editor")).toBeVisible();
+
+  const { documentHeight, windowHeight } = await page.evaluate(() => ({
+    documentHeight: document.documentElement.scrollHeight,
+    windowHeight: window.innerHeight,
+  }));
+  expect(documentHeight).toBe(windowHeight);
 });

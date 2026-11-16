@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { serverRoot } from "@/adapters/extractor/model-slots";
 import { redis, redisKey } from "@/lib/redis/connection";
 
 /**
@@ -53,11 +54,6 @@ async function ping(url: string, fetchImpl: typeof fetch): Promise<Pick<ServiceH
   } catch (error) {
     return { state: "down", detail: describeFetchError(error) };
   }
-}
-
-/** The llama.cpp root for an OpenAI-style base URL: `…:8080/v1` → `…:8080`. */
-function serverRoot(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "");
 }
 
 export async function checkExtractionServices(
@@ -178,7 +174,30 @@ export function servicesFingerprint(services: ExtractionServices): string {
   return `${services.model.state}|${services.ocr.state}`;
 }
 
-export function servicesReady(services: ExtractionServices): boolean {
+/**
+ * Whether the model is ready now and was not at the check before, or had not
+ * been checked yet. The model lane asks the server for its slots then: a start
+ * that met the server still loading must not keep the lane at its fallback.
+ */
+export function modelBecameReady(before: ServiceReadiness | null, now: ServiceReadiness): boolean {
+  return now.model && before?.model !== true;
+}
+
+/** Which services can read now. Each lane waits on its own: the model lane on the model, the reading lane on OCR. */
+export type ServiceReadiness = { model: boolean; ocr: boolean };
+
+export function serviceReadiness(services: ExtractionServices): ServiceReadiness {
   const ready = (state: ServiceState) => state === "ok" || state === "stub";
-  return ready(services.model.state) && ready(services.ocr.state);
+  return { model: ready(services.model.state), ocr: ready(services.ocr.state) };
+}
+
+/**
+ * The services that came back since the last check: a document waiting for one
+ * is tried at once. Nothing on the first check — no earlier state to come back from.
+ */
+export function servicesBackOnline(before: ServiceReadiness | null, now: ServiceReadiness): ServiceReadiness {
+  return {
+    model: before !== null && !before.model && now.model,
+    ocr: before !== null && !before.ocr && now.ocr,
+  };
 }

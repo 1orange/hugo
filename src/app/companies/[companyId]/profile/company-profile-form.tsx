@@ -36,7 +36,7 @@ function lookupMessage(country: CompanyCountry, icDphNote: string | null): strin
   if (country === "CZ") {
     return "Údaje z ARES doplnené. DIČ je zároveň IČ DPH.";
   }
-  return `Údaje z registra doplnené. ${icDphNote ?? "IČ DPH zadaj ručne."}`;
+  return `Údaje z registra doplnené. ${icDphNote ?? "Ak je firma platiteľ DPH, IČ DPH zadaj ručne."}`;
 }
 
 type Draft = {
@@ -312,12 +312,13 @@ export function CompanyProfileForm({
               />
             </label>
             <label className="flex flex-col gap-1 text-[12.5px]">
-              <span className="text-ink-2">{isCzech ? "DIČ (IČ DPH)" : "DIČ"}</span>
+              <span className="text-ink-2">
+                {isCzech ? "DIČ (IČ DPH)" : "DIČ"} <span className="text-ink-3">· nepovinné</span>
+              </span>
               <input
                 type="text"
                 name="dic"
                 inputMode={isCzech ? "text" : "numeric"}
-                required={!isCzech}
                 value={draft.dic}
                 onChange={(event) => setDraft({ ...draft, dic: event.target.value })}
                 data-testid="profile-dic"
@@ -327,11 +328,12 @@ export function CompanyProfileForm({
           </div>
           {!isCzech ? (
             <label className="flex flex-col gap-1 text-[12.5px]">
-              <span className="text-ink-2">IČ DPH</span>
+              <span className="text-ink-2">
+                IČ DPH <span className="text-ink-3">· nepovinné, len ak je firma platiteľ DPH</span>
+              </span>
               <input
                 type="text"
                 name="icDph"
-                required
                 value={draft.icDph}
                 onChange={(event) => setDraft({ ...draft, icDph: event.target.value })}
                 data-testid="profile-ic-dph"

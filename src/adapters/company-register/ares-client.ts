@@ -55,6 +55,7 @@ function mapAresLookup(subject: AresSubject): RegisterLookup | null {
     legalName: hit.legalName,
     address: hit.address,
     dic: (subject.dic ?? "").trim(),
+    status: hit.status,
   };
 }
 

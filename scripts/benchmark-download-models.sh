@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads the ADR 0017 benchmark candidates into ./models; files already
 # present are skipped. `--adopted` fetches only the model in use (~2.4 GB);
-# the whole set is ~25 GB.
+# the whole set is ~29 GB.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,6 +12,8 @@ mkdir -p "$MODEL_DIR"
 ADOPTED="unsloth/Qwen3-4B-GGUF|Qwen3-4B-Q4_0.gguf"
 CANDIDATES=(
   "$ADOPTED"
+  "unsloth/Qwen3-4B-Instruct-2507-GGUF|Qwen3-4B-Instruct-2507-Q4_0.gguf"
+  "LiquidAI/LFM2.5-1.2B-Instruct-GGUF|LFM2.5-1.2B-Instruct-Q8_0.gguf"
   "Qwen/Qwen3-0.6B-GGUF|Qwen3-0.6B-Q8_0.gguf"
   "Qwen/Qwen3-1.7B-GGUF|Qwen3-1.7B-Q8_0.gguf"
   "Qwen/Qwen3-4B-GGUF|Qwen3-4B-Q4_K_M.gguf"

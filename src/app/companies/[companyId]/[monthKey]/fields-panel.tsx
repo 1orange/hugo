@@ -6,11 +6,34 @@ import {
   cashRoundingOfFields,
   checkArithmeticWarnings,
   fieldCheckState,
+  resolvePartyRoles,
   type FieldCheckState,
+  type FieldProvenance,
+  type FieldProvenanceMap,
 } from "@/modules/document-fields";
 import { deriveVat } from "@/modules/vat-derivation";
+import { extractionFailureMessage } from "@/modules/extraction-failure";
+import { formatSkMoney } from "@/modules/format-sk";
 import { validateEkasaUidInput } from "@/modules/ekasa-identifiers";
 import { rebaseDraft } from "@/modules/draft-rebase";
+import {
+  confirmEditedPartyProvenance,
+  partySideSource,
+  pickPartyProvenance,
+  swapParties,
+  withoutPartyChecks,
+  type PartySwapProvenance,
+} from "@/modules/party-swap";
+import {
+  checkDocumentParties,
+  offersRegisterTakeover,
+  partyIdentityKey,
+  subjectFindingMessage,
+  verdictLabel,
+  type IntegrityVerdict,
+  type SubjectCheck,
+} from "@/modules/subject-integrity";
+import { isTypingTarget } from "./keyboard";
 
 export type VatRecapRowInput = {
   rateLiteral: string;
@@ -48,6 +71,12 @@ type FieldsPanelProps = {
   pending: boolean;
   saveState: "idle" | "saving" | "saved";
   onSave: (fields: DocumentFieldsInput) => void;
+  /** Saves the parties after a swap, with the provenance they carry. */
+  onSwapParties: (fields: DocumentFieldsInput, partyProvenance: PartySwapProvenance) => void;
+  /** *Prevziať z registra* for one flagged party: its legal name, DIČ and IČ DPH from the register. */
+  onTakeFromRegister: (side: "supplier" | "customer") => void;
+  /** Her decision whether the invoice is settled by an advance (true) or not (false). */
+  onSetAdvanceSettlement: (settled: boolean) => void;
   note: string;
   onNoteChange: (note: string) => void;
   onNoteSave: () => void;
@@ -56,6 +85,14 @@ type FieldsPanelProps = {
   uidLookupMessage: string | null;
   /** Read the file again (document.canReextract). */
   onReextract: () => void;
+};
+
+type SwappedParties = {
+  /** The swapped draft, which is what the panel shows until the document reloads. */
+  shown: DocumentFieldsInput;
+  provenance: FieldProvenanceMap;
+  rolesFlagged: boolean;
+  missingProfile: boolean;
 };
 
 function draftFrom(document: DocumentListItem): DocumentFieldsInput {
@@ -128,15 +165,17 @@ function parseDraftCents(literal: string): number | null {
   return (match[1] === "-" ? -1 : 1) * (Number(whole) * 100 + centsFromFraction);
 }
 
+/** The row's tone: a flagged value is tinted, an empty one simply shows "Doplniť". */
 function fieldStateClass(state: FieldCheckState): string {
-  if (state === "empty") {
-    return "border-dashed border-ink-3/40 bg-surface";
-  }
   if (state === "flagged") {
-    return "border-warn bg-warn-soft";
+    return "bg-[#fffaf0]";
   }
-  return "border-line bg-surface-2";
+  return "";
 }
+
+const GROUP = "overflow-hidden rounded-xl bg-surface shadow-[0_0_0_1px_rgb(0_0_0/0.04)]";
+const GROUP_HEADING = "flex items-baseline justify-between gap-2 px-1 pb-1.5";
+const NOTICE = "rounded-xl bg-warn-soft px-3.5 py-2.5 text-[13px] text-warn-strong";
 
 export function FieldsPanel({
   document,
@@ -144,6 +183,9 @@ export function FieldsPanel({
   pending,
   saveState,
   onSave,
+  onSwapParties,
+  onTakeFromRegister,
+  onSetAdvanceSettlement,
   note,
   onNoteChange,
   onNoteSave,
@@ -163,6 +205,9 @@ export function FieldsPanel({
     document ? draftFrom(document) : null,
   );
   const [liveVatWarnings, setLiveVatWarnings] = useState<string[]>([]);
+  // What the panel shows after a swap, until the document is reloaded.
+  const [swappedParties, setSwappedParties] = useState<SwappedParties | null>(null);
+  const swapRef = useRef<() => void>(() => undefined);
 
   const documentId = document?.id ?? null;
   const loadedDocumentId = useRef<string | null>(documentId);
@@ -172,6 +217,7 @@ export function FieldsPanel({
 
   useEffect(() => {
     const next = document ? draftFrom(document) : null;
+    setSwappedParties(null);
     if (loadedDocumentId.current !== documentId) {
       // Another document: start from what it holds.
       loadedDocumentId.current = documentId;
@@ -232,6 +278,7 @@ export function FieldsPanel({
       folderSlot: document.folderSlot,
       supplierIcDph: draft.icDph,
       profileCountry: document.fieldEditor.profileCountry,
+      advanceSettled: document.fieldEditor.advanceSettled === true,
     });
     setLiveVatWarnings(result.warnings);
     const next = { ...draft };
@@ -283,6 +330,21 @@ export function FieldsPanel({
     [draft, saved],
   );
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (isTypingTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "x") {
+        return;
+      }
+      event.preventDefault();
+      swapRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   if (!document || !draft) {
     return (
       <div className="flex h-full items-center justify-center p-6">
@@ -291,6 +353,17 @@ export function FieldsPanel({
     );
   }
 
+  // After a swap the panel shows the swapped badges and roles at once; the
+  // saved document catches up when it is reloaded.
+  const shown = swappedParties
+    ? {
+        ...document.fieldEditor,
+        provenance: swappedParties.provenance,
+        rolesFlagged: swappedParties.rolesFlagged,
+        missingProfile: swappedParties.missingProfile,
+        fieldChecks: withoutPartyChecks(document.fieldEditor.fieldChecks),
+      }
+    : document.fieldEditor;
   const {
     provenance,
     fieldChecks,
@@ -301,7 +374,15 @@ export function FieldsPanel({
     missingProfile,
     exportSectionResolved,
     vatWarnings,
-  } = document.fieldEditor;
+  } = shown;
+  // Like the fields, the parties and the settlement stay editable on a decided
+  // document, so a misread can be mended after the decision (2026-11-12).
+  const swapLocked = readOnly || pending;
+  // The settlement in effect: the detected one, or hers over it. Null when not settled.
+  const advance = shown.advanceSettlement ?? null;
+  const advanceAvailable = document.fieldEditor.advanceSettlementAvailable === true;
+  const advanceLocked = readOnly || pending;
+  const advanceTitle = readOnly ? "Mesiac je uzavretý — vyúčtovanie sa nedá meniť" : undefined;
 
   const roleFieldFlagged = rolesFlagged || missingProfile;
   const isCreditNote = docTypeHint === "credit_note";
@@ -357,6 +438,14 @@ export function FieldsPanel({
     !isCreditNote &&
     arithmeticWarnings.length > 0 &&
     !(amountCheckOk && (draftFieldsForChecks.vatRecap.length === 0 || vatCheckOk));
+  // The rates' line under their heading: whether they add up with the totals, as she types.
+  const vatRowsFilled = draft.vatRecap.some((row) => row.baseLiteral.trim() || row.vatLiteral.trim());
+  const vatCheck =
+    vatRowsFilled && draft.amountLiteral.trim()
+      ? arithmeticWarnings.length === 0
+        ? { ok: true, text: "✓ Sedí s celkom" }
+        : { ok: false, text: "Nesedí — pozri Sumy" }
+      : null;
 
   function patch(next: Partial<DocumentFieldsInput>, manuallyEdited: string[] = Object.keys(next)) {
     for (const key of manuallyEdited) {
@@ -391,97 +480,170 @@ export function FieldsPanel({
     }
   }
 
+  function requestSwap() {
+    if (swapLocked || !draft) {
+      return;
+    }
+    // Her edits are judged against what the panel last showed: the swapped
+    // values after a swap, otherwise the document as loaded.
+    const effective = confirmEditedPartyProvenance(
+      draft,
+      swappedParties?.shown ?? document!.fieldEditor.fields,
+      provenance,
+    );
+    const swapped = swapParties(draft, effective);
+    const roles = resolvePartyRoles({
+      folderSlot: document!.folderSlot,
+      profile: document!.fieldEditor.roleContext?.profile ?? null,
+      enabled: document!.fieldEditor.roleContext?.enrichmentEnabled ?? true,
+      labeled: true,
+      supplier: partySideSource(swapped.draft, swapped.provenance, "supplier"),
+      customer: partySideSource(swapped.draft, swapped.provenance, "customer"),
+      directory: document!.fieldEditor.roleContext?.directory ?? null,
+    });
+    setDraft(swapped.draft);
+    setSaved(savedSnapshot(swapped.draft));
+    setSwappedParties({
+      shown: swapped.draft,
+      provenance: swapped.provenance as FieldProvenanceMap,
+      rolesFlagged: roles.rolesFlagged,
+      missingProfile: roles.missingProfile,
+    });
+    onSwapParties(swapped.draft, pickPartyProvenance(swapped.provenance));
+  }
+  swapRef.current = requestSwap;
+
+  const swapTitle = readOnly ? "Mesiac je uzavretý — strany sa nedajú meniť" : "Vymeniť strany (X)";
+
+  // The worker's verdict while the draft holds the values it was judged for (ADR 0022);
+  // otherwise judged here, offline, on every keystroke and swap.
+  const profileIdentity = document.fieldEditor.roleContext?.profile ?? null;
+  const integrity =
+    document.fieldEditor.partyIntegrityStored &&
+    partyIdentityKey(draft, profileIdentity) === document.fieldEditor.partyIntegrityIdentity
+      ? document.fieldEditor.partyIntegrity
+      : checkDocumentParties({
+          folderSlot: document.folderSlot,
+          fields: draft,
+          profile: profileIdentity,
+        });
+
+  const decisionPill =
+    document.decision === "confirmed"
+      ? { label: "Potvrdené", className: "bg-good-soft text-good" }
+      : document.decision === "not_relevant"
+        ? { label: "Nerelevantné", className: "bg-fill text-ink-2" }
+        : document.derivedStatus?.kind === "manual-entry"
+          ? { label: "Vyplniť ručne", className: "bg-warn-soft text-warn" }
+          : { label: "Čaká", className: "bg-accent-soft text-accent" };
+
   return (
     <>
-      <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-3">
-        <h2 className="eyebrow">Údaje dokladu</h2>
-        {document.extractionSource ? (
-          <span
-            className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10px] text-ink-2"
-            data-testid="extraction-source-badge"
-          >
-            {document.extractionSource === "lookup"
-              ? "Finančná správa"
-              : document.extractionSource === "text-layer"
-                ? "Text PDF"
-                : document.extractionSource === "model"
-                  ? "Model"
-                  : document.extractionSource === "ocr"
-                    ? "OCR"
-                    : document.extractionSource === "isdoc"
-                      ? "ISDOC"
-                      : document.extractionSource === "mol"
-                        ? "XML MOL"
-                        : "Text PDF"}
+      <div
+        className="relative flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto bg-ground px-4 pt-4 pb-10 [&>*]:shrink-0"
+        data-testid="document-field-editor"
+      >
+        <div className="flex items-start gap-2.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[20px] leading-tight font-bold tracking-[-0.015em] [overflow-wrap:anywhere]">
+              {draft.supplierName.trim() || document.label || document.name}
+            </h2>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-ink-3">
+              <span>{document.receiptKind === "receipt" ? "Bloček" : "Doklad"}</span>
+              <span aria-hidden>·</span>
+              <span>{document.folderSlot}</span>
+              {document.extractionSource ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span data-testid="extraction-source-badge">
+                    {document.extractionSource === "lookup"
+                      ? "Finančná správa"
+                      : document.extractionSource === "text-layer"
+                        ? "Text PDF"
+                        : document.extractionSource === "model"
+                          ? "Model"
+                          : document.extractionSource === "ocr"
+                            ? "OCR"
+                            : document.extractionSource === "isdoc"
+                              ? "ISDOC"
+                              : document.extractionSource === "mol"
+                                ? "XML MOL"
+                                : "Text PDF"}
+                  </span>
+                </>
+              ) : null}
+            </p>
+          </div>
+          <span className={`mt-1 shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${decisionPill.className}`}>
+            {decisionPill.label}
           </span>
-        ) : null}
-        {document.canReextract ? (
-          <button
-            type="button"
-            className="rounded border border-line bg-surface px-1.5 py-0.5 text-[10.5px] text-ink-2 hover:bg-surface-2 disabled:opacity-50"
-            disabled={pending}
-            onClick={onReextract}
-            title="Prečíta súbor znova — po úspechu nahradí staré polia, pri chybe ich zachová."
-            data-testid="reextract-document"
-          >
-            Načítať znova
-          </button>
-        ) : null}
-        <div className="flex-1" />
-        <span className="text-[10.5px] text-ink-3">
-          {readOnly ? "len na čítanie" : "ukladá sa pri opustení poľa"}
-        </span>
-      </div>
-      {document.receiptOfFile ? (
-        <p
-          className="shrink-0 border-b border-line bg-surface px-3 py-1.5 text-[11.5px] text-ink-2"
-          data-testid="receipt-of-file"
-        >
-          Bloček {document.receiptOfFile.index} z {document.receiptOfFile.count} v tomto súbore
-        </p>
-      ) : null}
-      {document.sameReceiptAs.length > 0 ? (
-        <p
-          className="shrink-0 border-b border-line bg-warn-soft px-3 py-1.5 text-[11.5px] text-warn"
-          data-testid="same-receipt-as"
-        >
-          Rovnaký bloček je aj v{" "}
-          {document.sameReceiptAs
-            .map((other) => `${other.fileName} (${other.monthKey.replace("_", "/")})`)
-            .join(", ")}
-          . Do Omegy pôjde len raz — druhý označ ako nerelevantný.
-        </p>
-      ) : null}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2">
-        <label className="text-[11px] text-ink-2" htmlFor="export-section">
-          Sekcia v Omega
-        </label>
-        <select
-          id="export-section"
-          className="rounded border border-line bg-surface-2 px-2 py-1 text-[12px]"
-          disabled={readOnly || pending}
-          value={draft.exportSection}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (value === "" || value === "T01" || value === "T00") {
-              patch({ exportSection: value });
-            }
-          }}
-          onBlur={commit}
-          data-testid="export-section-select"
-        >
-          <option value="">
-            Automaticky ({exportSectionResolved === "T01" ? "T01" : "T00"})
-          </option>
-          <option value="T01">Fakturácia (T01)</option>
-          <option value="T00">EUD bločky (T00)</option>
-        </select>
-      </div>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-3.5" data-testid="document-field-editor">
+        {document.canReextract ? (
+          <div className="-mt-1.5">
+            <button
+              type="button"
+              className="press rounded-lg px-2 py-1 text-[12.5px] font-semibold text-accent hover:bg-fill disabled:opacity-50"
+              disabled={pending}
+              onClick={onReextract}
+              title="Prečíta súbor znova — po úspechu nahradí staré polia, pri chybe ich zachová."
+              data-testid="reextract-document"
+            >
+              Načítať znova
+            </button>
+          </div>
+        ) : null}
+
+        {document.decision === "not_relevant" ? (
+          <div className="rounded-xl bg-surface px-3.5 py-2.5 text-[13px] shadow-[0_0_0_1px_rgb(0_0_0/0.04)]" data-testid="not-relevant-reason">
+            <p className="font-semibold">Nerelevantné — do Omegy nejde</p>
+            <p className="mt-0.5 text-ink-2">
+              {document.notRelevantReason ? `Dôvod: ${document.notRelevantReason}` : "Dôvod nebol uvedený."}
+            </p>
+          </div>
+        ) : null}
+
+        {document.receiptOfFile ? (
+          <p className="rounded-xl bg-surface px-3.5 py-2 text-[13px] text-ink-2 shadow-[0_0_0_1px_rgb(0_0_0/0.04)]" data-testid="receipt-of-file">
+            Bloček {document.receiptOfFile.index} z {document.receiptOfFile.count} v tomto súbore
+          </p>
+        ) : null}
+        {document.sameReceiptAs.length > 0 ? (
+          <p className={NOTICE} data-testid="same-receipt-as">
+            Rovnaký bloček je aj v{" "}
+            {document.sameReceiptAs
+              .map((other) => `${other.fileName} (${other.monthKey.replace("_", "/")})`)
+              .join(", ")}
+            . Do Omegy pôjde len raz — druhý označ ako nerelevantný.
+          </p>
+        ) : null}
+
+        <div className={GROUP}>
+          <label className="flex items-center gap-3 px-3.5 py-2.5" htmlFor="export-section">
+            <span className="flex-1 text-[14px]">Sekcia v Omege</span>
+            <select
+              id="export-section"
+              className="max-w-[60%] bg-transparent text-right text-[14px] font-medium text-accent outline-none disabled:text-ink-2"
+              disabled={readOnly || pending}
+              value={draft.exportSection}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "" || value === "T01" || value === "T00") {
+                  patch({ exportSection: value });
+                }
+              }}
+              onBlur={commit}
+              data-testid="export-section-select"
+            >
+              <option value="">Automaticky ({exportSectionResolved === "T01" ? "T01" : "T00"})</option>
+              <option value="T01">Fakturácia (T01)</option>
+              <option value="T00">EUD bločky (T00)</option>
+            </select>
+          </label>
+        </div>
         {document.outsideEkasa ? (
           <p
-            className="border-b border-line px-3 py-2 text-[11.5px] text-ink-2"
+            className="rounded-xl bg-surface px-3.5 py-2.5 text-[13px] text-ink-2 shadow-[0_0_0_1px_rgb(0_0_0/0.04)]"
             data-testid="outside-ekasa"
           >
             Doklad nie je z eKasa (parkovací automat, lístok, faktúra): nemá
@@ -489,9 +651,10 @@ export function FieldsPanel({
           </p>
         ) : null}
         {document.showUidBox ? (
-          <fieldset className="border-b border-line px-3 py-3" data-testid="ekasa-uid-box">
-            <legend className="eyebrow mb-2">UID eBločku</legend>
-            <p className="mb-2 text-[11.5px] text-ink-3">
+          <fieldset className={`${GROUP} px-3.5 py-3`} data-testid="ekasa-uid-box">
+            <legend className="sr-only">UID eBločku</legend>
+            <p className="eyebrow">UID eBločku</p>
+            <p className="mt-0.5 mb-2 text-[12.5px] text-ink-3">
               Ak QR kód nejde prečítať, zadaj 34-znakový UID z bločku. Údaje
               načítame z Finančnej správy.
             </p>
@@ -507,7 +670,7 @@ export function FieldsPanel({
                 aria-label="UID eBločku"
                 data-testid="ekasa-uid-input"
                 disabled={pending}
-                className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 font-mono text-[12px] uppercase"
+                className="min-w-0 flex-1 rounded-lg bg-fill px-2.5 py-2 font-mono text-[13px] uppercase outline-none focus:bg-surface focus:shadow-[0_0_0_2px_rgb(43_93_114/0.45)]"
               />
               <button
                 type="button"
@@ -522,7 +685,7 @@ export function FieldsPanel({
                   setUidValidationMessage(null);
                   onLookupUid(validated.uid);
                 }}
-                className="shrink-0 rounded-md border border-line-2 bg-surface px-3 py-1.5 text-[12px] text-ink-2 hover:border-accent hover:text-accent disabled:opacity-40"
+                className="press shrink-0 rounded-lg bg-accent-soft px-3.5 py-2 text-[13px] font-semibold text-accent disabled:opacity-40"
               >
                 Načítať
               </button>
@@ -550,7 +713,7 @@ export function FieldsPanel({
 
         {docTypeHint === "proforma" ? (
           <p
-            className="m-3 mb-0 border-l-2 border-accent bg-surface-2 px-2.5 py-2 text-[12px] text-ink-2"
+            className={NOTICE}
             data-testid="proforma-hint"
           >
             Vyzerá to ako zálohová faktúra — stále rozhodni, či ju zaúčtuješ.
@@ -559,16 +722,16 @@ export function FieldsPanel({
 
         {document.extractionFailureReason ? (
           <p
-            className="m-3 mb-0 border-l-2 border-warn bg-warn-soft px-2.5 py-2 text-[12px] text-warn"
+            className={NOTICE}
             data-testid="extraction-failure-reason"
           >
-            {document.extractionFailureReason}
+            {extractionFailureMessage(document.extractionFailureReason)}
           </p>
         ) : null}
 
         {missingProfile ? (
           <p
-            className="m-3 mb-0 border-l-2 border-warn bg-warn-soft px-2.5 py-2 text-[12px] text-warn"
+            className={NOTICE}
             data-testid="missing-profile-warning"
           >
             Chýba profil firmy — strany dokladu sa nedajú priradiť.
@@ -577,7 +740,7 @@ export function FieldsPanel({
 
         {rolesFlagged && !missingProfile ? (
           <p
-            className="m-3 mb-0 border-l-2 border-warn bg-warn-soft px-2.5 py-2 text-[12px] text-warn"
+            className={NOTICE}
             data-testid="party-roles-flagged"
           >
             Ani jedna strana nezodpovedá profilu klienta — skontroluj, či je doklad v správnom
@@ -587,7 +750,7 @@ export function FieldsPanel({
 
         {nonEurCurrency ? (
           <p
-            className="m-3 mb-0 border-l-2 border-warn bg-warn-soft px-2.5 py-2 text-[12px] text-warn"
+            className={NOTICE}
             data-testid="non-eur-warning"
           >
             Mena je {draft.currency}. Kurz sa neprepočítava — zadaj sumu v {homeCurrency}, ktorú
@@ -595,9 +758,13 @@ export function FieldsPanel({
           </p>
         ) : null}
 
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">Dodávateľ</legend>
-          <div className="grid grid-cols-2 gap-2">
+        <fieldset>
+          <legend className="sr-only">Dodávateľ</legend>
+          <div className={GROUP_HEADING}>
+            <span className="eyebrow">Dodávateľ</span>
+            <IntegrityBadge check={integrity.supplier} testId="party-integrity-supplier" />
+          </div>
+          <div className={GROUP}>
             <Field
               label="Názov"
               value={draft.supplierName}
@@ -645,11 +812,40 @@ export function FieldsPanel({
               wide
             />
           </div>
+          <IntegrityFindings check={integrity.supplier} testId="party-integrity-findings-supplier" />
+          {offersRegisterTakeover(integrity.supplier) ? (
+            <TakeFromRegisterButton
+              disabled={swapLocked}
+              testId="take-register-supplier"
+              onClick={() => onTakeFromRegister("supplier")}
+            />
+          ) : null}
         </fieldset>
 
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">Odberateľ</legend>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="-my-1 flex justify-center">
+          <button
+            type="button"
+            onClick={requestSwap}
+            // Keeps focus in the field she was editing, so the edit is not
+            // saved on blur and the swap carries it instead.
+            onMouseDown={(event) => event.preventDefault()}
+            disabled={swapLocked}
+            title={swapTitle}
+            aria-keyshortcuts="X"
+            data-testid="swap-parties"
+            className="press inline-flex items-center gap-1.5 rounded-full bg-fill px-3 py-1 text-[12.5px] font-semibold text-accent hover:bg-fill-2 disabled:opacity-40"
+          >
+            <span aria-hidden>⇅</span> Vymeniť strany
+          </button>
+        </div>
+
+        <fieldset>
+          <legend className="sr-only">Odberateľ</legend>
+          <div className={GROUP_HEADING}>
+            <span className="eyebrow">Odberateľ</span>
+            <IntegrityBadge check={integrity.customer} testId="party-integrity-customer" />
+          </div>
+          <div className={GROUP}>
             <Field
               label="Názov"
               value={draft.customerName}
@@ -697,11 +893,20 @@ export function FieldsPanel({
               wide
             />
           </div>
+          <IntegrityFindings check={integrity.customer} testId="party-integrity-findings-customer" />
+          {offersRegisterTakeover(integrity.customer) ? (
+            <TakeFromRegisterButton
+              disabled={swapLocked}
+              testId="take-register-customer"
+              onClick={() => onTakeFromRegister("customer")}
+            />
+          ) : null}
         </fieldset>
 
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">Doklad</legend>
-          <div className="grid grid-cols-2 gap-2">
+        <fieldset>
+          <legend className="sr-only">Doklad</legend>
+          <p className={`${GROUP_HEADING} eyebrow`}>Doklad</p>
+          <div className={GROUP}>
             <Field
               label="Číslo dokladu"
               value={draft.documentNumber}
@@ -769,9 +974,10 @@ export function FieldsPanel({
           </div>
         </fieldset>
 
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">Sumy</legend>
-          <div className="grid grid-cols-2 gap-2">
+        <fieldset>
+          <legend className="sr-only">Sumy</legend>
+          <p className={`${GROUP_HEADING} eyebrow`}>Sumy</p>
+          <div className={GROUP}>
             <Field
               label="Celkom"
               value={draft.amountLiteral}
@@ -808,11 +1014,95 @@ export function FieldsPanel({
               testId="field-recap-vat"
               money
             />
+            {advance ? (
+              <>
+                <Field
+                  label="Odpočet zálohy"
+                  value={formatSkMoney(advance.advanceDeductedCents)}
+                  provenance={advance.source === "manual" ? "confirmed" : "extracted"}
+                  state="correct"
+                  readOnly
+                  disabled={false}
+                  onChange={() => undefined}
+                  onCommit={() => undefined}
+                  testId="advance-deducted"
+                  money
+                />
+                <Field
+                  label="K úhrade"
+                  value={formatSkMoney(advance.amountDueCents)}
+                  provenance="derived"
+                  state="correct"
+                  readOnly
+                  disabled={false}
+                  onChange={() => undefined}
+                  onCommit={() => undefined}
+                  testId="amount-due"
+                  money
+                />
+              </>
+            ) : null}
           </div>
+
+          {advanceAvailable ? (
+            <label
+              className="mt-2 flex items-center gap-2.5 rounded-xl bg-surface px-3.5 py-2.5 text-[14px] shadow-[0_0_0_1px_rgb(0_0_0/0.04)]"
+              title={advanceLocked ? advanceTitle : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={advance !== null}
+                disabled={advanceLocked}
+                onChange={(event) => onSetAdvanceSettlement(event.target.checked)}
+                data-testid="advance-settlement-toggle"
+                className="size-4 accent-[#2b5d72]"
+              />
+              Vyúčtovanie zálohy
+              {document.fieldEditor.advanceSettlementOverride !== null &&
+              document.fieldEditor.advanceSettlementOverride !== undefined ? (
+                <span className="text-ink-3">(určené ručne)</span>
+              ) : null}
+            </label>
+          ) : null}
+
+          {advance ? (
+            <>
+              <p
+                className="mt-2 rounded-xl bg-accent-soft px-3.5 py-2.5 text-[13px] text-accent"
+                data-testid="advance-settlement-hint"
+              >
+                Vyúčtovanie zálohy — k úhrade {formatSkMoney(advance.amountDueCents)}, účtuje sa plná suma
+              </p>
+              {advance.advanceDocumentNumbers.length > 0 ? (
+                <p className="mt-2 px-1 text-[12.5px] text-ink-3" data-testid="advance-documents">
+                  Zálohové doklady: {advance.advanceDocumentNumbers.join(", ")}
+                </p>
+              ) : null}
+              {advance.identityWarning ? (
+                <p
+                  className="mt-2 flex items-start gap-1.5 rounded-xl bg-warn-soft px-3.5 py-2 text-[13px] text-warn-strong"
+                  data-testid="advance-identity-warning"
+                >
+                  <span aria-hidden>!</span>
+                  <span>{advance.identityWarning}</span>
+                </p>
+              ) : null}
+              {(advance.findings ?? []).map((finding, index) => (
+                <p
+                  key={index}
+                  className="mt-2 flex items-start gap-1.5 rounded-xl bg-warn-soft px-3.5 py-2 text-[13px] text-warn-strong"
+                  data-testid="advance-finding"
+                >
+                  <span aria-hidden>!</span>
+                  <span>{finding}</span>
+                </p>
+              ))}
+            </>
+          ) : null}
 
           {cashRounding !== null && (
             <p
-              className="mt-2.5 text-[11.5px] text-ink-3"
+              className="mt-2 px-1 text-[12.5px] text-ink-3"
               data-testid="cash-rounding"
             >
               Zaokrúhlenie platby v hotovosti:{" "}
@@ -823,7 +1113,7 @@ export function FieldsPanel({
           {arithmeticWarnings.map((warning, index) => (
             <p
               key={index}
-              className="mt-2.5 flex items-start gap-1.5 rounded-md bg-warn-soft px-2.5 py-1.5 text-[11.5px] text-warn"
+              className="mt-2 flex items-start gap-1.5 rounded-xl bg-warn-soft px-3.5 py-2 text-[13px] text-warn-strong"
               data-testid={index === 0 ? "arithmetic-warning" : undefined}
             >
               <span aria-hidden>!</span>
@@ -832,157 +1122,160 @@ export function FieldsPanel({
           ))}
         </fieldset>
 
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">DPH podľa sadzby</legend>
-          <table className="w-full border-collapse text-[11.5px]">
-            <thead>
-              <tr>
-                <th className="pb-1.5 text-left text-[9.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
-                  Sadzba
-                </th>
-                <th className="pb-1.5 text-right text-[9.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
-                  Základ
-                </th>
-                <th className="pb-1.5 text-right text-[9.5px] font-semibold uppercase tracking-[0.08em] text-ink-3">
-                  DPH
-                </th>
-                <th className="w-6" />
-              </tr>
-            </thead>
-            <tbody>
-              {draft.vatRecap.map((row, index) => (
-                <tr key={index} data-testid={`vat-recap-row-${index}`}>
-                  <td className="border-t border-line py-1 pr-1">
-                    <CellInput
-                      value={row.rateLiteral}
-                      provenance={provenance.vatRecap}
-                      readOnly={readOnly}
-                      disabled={pending}
-                      placeholder="%"
-                      testId={`field-vat-rate-${index}`}
-                      state={resolveState("vatRecap", arithmeticFlagged)}
-                      onChange={(value) => updateVatRow(index, { rateLiteral: value })}
-                      onCommit={commit}
-                    />
-                  </td>
-                  <td className="border-t border-line py-1 pr-1">
-                    <CellInput
-                      value={row.baseLiteral}
-                      provenance={provenance.vatRecap}
-                      readOnly={readOnly}
-                      disabled={pending}
-                      placeholder="Základ"
-                      testId={`field-vat-base-${index}`}
-                      state={resolveState("vatRecap", arithmeticFlagged)}
-                      onChange={(value) => updateVatRow(index, { baseLiteral: value })}
-                      onCommit={commit}
-                    />
-                  </td>
-                  <td className="border-t border-line py-1 pr-1">
-                    <CellInput
-                      value={row.vatLiteral}
-                      provenance={provenance.vatRecap}
-                      readOnly={readOnly}
-                      disabled={pending}
-                      placeholder="DPH"
-                      testId={`field-vat-amount-${index}`}
-                      state={resolveState("vatRecap", arithmeticFlagged)}
-                      onChange={(value) => updateVatRow(index, { vatLiteral: value })}
-                      onCommit={commit}
-                    />
-                  </td>
-                  <td className="border-t border-line py-1 text-right">
-                    {!readOnly && draft.vatRecap.length > 1 ? (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() =>
-                          commitVatRows(
-                            draft.vatRecap.filter((_, rowIndex) => rowIndex !== index),
-                          )
-                        }
-                        className="text-[11px] text-ink-3 hover:text-bad"
-                        aria-label={`Odstrániť sadzbu ${index + 1}`}
-                      >
-                        ✕
-                      </button>
-                    ) : null}
-                  </td>
+        <fieldset>
+          <legend className="sr-only">DPH podľa sadzby</legend>
+          <div className={GROUP_HEADING}>
+            <span className="eyebrow">DPH podľa sadzby</span>
+            {vatCheck ? (
+              <span className={`text-[12px] ${vatCheck.ok ? "text-good" : "text-warn"}`} data-testid="vat-check">
+                {vatCheck.text}
+              </span>
+            ) : null}
+          </div>
+          <div className={GROUP}>
+            <table className="w-full border-collapse text-[14px]">
+              <thead>
+                <tr className="text-[12px] text-ink-3">
+                  <th className="py-2 pl-3.5 text-left font-medium">Sadzba</th>
+                  <th className="py-2 text-right font-medium">Základ</th>
+                  <th className="py-2 text-right font-medium">DPH</th>
+                  <th className="w-10" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {!readOnly ? (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                patch({
-                  vatRecap: [
-                    ...draft.vatRecap,
-                    { rateLiteral: "", baseLiteral: "", vatLiteral: "" },
-                  ],
-                })
-              }
-              data-testid="add-vat-recap-row"
-              className="mt-2 text-[11.5px] text-accent underline underline-offset-2"
-            >
-              Pridať sadzbu DPH
-            </button>
-          ) : null}
-        </fieldset>
-
-        <fieldset className="border-b border-line px-3 py-3">
-          <legend className="eyebrow mb-2">Poznámka</legend>
-          {readOnly ? (
-            <p className="text-[12.5px] text-ink-2">{note || "—"}</p>
-          ) : (
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={note}
-                onChange={(event) => onNoteChange(event.target.value)}
-                onBlur={onNoteSave}
-                placeholder="Poznámka k dokladu"
-                aria-label="Poznámka k dokladu"
-                data-testid={`document-note-${document.id}`}
-                className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-[12.5px]"
-              />
+              </thead>
+              <tbody>
+                {draft.vatRecap.map((row, index) => (
+                  <tr key={index} data-testid={`vat-recap-row-${index}`} className="border-t border-line">
+                    <td className="py-1 pl-3.5">
+                      <CellInput
+                        value={row.rateLiteral}
+                        provenance={provenance.vatRecap}
+                        readOnly={readOnly}
+                        disabled={pending}
+                        placeholder="%"
+                        testId={`field-vat-rate-${index}`}
+                        state={resolveState("vatRecap", arithmeticFlagged)}
+                        onChange={(value) => updateVatRow(index, { rateLiteral: value })}
+                        onCommit={commit}
+                        align="left"
+                      />
+                    </td>
+                    <td className="py-1 pl-2">
+                      <CellInput
+                        value={row.baseLiteral}
+                        provenance={provenance.vatRecap}
+                        readOnly={readOnly}
+                        disabled={pending}
+                        placeholder="Základ"
+                        testId={`field-vat-base-${index}`}
+                        state={resolveState("vatRecap", arithmeticFlagged)}
+                        onChange={(value) => updateVatRow(index, { baseLiteral: value })}
+                        onCommit={commit}
+                      />
+                    </td>
+                    <td className="py-1 pl-2">
+                      <CellInput
+                        value={row.vatLiteral}
+                        provenance={provenance.vatRecap}
+                        readOnly={readOnly}
+                        disabled={pending}
+                        placeholder="DPH"
+                        testId={`field-vat-amount-${index}`}
+                        state={resolveState("vatRecap", arithmeticFlagged)}
+                        onChange={(value) => updateVatRow(index, { vatLiteral: value })}
+                        onCommit={commit}
+                      />
+                    </td>
+                    <td className="py-1 pr-2 text-right">
+                      {!readOnly && draft.vatRecap.length > 1 ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() =>
+                            commitVatRows(draft.vatRecap.filter((_, rowIndex) => rowIndex !== index))
+                          }
+                          className="press grid size-7 place-items-center rounded-full"
+                          aria-label={`Odstrániť sadzbu ${index + 1}`}
+                        >
+                          <span aria-hidden className="grid size-4 place-items-center rounded-full bg-ink-4 text-[13px] leading-none font-bold text-white">
+                            −
+                          </span>
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!readOnly ? (
               <button
                 type="button"
-                disabled={pending || !noteDirty}
-                onClick={onNoteSave}
-                className="text-[11.5px] text-accent underline underline-offset-2 disabled:text-ink-3 disabled:no-underline"
+                disabled={pending}
+                onClick={() =>
+                  patch({
+                    vatRecap: [...draft.vatRecap, { rateLiteral: "", baseLiteral: "", vatLiteral: "" }],
+                  })
+                }
+                data-testid="add-vat-recap-row"
+                className="press flex w-full items-center gap-2 border-t border-line px-3.5 py-2.5 text-left text-[14px] font-medium text-accent hover:bg-surface-2"
               >
-                Uložiť
+                <span aria-hidden className="grid size-4 place-items-center rounded-full bg-accent text-[13px] leading-none font-bold text-white">
+                  +
+                </span>
+                Pridať sadzbu DPH
               </button>
-            </div>
-          )}
+            ) : null}
+          </div>
         </fieldset>
 
+        <div>
+          <label htmlFor={`document-note-${document.id}`} className={GROUP_HEADING}>
+            <span className="eyebrow">Poznámka</span>
+            <span className="text-[12px] text-ink-3">vidí ju celá kancelária</span>
+          </label>
+          {readOnly ? (
+            <p className="rounded-xl bg-surface px-3.5 py-3 text-[14px] text-ink-2 shadow-[0_0_0_1px_rgb(0_0_0/0.04)]">
+              {note || "—"}
+            </p>
+          ) : (
+            <textarea
+              id={`document-note-${document.id}`}
+              value={note}
+              rows={3}
+              onChange={(event) => onNoteChange(event.target.value)}
+              onBlur={onNoteSave}
+              placeholder="Napr. dobropis príde v decembri, klient doplní IČO…"
+              aria-label="Poznámka k dokladu"
+              data-testid={`document-note-${document.id}`}
+              className="block w-full resize-y rounded-xl bg-surface px-3.5 py-3 text-[14px] shadow-[0_0_0_1px_rgb(0_0_0/0.04)] outline-none placeholder:text-ink-4 focus:shadow-[0_0_0_2px_rgb(43_93_114/0.45)]"
+            />
+          )}
+          {!readOnly && noteDirty ? (
+            <p className="mt-1 px-1 text-[12px] text-ink-3">Uloží sa pri opustení poľa.</p>
+          ) : null}
+        </div>
+
         {!readOnly ? (
-          <div className="flex items-center gap-2.5 px-3 pt-3">
+          <div className="flex items-center gap-2.5 px-1">
             <button
               type="button"
               disabled={pending || !dirty}
               onClick={commit}
               data-testid="save-document-fields"
-              className="rounded-md border border-line-2 bg-surface px-3 py-1.5 text-[12.5px] text-ink-2 hover:border-accent hover:text-accent disabled:opacity-40"
+              className="press rounded-lg bg-fill px-3 py-1.5 text-[13px] font-medium text-ink disabled:opacity-40"
             >
               Uložiť údaje
             </button>
-            <span className="flex items-center gap-1.5 text-[11px] text-ink-3">
+            <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
               {dirty ? (
                 <>
-                  <i aria-hidden className="inline-block size-1.5 rounded-full bg-warn" />
+                  <i aria-hidden className="inline-block size-1.5 rounded-full bg-warn-dot" />
                   Neuložené zmeny
                 </>
               ) : saveState === "saving" ? (
                 "Ukladám…"
               ) : (
                 <>
-                  <i aria-hidden className="inline-block size-1.5 rounded-full bg-good" />
+                  <i aria-hidden className="inline-block size-1.5 rounded-full bg-good-dot" />
                   Všetko uložené
                 </>
               )}
@@ -994,11 +1287,75 @@ export function FieldsPanel({
   );
 }
 
-function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" | "profile" | "derived" | "empty" }) {
+const VERDICT_TONE: Record<IntegrityVerdict, string> = {
+  verified: "text-good",
+  valid: "text-ink-3",
+  notice: "text-warn",
+  mismatch: "text-bad",
+  unverifiable: "text-ink-3",
+  unavailable: "text-warn",
+};
+
+/** The verdict of one party, shown beside its fieldset's legend. */
+function IntegrityBadge({ check, testId }: { check: SubjectCheck; testId: string }) {
+  return (
+    <span
+      className={`text-[12px] font-medium ${VERDICT_TONE[check.verdict]}`}
+      data-testid={testId}
+      data-verdict={check.verdict}
+    >
+      {verdictLabel(check.verdict)}
+    </span>
+  );
+}
+
+/** Takes the register's name, DIČ and IČ DPH for a flagged party (PRD 0004, story 34). */
+function TakeFromRegisterButton({
+  disabled,
+  testId,
+  onClick,
+}: {
+  disabled: boolean;
+  testId: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="mt-2 px-1">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title="Názov, DIČ a IČ DPH z registra sa zapíšu ako tvoje údaje. IČO sa nemení."
+        data-testid={testId}
+        className="press rounded-lg bg-surface px-3 py-1.5 text-[13px] font-semibold text-accent shadow-[0_0_0_1px_rgb(0_0_0/0.08)] disabled:opacity-40"
+      >
+        Prevziať z registra
+      </button>
+    </div>
+  );
+}
+
+/** What is wrong with a party, in Slovak; nothing when all is well. */
+function IntegrityFindings({ check, testId }: { check: SubjectCheck; testId: string }) {
+  if (check.findings.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="mt-2 space-y-0.5 px-1 text-[12.5px]" data-testid={testId}>
+      {check.findings.map((item, index) => (
+        <li key={index} className={item.severity === "mismatch" ? "text-bad" : "text-warn"}>
+          {subjectFindingMessage(item)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProvenanceTag({ provenance }: { provenance: FieldProvenance }) {
   if (provenance === "extracted") {
     return (
       <span
-        className="rounded-[2px] bg-accent-soft px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-accent"
+        className="rounded-[2px] bg-accent-soft rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-accent"
         title="Hodnota z dokladu"
       >
         auto
@@ -1008,7 +1365,7 @@ function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" |
   if (provenance === "confirmed") {
     return (
       <span
-        className="rounded-[2px] bg-surface-3 px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="rounded-[2px] bg-surface-3 rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-ink-2"
         title="Hodnota, ktorú si zadala"
       >
         moje
@@ -1018,7 +1375,7 @@ function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" |
   if (provenance === "derived") {
     return (
       <span
-        className="rounded-[2px] bg-accent-soft px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-accent"
+        className="rounded-[2px] bg-accent-soft rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-accent"
         title="Hodnota vypočítaná z iných údajov"
       >
         vypočítané
@@ -1028,10 +1385,30 @@ function ProvenanceTag({ provenance }: { provenance: "confirmed" | "extracted" |
   if (provenance === "profile") {
     return (
       <span
-        className="rounded-[2px] bg-surface-3 px-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="rounded-[2px] bg-surface-3 rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-ink-2"
         title="Hodnota z profilu firmy"
       >
         profil
+      </span>
+    );
+  }
+  if (provenance === "register") {
+    return (
+      <span
+        className="rounded-[2px] bg-good-soft rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-good"
+        title="Hodnota prevzatá z registra"
+      >
+        z registra
+      </span>
+    );
+  }
+  if (provenance === "directory") {
+    return (
+      <span
+        className="rounded-[2px] bg-surface-3 rounded-[4px] px-1 py-px text-[10px] font-bold tracking-[0.02em] uppercase text-ink-2"
+        title="Doplnená z adresára subjektov"
+      >
+        z adresára
       </span>
     );
   }
@@ -1054,7 +1431,7 @@ function Field({
 }: {
   label: string;
   value: string;
-  provenance?: "confirmed" | "extracted" | "profile" | "derived" | "empty";
+  provenance?: FieldProvenance;
   state: FieldCheckState;
   readOnly: boolean;
   disabled: boolean;
@@ -1065,9 +1442,12 @@ function Field({
   money?: boolean;
   wide?: boolean;
 }) {
+  void wide;
   return (
-    <label className={`flex min-w-0 flex-col gap-1 ${wide ? "col-span-2" : ""}`}>
-      <span className="flex items-center gap-1.5 text-[10.5px] text-ink-3">
+    <label
+      className={`flex min-w-0 items-center gap-3 border-t border-line px-3.5 py-2 transition-colors first:border-t-0 focus-within:bg-[#f5f8fa] ${fieldStateClass(state)}`}
+    >
+      <span className="flex w-[124px] shrink-0 flex-wrap items-center gap-x-1.5 text-[14px] text-ink-2">
         {label}
         <ProvenanceTag provenance={provenance} />
       </span>
@@ -1076,7 +1456,7 @@ function Field({
         value={value}
         readOnly={readOnly}
         disabled={disabled}
-        placeholder={placeholder ?? (state === "empty" ? "vyplň ručne" : undefined)}
+        placeholder={placeholder ?? (state === "empty" ? "Doplniť" : undefined)}
         inputMode={money ? "decimal" : undefined}
         onChange={(event) => {
           const next = event.target.value;
@@ -1087,9 +1467,9 @@ function Field({
         onBlur={onCommit}
         data-testid={testId}
         data-field-state={state}
-        className={`min-h-[30px] rounded-md border px-2 py-1.5 text-[12.5px] read-only:bg-surface read-only:text-ink-2 ${fieldStateClass(state)} ${
-          money ? "text-right font-mono" : ""
-        }`}
+        className={`min-h-[28px] w-full min-w-0 bg-transparent text-right text-[14px] outline-none placeholder:text-ink-4 focus:text-accent read-only:text-ink-2 disabled:text-ink-2 ${
+          state === "flagged" ? "text-warn-strong" : "text-ink"
+        } ${money ? "tabular" : ""}`}
       />
     </label>
   );
@@ -1105,9 +1485,10 @@ function CellInput({
   state,
   onChange,
   onCommit,
+  align = "right",
 }: {
   value: string;
-  provenance?: "confirmed" | "extracted" | "profile" | "derived" | "empty";
+  provenance?: FieldProvenance;
   readOnly: boolean;
   disabled: boolean;
   placeholder: string;
@@ -1115,9 +1496,10 @@ function CellInput({
   state: FieldCheckState;
   onChange: (value: string) => void;
   onCommit: () => void;
+  align?: "left" | "right";
 }) {
   return (
-    <div className="flex flex-col items-end gap-0.5">
+    <div className={`flex flex-col gap-0.5 ${align === "left" ? "items-start" : "items-end"}`}>
       <ProvenanceTag provenance={provenance} />
       <input
         type="text"
@@ -1136,7 +1518,9 @@ function CellInput({
         data-testid={testId}
         data-field-state={state}
         aria-label={placeholder}
-        className={`w-full rounded-md border px-1.5 py-1 text-right font-mono text-[11.5px] read-only:bg-surface ${fieldStateClass(state)}`}
+        className={`tabular w-full min-w-0 rounded-md bg-transparent px-1 py-1 text-[14px] outline-none placeholder:text-ink-4 focus:text-accent ${
+          align === "left" ? "text-left" : "text-right"
+        } ${fieldStateClass(state)}`}
       />
     </div>
   );

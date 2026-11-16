@@ -1,33 +1,66 @@
 import { createSign } from "node:crypto";
-import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
-import type { DriveChangesWatch, DriveClient } from "./port";
+import type { DriveFileRecord } from "@/modules/drive-tree";
+import type { DriveChange, DriveChangesFeed, DriveChangesWatch, DriveClient } from "./port";
 
 type GoogleCredentials = {
   client_email: string;
   private_key: string;
 };
 
+type ApiFile = {
+  id?: string | null;
+  name?: string | null;
+  parents?: string[] | null;
+  createdTime?: string | null;
+  mimeType?: string | null;
+  trashed?: boolean | null;
+  capabilities?: {
+    canRename?: boolean | null;
+    canMoveItemWithinDrive?: boolean | null;
+  } | null;
+};
+
 type ListResponse = {
-  files?: Array<{
-    id?: string | null;
-    name?: string | null;
-    parents?: string[] | null;
-    createdTime?: string | null;
-    mimeType?: string | null;
-    capabilities?: {
-      canRename?: boolean | null;
-      canMoveItemWithinDrive?: boolean | null;
-    } | null;
-  }>;
+  files?: ApiFile[];
   nextPageToken?: string | null;
 };
 
-const LIST_FIELDS =
-  "nextPageToken,files(id,name,parents,createdTime,mimeType,capabilities/canRename,capabilities/canMoveItemWithinDrive)";
+type ChangesResponse = {
+  changes?: Array<{ fileId?: string | null; removed?: boolean | null; file?: ApiFile | null }>;
+  nextPageToken?: string | null;
+  newStartPageToken?: string | null;
+};
+
+const FILE_FIELDS = "id,name,parents,createdTime,mimeType,capabilities/canRename,capabilities/canMoveItemWithinDrive";
+const CHANGES_FIELDS = `nextPageToken,newStartPageToken,changes(fileId,removed,file(${FILE_FIELDS},trashed))`;
+/** Every Drive the service account sees, shared drives included, as the listing and the watch. */
+const ALL_DRIVES = "supportsAllDrives=true&includeItemsFromAllDrives=true";
+
+/** A file as the sweep needs it, or null when Drive left out a field it needs. */
+function toRecord(file: ApiFile): DriveFileRecord | null {
+  if (!file.id || !file.name || !file.mimeType || !file.createdTime) {
+    return null;
+  }
+  return {
+    id: file.id,
+    name: file.name,
+    parents: file.parents ?? [],
+    createdTime: file.createdTime,
+    mimeType: file.mimeType,
+    capabilities: file.capabilities
+      ? {
+          canRename: file.capabilities.canRename ?? true,
+          canMoveItemWithinDrive: file.capabilities.canMoveItemWithinDrive ?? true,
+        }
+      : undefined,
+  };
+}
+
+const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`;
 const PAGE_SIZE = 1000;
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
-export class GoogleDriveClient implements DriveClient, DriveChangesWatch {
+export class GoogleDriveClient implements DriveClient, DriveChangesWatch, DriveChangesFeed {
   private readonly getAccessToken: () => Promise<string>;
 
   constructor(
@@ -48,23 +81,10 @@ export class GoogleDriveClient implements DriveClient, DriveChangesWatch {
     do {
       const response = await this.pageFetcher(pageToken);
       for (const file of response.files ?? []) {
-        if (!file.id || !file.name || !file.mimeType || !file.createdTime) {
-          continue;
+        const record = toRecord(file);
+        if (record) {
+          records.push(record);
         }
-        records.push({
-          id: file.id,
-          name: file.name,
-          parents: file.parents ?? [],
-          createdTime: file.createdTime,
-          mimeType: file.mimeType,
-          capabilities: file.capabilities
-            ? {
-                canRename: file.capabilities.canRename ?? true,
-                canMoveItemWithinDrive:
-                  file.capabilities.canMoveItemWithinDrive ?? true,
-              }
-            : undefined,
-        });
       }
       pageToken = response.nextPageToken ?? undefined;
     } while (pageToken);
@@ -105,31 +125,79 @@ export class GoogleDriveClient implements DriveClient, DriveChangesWatch {
     }
   }
 
-  async createFolder(name: string, parentId: string): Promise<string> {
+  async move(fileId: string, fromParentId: string, toParentId: string): Promise<void> {
+    const accessToken = await this.getAccessToken();
+    const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`);
+    url.searchParams.set("supportsAllDrives", "true");
+    url.searchParams.set("addParents", toParentId);
+    url.searchParams.set("removeParents", fromParentId);
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+    if (!response.ok) {
+      throw new Error(`Drive files.update (move) failed with status ${response.status}`);
+    }
+  }
+
+  async startPageToken(): Promise<string> {
     const accessToken = await this.getAccessToken();
     const response = await fetch(
-      "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          mimeType: FOLDER_MIME,
-          parents: [parentId],
-        }),
-      },
+      "https://www.googleapis.com/drive/v3/changes/startPageToken?supportsAllDrives=true",
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!response.ok) {
-      throw new Error(`Drive files.create failed with status ${response.status}`);
+      throw new Error(`Drive changes.getStartPageToken failed with status ${response.status}`);
     }
-    const json = (await response.json()) as { id?: string };
-    if (!json.id) {
-      throw new Error("Drive files.create returned no id");
+    const { startPageToken } = (await response.json()) as { startPageToken?: string };
+    if (!startPageToken) {
+      throw new Error("Drive changes.getStartPageToken returned no token");
     }
-    return json.id;
+    return startPageToken;
+  }
+
+  async changesSince(token: string): Promise<{ changes: DriveChange[]; newStartPageToken: string } | null> {
+    const changes: DriveChange[] = [];
+    let pageToken = token;
+    for (;;) {
+      const accessToken = await this.getAccessToken();
+      const url =
+        `https://www.googleapis.com/drive/v3/changes?pageToken=${encodeURIComponent(pageToken)}` +
+        `&${ALL_DRIVES}&includeRemoved=true&pageSize=1000&fields=${encodeURIComponent(CHANGES_FIELDS)}`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      // An expired or unknown token: the caller lists everything again.
+      if (response.status === 400 || response.status === 404 || response.status === 410) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new Error(`Drive changes.list failed with status ${response.status}`);
+      }
+      const page = (await response.json()) as ChangesResponse;
+      for (const change of page.changes ?? []) {
+        // A change to a shared drive itself, not to a file in it.
+        if (!change.fileId) {
+          continue;
+        }
+        const record = change.file ? toRecord(change.file) : null;
+        changes.push({
+          fileId: change.fileId,
+          // A file without a field the sweep needs is left out, as the full listing does.
+          removed: change.removed === true || !record,
+          file: record ? { ...record, trashed: change.file?.trashed === true } : null,
+        });
+      }
+      if (page.newStartPageToken) {
+        return { changes, newStartPageToken: page.newStartPageToken };
+      }
+      if (!page.nextPageToken) {
+        throw new Error("Drive changes.list returned neither a next page nor a new start token");
+      }
+      pageToken = page.nextPageToken;
+    }
   }
 
   async watchChanges(input: {
@@ -138,21 +206,10 @@ export class GoogleDriveClient implements DriveClient, DriveChangesWatch {
     address: string;
     expiresAt: Date;
   }): Promise<{ resourceId: string; expiresAt: string }> {
+    const startPageToken = await this.startPageToken();
     const accessToken = await this.getAccessToken();
-    const allDrives = "supportsAllDrives=true&includeItemsFromAllDrives=true";
-    const tokenResponse = await fetch(
-      "https://www.googleapis.com/drive/v3/changes/startPageToken?supportsAllDrives=true",
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    if (!tokenResponse.ok) {
-      throw new Error(`Drive changes.getStartPageToken failed with status ${tokenResponse.status}`);
-    }
-    const { startPageToken } = (await tokenResponse.json()) as { startPageToken?: string };
-    if (!startPageToken) {
-      throw new Error("Drive changes.getStartPageToken returned no token");
-    }
     const response = await fetch(
-      `https://www.googleapis.com/drive/v3/changes/watch?pageToken=${encodeURIComponent(startPageToken)}&${allDrives}`,
+      `https://www.googleapis.com/drive/v3/changes/watch?pageToken=${encodeURIComponent(startPageToken)}&${ALL_DRIVES}`,
       {
         method: "POST",
         headers: {
@@ -296,6 +353,9 @@ function createPageFetcher(credentials: GoogleCredentials) {
     url.searchParams.set("pageSize", String(PAGE_SIZE));
     url.searchParams.set("supportsAllDrives", "true");
     url.searchParams.set("includeItemsFromAllDrives", "true");
+    // The default corpus ("user") leaves out the files of a shared drive the
+    // service account is a member of: the office's clients live in one.
+    url.searchParams.set("corpora", "allDrives");
     if (pageToken) {
       url.searchParams.set("pageToken", pageToken);
     }

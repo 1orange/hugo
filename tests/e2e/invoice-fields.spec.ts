@@ -40,3 +40,34 @@ test("invoice with both parties persists and matches company profile", async ({ 
   await expect(page.getByTestId("field-customer-ico")).toHaveValue("31333532");
   await expect(page.getByTestId("party-roles-flagged")).toHaveCount(0);
 });
+
+test("swapping the parties moves them across, survives a reload, and swaps back", async ({ page }) => {
+  await page.goto("/sign-in");
+  await page.getByTestId("e2e-email").fill("allowed@example.com");
+  await page.getByTestId("e2e-submit").click();
+  await expect(page).toHaveURL(/\/companies$/);
+
+  await setUpCompanyOneProfile(page);
+
+  await page.goto("/companies/1/2026_01");
+  await documentRow(page, "e2e-doc-supplier").click();
+  // Read the parties only once the panel shows this document, not the one selected before.
+  await expect(documentRow(page, "e2e-doc-supplier")).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("field-supplier-name")).toHaveValue("Dodávateľ s.r.o.");
+
+  const supplier = await page.getByTestId("field-supplier-name").inputValue();
+  const customer = await page.getByTestId("field-customer-name").inputValue();
+
+  await page.getByTestId("swap-parties").click();
+  await expect(page.getByTestId("field-supplier-name")).toHaveValue(customer);
+  await expect(page.getByTestId("field-customer-name")).toHaveValue(supplier);
+
+  await page.reload();
+  await documentRow(page, "e2e-doc-supplier").click();
+  await expect(page.getByTestId("field-supplier-name")).toHaveValue(customer);
+  await expect(page.getByTestId("field-customer-name")).toHaveValue(supplier);
+
+  await page.keyboard.press("x");
+  await expect(page.getByTestId("field-supplier-name")).toHaveValue(supplier);
+  await expect(page.getByTestId("field-customer-name")).toHaveValue(customer);
+});

@@ -3,6 +3,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import * as schema from "./schema";
+import { migrateLegacyFolderDefaults } from "./folder-defaults";
 
 export type Db = NodePgDatabase<typeof schema>;
 
@@ -104,6 +105,8 @@ async function migrateOnce(url: string): Promise<void> {
   try {
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
     await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+    // Data, not schema: idempotent, so every replica may run it on start (ADR 0007).
+    await migrateLegacyFolderDefaults(client);
   } finally {
     await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]).catch(() => undefined);
     await client.end();
@@ -126,6 +129,33 @@ export async function withAdvisoryLock<T>(key: number, work: () => Promise<T>): 
   const connection = await state.pool!.connect();
   try {
     await connection.query("SELECT pg_advisory_lock($1)", [key]);
+    try {
+      return await work();
+    } finally {
+      await connection.query("SELECT pg_advisory_unlock($1)", [key]);
+    }
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * As `withAdvisoryLock`, but gives up at once when another holder has the
+ * lock: null then. For work that is pointless to repeat right after someone
+ * else has done it, such as a page's freshness sweep.
+ */
+export async function withAdvisoryLockIfFree<T>(key: number, work: () => Promise<T>): Promise<T | null> {
+  const state = holder();
+  if (state.override) {
+    return work();
+  }
+  getDb();
+  const connection = await state.pool!.connect();
+  try {
+    const result = await connection.query<{ locked: boolean }>("SELECT pg_try_advisory_lock($1) AS locked", [key]);
+    if (!result.rows[0]?.locked) {
+      return null;
+    }
     try {
       return await work();
     } finally {

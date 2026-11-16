@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   checkRenameAllowed,
   checkRenameTarget,
-  checkCreateFolderTarget,
   resolveCapabilities,
 } from "../../../src/modules/drive-mutation.ts";
 import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts";
@@ -25,8 +24,8 @@ test("checkRenameAllowed refuses when Drive reports canRename false", () => {
 test("checkRenameTarget accepts only canonical names", () => {
   assert.deepEqual(
     checkRenameTarget({
-      currentName: "04 Bločky_hotorvosť",
-      targetName: "04 Bločky_hotovosť",
+      currentName: "04 Platby hotorvosťou",
+      targetName: "04 Bločky",
       canonicalFolderNames: CANONICAL_FOLDER_NAMES,
     }),
     { allowed: true },
@@ -40,7 +39,7 @@ test("checkRenameTarget accepts only canonical names", () => {
     "04 Bločky_hotovosť ",
   ]) {
     const result = checkRenameTarget({
-      currentName: "04 Bločky_hotorvosť",
+      currentName: "04 Platby hotorvosťou",
       targetName,
       canonicalFolderNames: CANONICAL_FOLDER_NAMES,
     });
@@ -52,31 +51,6 @@ test("checkRenameTarget refuses a no-op rename", () => {
   const result = checkRenameTarget({
     currentName: "07 Mzdy",
     targetName: "07 Mzdy",
-    canonicalFolderNames: CANONICAL_FOLDER_NAMES,
-  });
-  assert.equal(result.allowed, false);
-});
-
-test("checkCreateFolderTarget accepts canonical and month folder names", () => {
-  assert.deepEqual(
-    checkCreateFolderTarget({
-      folderName: "02 Prijaté faktúry",
-      canonicalFolderNames: CANONICAL_FOLDER_NAMES,
-    }),
-    { allowed: true },
-  );
-
-  assert.deepEqual(
-    checkCreateFolderTarget({
-      folderName: "2026_04",
-      canonicalFolderNames: CANONICAL_FOLDER_NAMES,
-      allowMonthFolder: true,
-    }),
-    { allowed: true },
-  );
-
-  const result = checkCreateFolderTarget({
-    folderName: "Daňové priznanie DPH.pdf",
     canonicalFolderNames: CANONICAL_FOLDER_NAMES,
   });
   assert.equal(result.allowed, false);

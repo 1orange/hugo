@@ -454,3 +454,71 @@ Bolt receipt's seller is now right (merged), Bonami's IBAN no longer stands as i
 new wrong-but-plausible field was flagged only because her company went unfound: found by name
 now, 2Checkout's invoice names "Verifone Payments BV dba 2Checkout", the seller of record, where
 her register has "Kaspersky".
+
+### Amendment, 2026-11-11: an invoice settled by an advance keeps its real values (PRD 0004)
+
+The office calls them *zálohové (preddavkové) faktúry*: a final tax document from which an advance
+already paid is deducted, so the amount due is zero. Two layouts occur in the benchmark corpus:
+
+- the advance printed as **negative recap rows** — `Zál. daň. dokl. základ 23% | -32,51 | DPH 23% |
+  -7,48` beside `Základ 23% | 32,51 | DPH 23% | 7,48` — so that `Základ celkom 0,00 | Celkom DPH
+  0,00`, with a line `Odpočet zálohového daňového dokladu ZDD…`;
+- a full recap `Celkom | 364,65 | 83,87 | 448,52`, then `Celkom uhradených záloh: 448,52` and
+  `Celkom k úhrade vrátane DPH | 0,00`.
+
+Booking the zero is wrong: the accountant books the invoice's value. **The document's total, base and
+VAT are therefore the values of the supply, not the amount due.**
+
+- Extraction keeps three amounts apart: the **total** (value of the supply incl. VAT), the **advance
+  deducted**, and the **amount due**. The advance documents referenced (`ZDD15873826`, `5926010455`)
+  are kept with the deduction.
+- Recap rows labelled as an advance deduction (`Zál. daň. dokl.`, `záloha`, `preddavok`, `odpočet
+  zálohy`) are **settlement rows**, excluded from the per-rate VAT recap and from every aggregate
+  derived from it (PRD 0003's VAT summary).
+- When the printed total is zero, or equals the amount due after a deduction, the total is taken from
+  a printed gross total (`Celkom`, `Zálohy celkom`) when one is grounded in the text; otherwise it is
+  the sum of the supply rows' base and VAT, with provenance `derived`. A total of zero with non-zero
+  supply rows is never accepted.
+- **Arithmetic** checks base + VAT against the supply total; an amount due of zero is not a mismatch.
+  Total − deducted = due is checked as a separate, informational identity.
+- PRD 0003's single-rate VAT inference (VAT = total − base) **does not run** on a document with a
+  deduction, since its total and due amounts differ by the advance, not by VAT.
+- Detection is deterministic on the text, after the model, so the model schema does not change. A
+  settled invoice is a *flag* on an invoice or advance tax document, not a new document type; the
+  existing *proforma* hint is unchanged. The extraction pipeline version is bumped so open months are
+  re-read.
+
+### Amendment, 2026-11-16: a shorter answer, not adopted
+
+The answer is the larger part of the wait on the node: 328 tokens median, at 7.8 tokens/s. Three
+ways to write the same payload in fewer tokens were benchmarked on the same server (Qwen3 4B
+Q4_0, thinking off) and the same labelled documents: 15 read by the model, and 2 scans skipped
+because OCR was not running, as in the other runs here.
+
+| Answer written as | Exact or empty-flagged | Wrong-but-plausible | Amount wrong, arithmetic OK | Median answer tokens | Median model time | Worst model time |
+|---|---|---|---|---|---|---|
+| Current: long names, JSON schema | 95.1% | 2.1% | 0 | 328 | 47.8 s | 118.1 s |
+| Short names, JSON schema | 78.9% | 2.8% | 0 | 371 | 57.2 s | 91.7 s |
+| Short names, grammar, one space after `:` and `,` | 69.7% | 2.8% | 0 | 318 | 36.7 s | 50.6 s |
+| Long names, grammar, one space after `:` and `,` | 78.9% | 1.4% | 0 | 285 | 40.3 s | 71.7 s |
+
+Token counts are exact and comparable. Times varied between runs on the same machine, so they
+are indicative only.
+
+- **Layout is most of the cost.** One answer took 362 tokens pretty-printed, 313 with one space
+  after each colon and comma, and 268 with no whitespace at all. llama.cpp's JSON schema lets the
+  model write newlines and indentation, which is what it does. A grammar (GBNF) can allow only the
+  single space, and that alone (long names kept) cut the answer by 13% but left 14 fields empty
+  without a flag, where the current answer leaves one. Without any separator the model derailed on
+  one document: it closed an empty party list and wrote a 525-character party name.
+- **Short names cost accuracy.** The model fills a VAT row less carefully under `rate`, `base`,
+  `vat` than under `rateLiteral`, `baseLiteral`, `vatLiteral`: rates that are not on the document,
+  and extra rows. The VAT recap was flagged wrong on seven documents, against one now, and the
+  answers grew to 371 tokens.
+- **Nothing can be dropped.** Every field of the answer is read by the app: the parties' name,
+  IČO, DIČ and IČ DPH (`document-fields.ts`); the document number, variable symbol, the three
+  dates, currency, amount and VAT recap (`document-fields.ts`, `extraction-checks.ts`); the document
+  type (`fields-panel.tsx`, `omega-export-section.ts`).
+
+**Decision:** not adopted. The schema, the grammar and the mapping are as before; the prompt is
+unchanged. The three alternatives fail the accuracy rule (exact or empty-flagged not lower).

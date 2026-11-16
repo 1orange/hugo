@@ -136,3 +136,16 @@ test("a sweep forgets the system files an older sweep recorded", async () => {
   assert.equal(documentIds.includes("old-desktop-ini"), false);
   assert.equal(documentIds.includes("decided-thumbs"), true);
 });
+
+test("a sweep never creates a missing canonical subfolder in Drive", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  // Only one of the seven subfolders exists; the sweep must leave the rest absent.
+  const client = new FakeDriveClient([...fixture]);
+  const before = (await client.list()).map((entry) => entry.id).sort();
+
+  await runSweep(client);
+  await runSweep(client);
+
+  assert.deepEqual((await client.list()).map((entry) => entry.id).sort(), before);
+});

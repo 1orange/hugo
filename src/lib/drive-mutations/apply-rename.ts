@@ -17,6 +17,7 @@ import {
 } from "@/modules/drive-mutation";
 import { getSettings } from "@/adapters/store/settings";
 import { runSweep } from "@/lib/sweep/run-sweep";
+import { recordDriveRename } from "@/adapters/store/drive-snapshot";
 
 export type ApplyRenameResult =
   | { ok: true; mutationId: number; appliedAt: string }
@@ -79,6 +80,7 @@ export async function applyFolderRename(
     return { ok: false, message: `Drive refused the rename: ${message}` };
   }
 
+  await recordDriveRename(input.driveFileId, input.targetName);
   const appliedAt = new Date().toISOString();
   await markMutationApplied(mutation.id, appliedAt);
 
@@ -128,6 +130,7 @@ export async function undoFolderRename(
   }
 
   await driveClient.rename(mutation.driveFileId, mutation.previousName);
+  await recordDriveRename(mutation.driveFileId, mutation.previousName);
 
   const undoneAt = new Date().toISOString();
   await markMutationUndone(mutationId, undoneAt);

@@ -40,7 +40,7 @@ for all three; `.env.docker` the compose ports and credentials (copy both from t
 
 | File | What |
 |---|---|
-| `namespace.yaml`, `config.yaml` | Namespace `hugo`; the `hugo-config` ConfigMap (public URL, allowed emails, Drive folder, sidecar URLs, `EXTRACTOR_CONCURRENCY`) |
+| `namespace.yaml`, `config.yaml` | Namespace `hugo`; the `hugo-config` ConfigMap (public URL, allowed emails, Drive folder, sidecar URLs, `EXTRACTOR_CONCURRENCY`, `READ_CONCURRENCY`) |
 | `secret.example.yaml` | Template of the `hugo-secrets` Secret — **not applied**; create the real one by hand |
 | `postgres.yaml`, `redis.yaml` | StatefulSets on local-path volumes. Redis append-only, `noeviction`, password from the Secret |
 | `web.yaml` | 2 replicas, rolling update, PodDisruptionBudget, spread across nodes |
@@ -79,8 +79,13 @@ What the manifests rely on:
   deadline) and exits at once when idle; Postgres stops with a fast shutdown, not after the grace
   period.
 - **Scaling.** `kubectl -n hugo scale deploy/web --replicas=N` at will. More workers add
-  resilience, not speed: the model's slots are the limit, `-np` in `extractor.yaml` and
-  `EXTRACTOR_CONCURRENCY` in `config.yaml` — change both together.
+  resilience, not speed: the model's slots are the limit, and `-np` in `extractor.yaml` is the one
+  setting for it. The workers ask the server for its slots (`/props`, `total_slots`) at start and
+  again when the model comes back, and size the model lane to them. `EXTRACTOR_CONCURRENCY` in
+  `config.yaml` is only the fallback, used while the server does not answer (or is Ollama).
+  `READ_CONCURRENCY` (default 3)
+  is not the model's: downloads, text and OCR go on while the model reads, so it is sized for the
+  OCR sidecar and the disk, not for `-np`.
 - **Traefik and the event stream.** `/api/events` is server-sent events: no compress middleware on
   this router. Traefik writes an event-stream response through as it arrives, and the app's 20 s
   keep-alive stays inside its idle timeout.

@@ -264,6 +264,6 @@ test("parties sharing an IČO are merged among the receipts only", async () => {
   const lines = ["Stanica Nivy s.r.o.", "IČO: 50 861 930", "IČ DPH: SK2120532249", "BA123XY", "Spolu s DPH | €3,00"];
   const run = (folderSlot: string) =>
     runExtractionChecks({ payload, sourceTextLines: lines, monthKey: "2026_07", folderSlot }).payload.parties.length;
-  assert.equal(run("05 Bločky_firemná karta"), 1);
+  assert.equal(run("04 Bločky"), 1);
   assert.equal(run("02 Prijaté faktúry"), 2);
 });

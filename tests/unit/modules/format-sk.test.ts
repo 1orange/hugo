@@ -7,6 +7,7 @@ import {
   folderSlotPrefix,
   formatDate,
   formatDateTime,
+  formatSkMoney,
   formatSweepAge,
   formatUploadMoment,
   monthKeyYear,
@@ -84,6 +85,14 @@ test("sweep age degrades from minutes to hours to a full timestamp", () => {
 
 test("folder slot prefixes drive the compact filter chips", () => {
   assert.equal(folderSlotPrefix("02 Prijaté faktúry"), "02");
-  assert.equal(folderSlotPrefix("05 Bločky_firemná karta"), "05");
+  assert.equal(folderSlotPrefix("04 Bločky"), "04");
   assert.equal(folderSlotPrefix("Neznámy priečinok"), "Neznámy priečinok");
+});
+
+test("euro amounts in Slovak notation: comma decimal, spaced thousands", () => {
+  assert.equal(formatSkMoney(0), "0,00");
+  assert.equal(formatSkMoney(44852), "448,52");
+  assert.equal(formatSkMoney(124852), "1 248,52");
+  assert.equal(formatSkMoney(-500), "−5,00");
+  assert.equal(formatSkMoney(5), "0,05");
 });

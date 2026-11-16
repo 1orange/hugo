@@ -7,6 +7,7 @@ import { FakeEkasaLookup } from "../../../src/adapters/ekasa-lookup/fake-ekasa-l
 import {
   BullmqExtractionJobQueue,
   closeQueues,
+  extractionModelQueue,
   extractionQueue,
   sweepQueue,
 } from "../../../src/adapters/job-queue/bullmq-queues.ts";
@@ -22,6 +23,7 @@ import { loadQueueSnapshot } from "../../../src/lib/extraction-queue/snapshot.ts
 import { closeRedis, redis, redisKeyPrefix } from "../../../src/lib/redis/connection.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import { startExtractionWorker } from "../../../src/lib/worker/extraction-worker.ts";
+import { startModelWorker } from "../../../src/lib/worker/model-worker.ts";
 import { FOLDER_MIME } from "../../../src/modules/drive-tree.ts";
 import { freshTestDb } from "../support/test-db.ts";
 
@@ -45,6 +47,7 @@ after(async () => {
     return;
   }
   await extractionQueue().obliterate({ force: true });
+  await extractionModelQueue().obliterate({ force: true });
   await sweepQueue().obliterate({ force: true });
   const keys = await redis().keys(`${redisKeyPrefix()}:*`);
   if (keys.length > 0) {
@@ -139,6 +142,8 @@ test("a worker reads a queued document, and every replica hears it", { skip }, a
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   assert.equal(await enqueueMonthExtraction(new BullmqExtractionJobQueue(), 1, "2026_01"), 1);
+  // Both lanes: the reading lane hands the model's document to the model lane.
+  const extractor = createStubExtractor();
   const { worker } = startExtractionWorker(
     {
       driveClient,
@@ -146,10 +151,11 @@ test("a worker reads a queued document, and every replica hears it", { skip }, a
       qrReader: emptyQrReader(),
       ekasaLookup: new FakeEkasaLookup(),
       ocr: new FakeOcr(),
-      extractor: createStubExtractor(),
+      extractor,
     },
     1,
   );
+  const { worker: modelWorker } = startModelWorker(extractor, 1);
   try {
     assert.deepEqual(await read, {
       type: "document-read",
@@ -163,6 +169,6 @@ test("a worker reads a queued document, and every replica hears it", { skip }, a
     assert.equal(snapshot.recent[0]?.driveFileId, "doc-invoice-a");
     assert.equal(snapshot.recent[0]?.outcome, "complete");
   } finally {
-    await worker.close();
+    await Promise.all([worker.close(), modelWorker.close()]);
   }
 });

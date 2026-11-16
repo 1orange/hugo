@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { DocumentActionResult } from "@/lib/documents/service";
 import type { MonthDocumentView } from "@/lib/documents/view";
 import {
@@ -11,15 +11,20 @@ import {
   lookupEkasaUidAction,
   reextractDocumentAction,
   saveDocumentNoteAction,
+  setAdvanceSettlementAction,
+  swapDocumentPartiesAction,
+  takePartyFromRegisterAction,
 } from "../../actions";
 import { DecisionBar } from "./decision-bar";
+import { isTypingTarget } from "./keyboard";
 import { DocumentRail } from "./document-rail";
 import { DocumentStage } from "./document-stage";
 import { FieldsPanel, type DocumentFieldsInput } from "./fields-panel";
+import type { PartySwapProvenance } from "@/modules/party-swap";
 import { useMonthExtraction } from "./use-month-extraction";
 import {
   documentBrowserNavigationKey,
-  filterDocuments,
+  projectDocuments,
 } from "@/modules/document-browser";
 
 type DocumentWorkbenchProps = {
@@ -29,18 +34,6 @@ type DocumentWorkbenchProps = {
   autoAdvance: boolean;
   basePath: string;
 };
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return (
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT" ||
-    target.isContentEditable
-  );
-}
 
 /**
  * Three panes filling the window: what's left, what she is reading, and what
@@ -60,15 +53,37 @@ export function DocumentWorkbench({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [uidLookupMessage, setUidLookupMessage] = useState<string | null>(null);
   const [dismissOpen, setDismissOpen] = useState(false);
+  // The last decision, for a few seconds: "Potvrdené · X — Späť", even after the list moved on.
+  const [toast, setToast] = useState<{ documentId: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    const timer = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     view.documents[0]?.id ?? null,
   );
   const [search, setSearch] = useState("");
+  const [subjectProblemsOnly, setSubjectProblemsOnly] = useState(false);
+  const searchParams = useSearchParams();
+  // The Omega export links here with ?doc=…: select that document once.
+  const requestedDocumentId = searchParams.get("doc");
 
-  const documents = useMemo(
-    () => filterDocuments(view.documents, search),
-    [search, view.documents],
+  // Search and the integrity filter narrow the folder's documents; sort order is the server's.
+  const projection = useMemo(
+    () =>
+      projectDocuments(view.documents, {
+        search,
+        sortKey: view.sortKey,
+        direction: view.sortDirection,
+        homeCurrency: view.homeCurrency,
+        subjectProblemsOnly,
+      }),
+    [search, subjectProblemsOnly, view.documents, view.homeCurrency, view.sortDirection, view.sortKey],
   );
+  const documents = projection.documents;
   const selectedIndex = documents.findIndex(
     (document) => document.id === selectedDocumentId,
   );
@@ -82,6 +97,24 @@ export function DocumentWorkbench({
     monthKey,
     documents: view.documents,
   });
+
+  useEffect(() => {
+    if (requestedDocumentId) {
+      setSearch("");
+      setSelectedDocumentId(requestedDocumentId);
+    }
+  }, [requestedDocumentId]);
+
+  // The request is served once. Left in the address, it would make a later link
+  // to the same document a no-op after the accountant moved elsewhere.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("doc")) {
+      return;
+    }
+    url.searchParams.delete("doc");
+    window.history.replaceState(window.history.state, "", url);
+  }, [selectedDocumentId]);
 
   // The filter is a URL round-trip, so the selection has to survive a list that
   // no longer contains it.
@@ -125,7 +158,11 @@ export function DocumentWorkbench({
   }, [selectedDocument]);
 
   const runAction = useCallback(
-    (action: () => Promise<DocumentActionResult>, onDone?: () => void) => {
+    (
+      action: () => Promise<DocumentActionResult>,
+      onDone?: () => void,
+      onFailed?: () => void,
+    ) => {
       setError(null);
       setPending(true);
       setSaveState("saving");
@@ -134,6 +171,7 @@ export function DocumentWorkbench({
           if (!result.ok) {
             setError(result.message ?? "Akcia zlyhala.");
             setSaveState("idle");
+            onFailed?.();
             return;
           }
           setSaveState("saved");
@@ -188,7 +226,10 @@ export function DocumentWorkbench({
           documentId: selectedDocument.id,
           confirmed: true,
         }),
-      selectNextAwaiting,
+      () => {
+        setToast({ documentId: selectedDocument.id, text: `Potvrdené · ${selectedDocument.label}` });
+        selectNextAwaiting();
+      },
     );
   }, [companyId, monthKey, runAction, selectNextAwaiting, selectedDocument, view.readOnly]);
 
@@ -206,7 +247,10 @@ export function DocumentWorkbench({
             documentId: selectedDocument.id,
             reason,
           }),
-        selectNextAwaiting,
+        () => {
+          setToast({ documentId: selectedDocument.id, text: `Nerelevantné · ${selectedDocument.label}` });
+          selectNextAwaiting();
+        },
       );
     },
     [companyId, monthKey, runAction, selectNextAwaiting, selectedDocument, view.readOnly],
@@ -225,6 +269,18 @@ export function DocumentWorkbench({
       }),
     );
   }, [companyId, monthKey, runAction, selectedDocument, view.readOnly]);
+
+  const undoToast = useCallback(() => {
+    if (!toast || view.readOnly) {
+      return;
+    }
+    const documentId = toast.documentId;
+    setToast(null);
+    runAction(
+      () => confirmDocumentAction({ companyId, monthKey, documentId, confirmed: false }),
+      () => setSelectedDocumentId(documentId),
+    );
+  }, [companyId, monthKey, runAction, toast, view.readOnly]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -264,6 +320,60 @@ export function DocumentWorkbench({
         documentId: selectedDocument.id,
         fields,
       }),
+    );
+  }
+
+  function swapParties(fields: DocumentFieldsInput, partyProvenance: PartySwapProvenance) {
+    if (!selectedDocument) {
+      return;
+    }
+    // A refused swap reloads the document, so the panel drops what it showed.
+    runAction(
+      () =>
+        swapDocumentPartiesAction({
+          companyId,
+          monthKey,
+          documentId: selectedDocument.id,
+          fields,
+          partyProvenance,
+        }),
+      undefined,
+      () => router.refresh(),
+    );
+  }
+
+  function takeFromRegister(side: "supplier" | "customer") {
+    if (!selectedDocument) {
+      return;
+    }
+    // A refused take reloads the document, so the panel shows what the register now says is not there.
+    runAction(
+      () =>
+        takePartyFromRegisterAction({
+          companyId,
+          monthKey,
+          documentId: selectedDocument.id,
+          side,
+        }),
+      undefined,
+      () => router.refresh(),
+    );
+  }
+
+  function setAdvanceSettlement(settled: boolean) {
+    if (!selectedDocument) {
+      return;
+    }
+    runAction(
+      () =>
+        setAdvanceSettlementAction({
+          companyId,
+          monthKey,
+          documentId: selectedDocument.id,
+          settled,
+        }),
+      undefined,
+      () => router.refresh(),
     );
   }
 
@@ -328,7 +438,7 @@ export function DocumentWorkbench({
     <div className="flex min-h-0 flex-1 flex-col" data-testid="document-panel">
       {error ? (
         <p
-          className="shrink-0 border-b border-line bg-bad-soft px-3.5 py-2 text-[12.5px] text-bad"
+          className="shrink-0 border-b border-line bg-bad-soft px-4 py-2 text-[13px] text-bad sm:px-6"
           role="alert"
           data-testid="document-error"
         >
@@ -336,9 +446,9 @@ export function DocumentWorkbench({
         </p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)_320px] xl:grid-cols-[400px_minmax(0,1fr)_340px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_380px] xl:grid-cols-[340px_minmax(0,1fr)_420px]">
         <section
-          className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:border-r"
+          className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:shadow-[inset_-1px_0_0_rgb(0_0_0/0.07)]"
           data-testid="documents-column"
           aria-label="Zoznam dokladov"
         >
@@ -359,11 +469,14 @@ export function DocumentWorkbench({
               setSelectedDocumentId(documentId);
             }}
             basePath={basePath}
+            subjectProblemCount={projection.subjectProblemCount}
+            subjectProblemsOnly={subjectProblemsOnly}
+            onSubjectProblemsOnlyChange={setSubjectProblemsOnly}
           />
         </section>
 
         <section
-          className="flex min-h-0 flex-col border-b border-line lg:border-b-0"
+          className="relative flex min-h-[560px] flex-col border-b border-line lg:min-h-0 lg:border-b-0"
           aria-label="Náhľad dokladu"
         >
           <DocumentStage document={selectedDocument} />
@@ -380,10 +493,27 @@ export function DocumentWorkbench({
             onOpenDismiss={() => setDismissOpen(true)}
             onCloseDismiss={() => setDismissOpen(false)}
           />
+          {toast && !dismissOpen ? (
+            <div
+              role="status"
+              className="rise-in absolute inset-x-0 bottom-[88px] z-10 mx-auto flex w-fit max-w-[calc(100%-32px)] items-center gap-3 rounded-xl bg-[rgb(29_29_31/0.9)] py-2 pr-2 pl-3.5 text-[13px] text-white shadow-[0_8px_24px_rgb(0_0_0/0.22)]"
+              data-testid="decision-toast"
+            >
+              <span className="truncate">{toast.text}</span>
+              <button
+                type="button"
+                onClick={undoToast}
+                disabled={pending}
+                className="press shrink-0 rounded-lg bg-white/15 px-2.5 py-1 font-semibold hover:bg-white/25 disabled:opacity-50"
+              >
+                Späť
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section
-          className="flex min-h-0 flex-col lg:border-l lg:border-line"
+          className="flex min-h-0 flex-col lg:shadow-[inset_1px_0_0_rgb(0_0_0/0.07)]"
           aria-label="Údaje dokladu"
         >
           <FieldsPanel
@@ -392,6 +522,9 @@ export function DocumentWorkbench({
             pending={pending}
             saveState={saveState}
             onSave={saveFields}
+            onSwapParties={swapParties}
+            onTakeFromRegister={takeFromRegister}
+            onSetAdvanceSettlement={setAdvanceSettlement}
             note={note}
             onNoteChange={setNote}
             onNoteSave={saveNote}

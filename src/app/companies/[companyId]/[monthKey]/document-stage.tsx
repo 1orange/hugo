@@ -1,18 +1,19 @@
 "use client";
 
+import { ExternalLink, Maximize2 } from "lucide-react";
 import type { DocumentListItem } from "@/lib/documents/view";
 import { driveFileViewUrl, previewKindForMimeType } from "@/modules/file-preview";
 
 /**
  * The preview is the widest column and runs the full height of the window.
- * She reads the document here and decides directly underneath it, so nothing
- * competes with it for space.
+ * Its two actions float over its corner and the decision floats over its foot,
+ * so nothing takes a strip of its own.
  */
 export function DocumentStage({ document }: { document: DocumentListItem | null }) {
   if (!document) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-surface-3 p-8">
-        <p className="text-sm text-ink-3">Vyber doklad zo zoznamu vľavo.</p>
+      <div className="flex flex-1 items-center justify-center bg-[#e8e9ec] p-8">
+        <p className="text-[14px] text-ink-3">Vyber doklad zo zoznamu vľavo.</p>
       </div>
     );
   }
@@ -20,36 +21,29 @@ export function DocumentStage({ document }: { document: DocumentListItem | null 
   const previewUrl = `/api/files/${document.driveFileId}/preview`;
   const kind = previewKindForMimeType(document.mimeType);
 
+  const floating =
+    "glass press grid size-8 place-items-center rounded-[9px] text-ink-2 shadow-[0_0_0_1px_rgb(0_0_0/0.06)] hover:text-ink";
+
   return (
-    <>
-      <div className="flex h-[38px] shrink-0 items-center gap-2.5 border-b border-line bg-surface-2 px-3">
-        <span className="truncate font-mono text-[12.5px] font-medium">
-          {document.name}
-        </span>
-        <span className="hidden shrink-0 text-[11px] text-ink-3 md:inline">
-          {document.folderSlot}
-        </span>
-        <div className="flex-1" />
-        <a
-          href={previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="shrink-0 rounded-md border border-line-2 bg-surface px-2.5 py-[3px] text-[11.5px] text-ink-2 hover:border-accent hover:text-accent"
-        >
-          Na celú obrazovku
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="absolute top-3 right-3.5 z-10 flex gap-1.5">
+        <a href={previewUrl} target="_blank" rel="noreferrer" aria-label="Na celú obrazovku" title="Na celú obrazovku" className={floating}>
+          <Maximize2 aria-hidden className="size-[15px]" strokeWidth={2} />
         </a>
         <a
           href={driveFileViewUrl(document.driveFileId)}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 rounded-md border border-line-2 bg-surface px-2.5 py-[3px] text-[11.5px] text-ink-2 hover:border-accent hover:text-accent"
+          aria-label="Otvoriť v Drive"
+          title="Otvoriť v Drive"
+          className={floating}
         >
-          Otvoriť v Drive
+          <ExternalLink aria-hidden className="size-[15px]" strokeWidth={2} />
         </a>
       </div>
 
       <div
-        className="flex flex-1 justify-center overflow-auto bg-surface-3 p-5 lg:min-h-0"
+        className="flex flex-1 justify-center overflow-auto bg-[#e8e9ec] px-5 pt-5 pb-28 lg:min-h-0"
         data-testid="preview-pane"
       >
         {kind === "image" ? (
@@ -57,23 +51,22 @@ export function DocumentStage({ document }: { document: DocumentListItem | null 
           <img
             src={previewUrl}
             alt={document.name}
-            className="max-h-full w-auto max-w-full self-start object-contain shadow-[0_1px_1px_rgba(0,0,0,0.18),0_18px_40px_-22px_rgba(0,0,0,0.55)]"
+            className="h-auto max-w-full self-start rounded-[4px] object-contain shadow-[0_1px_2px_rgb(0_0_0/0.08),0_8px_28px_rgb(0_0_0/0.1)]"
             data-testid="image-preview"
           />
         ) : kind === "pdf" ? (
           <iframe
             title={document.name}
             src={previewUrl}
-            className="h-full min-h-[520px] w-full max-w-[820px] border-0 bg-white shadow-[0_1px_1px_rgba(0,0,0,0.18),0_18px_40px_-22px_rgba(0,0,0,0.55)]"
+            className="h-full min-h-[520px] w-full max-w-[820px] rounded-[4px] border-0 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.08),0_8px_28px_rgb(0_0_0/0.1)]"
             data-testid="pdf-preview"
           />
         ) : (
           <div className="self-center text-center">
-            <p className="text-sm text-ink-2">
-              Náhľad pre tento typ súboru nie je podporovaný.
-            </p>
+            <p className="text-[15px] font-semibold">Náhľad nie je k dispozícii</p>
+            <p className="mt-1 text-[13px] text-ink-3">Tento typ súboru sa nedá zobraziť v aplikácii.</p>
             <a
-              className="mt-2 inline-block text-sm text-accent underline"
+              className="mt-2 inline-block text-[13px] font-medium text-accent hover:underline"
               href={driveFileViewUrl(document.driveFileId)}
               target="_blank"
               rel="noreferrer"
@@ -83,6 +76,6 @@ export function DocumentStage({ document }: { document: DocumentListItem | null 
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

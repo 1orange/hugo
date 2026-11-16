@@ -1,5 +1,6 @@
 import type { CompanyCountry } from "./company-profile";
 import { validateSkIcDph } from "./company-profile";
+import { isValidIcoChecksum } from "./ico-checksum";
 import type { FieldCheckState } from "./document-fields";
 import { checkArithmeticWarnings, mergeDocumentFields } from "./document-fields";
 import { cashRoundingCents } from "./cash-rounding";
@@ -67,37 +68,6 @@ function isGrounded(value: string | null | undefined, haystack: string): boolean
     return true;
   }
   return haystack.includes(trimmed.replace(/\s+/g, ""));
-}
-
-function computeIcoCheckDigit(firstSeven: string): number | null {
-  if (!/^\d{7}$/.test(firstSeven)) {
-    return null;
-  }
-  const weights = [8, 7, 6, 5, 4, 3, 2];
-  let sum = 0;
-  for (let i = 0; i < 7; i++) {
-    sum += Number(firstSeven[i]) * weights[i]!;
-  }
-  const remainder = sum % 11;
-  if (remainder === 0) {
-    return 1;
-  }
-  if (remainder === 1) {
-    return null;
-  }
-  return 11 - remainder;
-}
-
-export function isValidIcoChecksum(ico: string): boolean {
-  const digits = ico.replace(/\s/g, "");
-  if (!/^\d{8}$/.test(digits)) {
-    return false;
-  }
-  const expected = computeIcoCheckDigit(digits.slice(0, 7));
-  if (expected === null) {
-    return false;
-  }
-  return Number(digits[7]) === expected;
 }
 
 function isValidCzVatId(value: string): boolean {

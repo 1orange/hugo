@@ -16,7 +16,7 @@ test("resolveExportSection routes by doc type and folder", () => {
     resolveExportSection({
       extracted: payload({ kind: "ekasa", currency: "EUR", lineItems: [], vatRecap: [] }),
       confirmed: emptyConfirmedPayload(),
-      folderSlot: "05 Bločky_firemná karta",
+      folderSlot: "04 Bločky",
     }),
     "T00",
   );
@@ -30,7 +30,7 @@ test("resolveExportSection routes by doc type and folder", () => {
         docTypeHint: "invoice",
       }),
       confirmed: emptyConfirmedPayload(),
-      folderSlot: "05 Bločky_firemná karta",
+      folderSlot: "04 Bločky",
     }),
     "T01",
   );

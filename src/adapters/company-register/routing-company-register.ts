@@ -1,4 +1,4 @@
-import type { CompanyRegister } from "@/adapters/company-register/port";
+import type { CompanyRegister, RegisterLookupOptions } from "@/adapters/company-register/port";
 import type { CompanyCountry, RegisterLookup, RegisterSearchHit } from "@/modules/company-profile";
 
 export class RoutingCompanyRegister implements CompanyRegister {
@@ -10,7 +10,11 @@ export class RoutingCompanyRegister implements CompanyRegister {
     return this.byCountry[country].searchByName(name, country);
   }
 
-  lookupByIco(ico: string, country: CompanyCountry): Promise<RegisterLookup | null> {
-    return this.byCountry[country].lookupByIco(ico, country);
+  lookupByIco(
+    ico: string,
+    country: CompanyCountry,
+    options?: RegisterLookupOptions,
+  ): Promise<RegisterLookup | null> {
+    return this.byCountry[country].lookupByIco(ico, country, options);
   }
 }

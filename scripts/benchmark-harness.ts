@@ -1,3 +1,4 @@
+import { parseDeterministicInvoice } from "../src/modules/deterministic-invoice.ts";
 import fs from "node:fs";
 import { createHttpExtractor } from "../src/adapters/extractor/http-extractor.ts";
 import { createStubExtractor } from "../src/adapters/extractor/stub-extractor.ts";
@@ -129,7 +130,10 @@ async function main(): Promise<void> {
   // `--rescore <row>.payloads.json`: a recorded row's answers, scored as the
   // scoring is now — no model, no OCR. The normalisers ran when it was recorded.
   const rescoreIndex = process.argv.indexOf("--rescore");
-  const rescorePath = rescoreIndex >= 0 ? process.argv[rescoreIndex + 1] : undefined;
+  const deterministicIndex = process.argv.indexOf("--deterministic-from");
+  const deterministic = deterministicIndex >= 0;
+  const rescorePath = deterministic ? process.argv[deterministicIndex + 1] : rescoreIndex >= 0 ? process.argv[rescoreIndex + 1] : undefined;
+  if (deterministic && !rescorePath) throw new Error("--deterministic-from requires a recorded payload file");
   const saved: typeof perDocument | null = rescorePath
     ? (JSON.parse(fs.readFileSync(rescorePath, "utf8")) as typeof perDocument)
     : null;
@@ -149,7 +153,7 @@ async function main(): Promise<void> {
       if (entry.modelMs !== undefined) {
         modelDurationsMs.push(entry.modelMs);
       }
-      if (entry.tokens !== undefined) {
+      if (!deterministic && entry.tokens !== undefined) {
         completionTokens.push(entry.tokens);
       }
       if (entry.failure !== undefined || entry.lines.length === 0) {
@@ -162,9 +166,15 @@ async function main(): Promise<void> {
         documentScores.push(scoreBenchmarkDocument({ label, payload: {}, companyIco }));
         continue;
       }
-      const { fieldChecks: recordedChecks, ...recorded } = entry.payload as ModelExtractedPayload;
+      const parseStarted = performance.now();
+      const parsed = deterministic ? parseDeterministicInvoice(entry.lines) : null;
+      if (deterministic) {
+        if (entry.modelMs !== undefined) modelDurationsMs.pop();
+        modelDurationsMs.push(performance.now() - parseStarted);
+      }
+      const { fieldChecks: recordedChecks, ...recorded } = parsed ?? entry.payload as ModelExtractedPayload;
       // `--recheck`: the checks as they are now, over the text the model read.
-      const rechecked = process.argv.includes("--recheck")
+      const rechecked = (deterministic || process.argv.includes("--recheck"))
         ? runExtractionChecks({
             payload: recorded,
             sourceTextLines: entry.lines,
@@ -297,7 +307,7 @@ async function main(): Promise<void> {
   });
 
   console.log(
-    `Benchmark harness — ${labels.length} documents (${rescorePath ? `re-scored from ${rescorePath}` : modeLabel})`,
+    `Benchmark harness — ${labels.length} documents (${rescorePath ? `${deterministic ? "deterministically parsed recorded text from" : "re-scored from"} ${rescorePath}` : modeLabel})`,
   );
   if (skippedWithoutOcr.length > 0) {
     console.log(
@@ -366,7 +376,7 @@ async function main(): Promise<void> {
       console.log(`  worst OCR time: ${worstOcrMs.toFixed(0)} ms`);
     }
     console.log(
-      `  median model time per document: ${medianModelMs.toFixed(0)} ms (Docker CPU-only — not native Metal)`,
+      `  median model time per document: ${medianModelMs.toFixed(0)} ms (${deterministic ? "deterministic parsing only; OCR timings reused from recording" : "Docker CPU-only — not native Metal"})`,
     );
     console.log(`  worst model time per document: ${worstModelMs.toFixed(0)} ms`);
     console.log(

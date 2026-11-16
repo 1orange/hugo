@@ -2,38 +2,47 @@
 
 /*
  * Hugo's palette. Quiet chrome, loud state: colour is spent on what needs a
- * decision, never on decoration. The neutrals carry a cool blue bias so the
- * ground never reads as flat grey, and the brand petrol sits far enough from
- * the confirmed green that a row's state is never ambiguous.
+ * decision, never on decoration. Neutral greys on a cool ground, one petrol
+ * accent far enough from the confirmed green that a row's state is never
+ * ambiguous. Every grey used for text passes 4.5:1 on white and on the ground.
  *
  * Light only for now — she works in daylight next to scanned invoices.
  */
 @theme inline {
-  --color-ground: oklch(0.955 0.004 240);
-  --color-surface: oklch(1 0 0);
-  --color-surface-2: oklch(0.978 0.003 240);
-  --color-surface-3: oklch(0.933 0.006 240);
+  --color-ground: #f2f3f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #f7f7f9;
+  --color-surface-3: #e9e9ed;
+  /* Translucent fill for segmented controls, search fields and quiet buttons. */
+  --color-fill: rgb(118 118 128 / 0.12);
+  --color-fill-2: rgb(118 118 128 / 0.2);
 
-  --color-ink: oklch(0.205 0.012 240);
-  --color-ink-2: oklch(0.475 0.017 240);
-  --color-ink-3: oklch(0.625 0.016 240);
+  --color-ink: #1d1d1f;
+  --color-ink-2: #3a3a3c;
+  --color-ink-3: #6e6e73;
+  --color-ink-4: #a1a1a6;
 
-  --color-line: oklch(0.895 0.007 240);
-  --color-line-2: oklch(0.835 0.011 240);
+  --color-line: #ececf0;
+  --color-line-2: #d8d8dc;
 
-  --color-accent: oklch(0.435 0.062 225);
-  --color-accent-ink: oklch(1 0 0);
-  --color-accent-soft: oklch(0.935 0.021 225);
+  --color-accent: #2b5d72;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #e4eef2;
 
-  --color-good: oklch(0.505 0.103 152);
-  --color-good-ink: oklch(1 0 0);
-  --color-good-soft: oklch(0.945 0.032 152);
+  --color-good: #1f7a4d;
+  --color-good-dot: #34a26b;
+  --color-good-ink: #ffffff;
+  --color-good-soft: #e3f3ea;
 
-  --color-warn: oklch(0.505 0.098 75);
-  --color-warn-soft: oklch(0.947 0.038 85);
+  --color-warn: #8a5a00;
+  --color-warn-dot: #d99a1e;
+  --color-warn-strong: #5c3d00;
+  --color-warn-soft: #fdf3df;
 
-  --color-bad: oklch(0.483 0.153 27);
-  --color-bad-soft: oklch(0.945 0.032 27);
+  --color-bad: #b3261e;
+  --color-bad-dot: #d9443a;
+  --color-bad-strong: #8c1d16;
+  --color-bad-soft: #fbe9e7;
 
   /* Aliases kept so the existing Button and Card primitives still resolve. */
   --color-background: var(--color-surface);
@@ -47,12 +56,28 @@
   --color-border: var(--color-line);
   --color-destructive: var(--color-bad);
 
-  --font-sans: var(--font-archivo), "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* The platform's own face: SF on her Mac, tuned for every size and the full Slovak set. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
-  --radius-sm: 0.1875rem;
-  --radius-md: 0.25rem;
-  --radius-lg: 0.3125rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.875rem;
+
+  --ease-out-soft: cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+/* Feedback on press, not on release. A utility, so components can apply it. */
+@utility press {
+  transition:
+    transform 100ms ease-out,
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    color 120ms ease-out;
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }
 
 @layer base {
@@ -66,6 +91,8 @@
 
   body {
     @apply bg-ground text-ink antialiased;
+    font-size: 14px;
+    line-height: 1.45;
     font-synthesis-weight: none;
   }
 
@@ -73,7 +100,8 @@
   h2,
   h3,
   h4 {
-    @apply font-semibold tracking-tight;
+    @apply font-semibold;
+    letter-spacing: -0.01em;
     text-wrap: balance;
   }
 
@@ -85,13 +113,144 @@
 
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-accent;
-    border-radius: 3px;
+    border-radius: 6px;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
   }
 }
 
 @layer components {
-  /* Uppercase micro-label used for pane headings and field-group titles. */
+  /* A pane or group heading: a quiet label, not shouted in capitals. */
   .eyebrow {
-    @apply text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-3;
+    @apply text-[13px] font-semibold text-ink-2;
+  }
+
+  /* Large page title: tight leading and negative tracking as type grows. */
+  .title-large {
+    @apply text-[30px] leading-[1.08] font-bold text-ink;
+    letter-spacing: -0.022em;
+  }
+
+  /* Translucent chrome that content scrolls under. */
+  .glass {
+    background: rgb(250 250 252 / 0.8);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .glass-strong {
+    background: rgb(255 255 255 / 0.9);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+  }
+
+  /* An inset grouped list: white rows on the ground, hairlines between them. */
+  .inset-group {
+    @apply overflow-hidden rounded-xl bg-surface;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.05);
+  }
+
+  /* Segmented control: a track with one raised segment. */
+  .segmented {
+    @apply inline-flex rounded-[9px] bg-fill p-0.5;
+  }
+  .segment {
+    @apply press rounded-[7px] px-3 py-1 text-[13px] font-medium whitespace-nowrap text-ink-2;
+  }
+  .segment[aria-pressed="true"],
+  .segment[aria-current="page"],
+  .segment[aria-selected="true"] {
+    @apply bg-surface text-ink;
+    box-shadow:
+      0 1px 3px rgb(0 0 0 / 0.12),
+      0 0 0 0.5px rgb(0 0 0 / 0.04);
+  }
+  .segment:disabled {
+    @apply opacity-50;
+  }
+
+  /* Popovers and sheets arrive from where they were opened. */
+  .pop-in {
+    animation: pop-in 220ms var(--ease-out-soft) both;
+  }
+  .sheet-in {
+    animation: sheet-in 300ms var(--ease-out-soft) both;
+  }
+  .rise-in {
+    animation: rise-in 260ms var(--ease-out-soft) both;
+  }
+  .fade-in {
+    animation: fade-in 200ms ease-out both;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion keeps the feedback, as a cross-fade instead of movement. */
+@media (prefers-reduced-motion: reduce) {
+  .press {
+    transition: none;
+  }
+  .press:active:not(:disabled) {
+    transform: none;
+  }
+  .pop-in,
+  .sheet-in,
+  .rise-in {
+    animation: fade-in 150ms ease both;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong {
+    background: #fafafc;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }

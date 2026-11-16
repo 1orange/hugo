@@ -13,7 +13,7 @@ import { listCashReceiptCandidates } from "@/lib/cash-discovery/discover-cash-pa
 import { announce } from "@/lib/events/bus";
 import { listModelExtractionCandidates } from "@/lib/model-extraction/discover-model-extraction";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
-import { needsExtraction } from "@/modules/extraction-pipeline";
+import { needsExtraction, needsPipelineReread } from "@/modules/extraction-pipeline";
 
 /**
  * Queues the month's documents that still need reading; returns how many this
@@ -42,7 +42,9 @@ export async function enqueueMonthExtraction(
   let added = 0;
   let companyName: string | null = null;
   for (const file of candidates) {
-    if (!needsExtraction(await getDocument(file.driveFileId))) {
+    const document = await getDocument(file.driveFileId);
+    const reread = !needsExtraction(document) && file.kind === "document" && needsPipelineReread(document);
+    if (!needsExtraction(document) && !reread) {
       continue;
     }
     companyName ??= (await getCompanyById(companyId))?.name ?? `#${companyId}`;
@@ -57,11 +59,14 @@ export async function enqueueMonthExtraction(
         folderSlot: file.folderSlot,
         mimeType: file.mimeType,
         enqueuedAt: now(),
+        ...(reread ? { reread: true } : {}),
       },
       { priority: file.kind === "receipt" ? RECEIPT_PRIORITY : DOCUMENT_PRIORITY },
     );
     if (queued) {
-      await beginExtractionAttempt(file.driveFileId);
+      if (!reread) {
+        await beginExtractionAttempt(file.driveFileId);
+      }
       added += 1;
     }
   }

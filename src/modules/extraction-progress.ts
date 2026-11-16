@@ -9,6 +9,7 @@ export type ExtractionStage =
   | "queued"
   | "download"
   | "text"
+  | "isdoc"
   | "images"
   | "qr"
   | "lookup"
@@ -41,6 +42,7 @@ const STAGE_START: Record<ExtractionStage, number> = {
   queued: 0,
   download: 2,
   text: 8,
+  isdoc: 8,
   images: 12,
   qr: 14,
   ocr: 16,
@@ -89,8 +91,8 @@ export function estimateProgressPercent(input: ProgressInput): number {
   return Math.round(between(start, PROMPT_END, Math.max(counted, paced)));
 }
 
-const TOKEN_FORMS = ["token", "tokeny", "tokenov"] as const;
-const PAGE_FORMS = ["strana", "strany", "strán"] as const;
+export const TOKEN_FORMS = ["token", "tokeny", "tokenov"] as const;
+export const PAGE_FORMS = ["strana", "strany", "strán"] as const;
 
 export function stageLabel(input: Omit<ProgressInput, "stageElapsedMs">): string {
   switch (input.stage) {
@@ -100,6 +102,8 @@ export function stageLabel(input: Omit<ProgressInput, "stageElapsedMs">): string
       return "Sťahujem z Drive";
     case "text":
       return "Čítam text PDF";
+    case "isdoc":
+      return "Hľadám ISDOC alebo MOL v PDF";
     case "images":
       return "Pripravujem obrázky strán";
     case "qr":

@@ -15,7 +15,6 @@ import {
   assertMonthEditable,
   closeCompanyMonth,
   reopenCompanyMonth,
-  ensureAllOpenMonthsScaffolded,
 } from "@/lib/month-lifecycle/service";
 import { createEkasaLookup } from "@/adapters/ekasa-lookup/create-ekasa-lookup";
 import {
@@ -23,12 +22,21 @@ import {
   dismissDocument,
   saveDocumentFields,
   saveDocumentNote,
+  setAdvanceSettlement,
+  swapDocumentParties,
+  takePartyFromRegister,
 } from "@/lib/documents/service";
 import { lookupEkasaUidForDocument } from "@/lib/documents/lookup-ekasa-uid";
 import { requestDocumentReextraction } from "@/lib/documents/reextract-document";
 import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
 import { runSweep } from "@/lib/sweep/run-sweep";
+import {
+  moveLateArrivals,
+  setLateArrivalIgnored,
+  undoLateArrivalMove,
+} from "@/lib/late-arrivals/service";
 import type { DocumentFieldFormInput } from "@/modules/document-fields";
+import type { PartySwapProvenance } from "@/modules/party-swap";
 import { revalidatePath } from "next/cache";
 
 export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
@@ -38,9 +46,7 @@ export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
     await setDriveParentFolderId(parentFolderId);
   }
 
-  const driveClient = createDriveClient();
-  const result = await runSweep(driveClient);
-  await ensureAllOpenMonthsScaffolded(driveClient);
+  const result = await runSweep(createDriveClient());
   revalidatePath("/companies");
   return { sweepAt: result.sweepAt };
 }
@@ -124,15 +130,7 @@ export async function closeMonthAction(input: {
   companyId: number;
   monthKey: string;
 }): Promise<MutationActionResult> {
-  if (!await resolveDriveParentFolderId()) {
-    return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
-  }
-
-  const result = await closeCompanyMonth(
-    createDriveClient(),
-    input.companyId,
-    input.monthKey,
-  );
+  const result = await closeCompanyMonth(input.companyId, input.monthKey);
   if (!result.ok) {
     return result;
   }
@@ -266,5 +264,92 @@ export async function saveDocumentFieldsAction(input: {
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }
+  return result;
+}
+
+/** Her decision whether the invoice is settled by an advance (PRD 0004 issue 11). */
+export async function setAdvanceSettlementAction(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+  settled: boolean;
+}): Promise<MutationActionResult> {
+  const result = await setAdvanceSettlement(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+/** *Prevziať z registra* for one flagged party (PRD 0004, story 34). */
+export async function takePartyFromRegisterAction(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+  side: "supplier" | "customer";
+}): Promise<MutationActionResult> {
+  const result = await takePartyFromRegister(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+export async function swapDocumentPartiesAction(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+  fields: DocumentFieldFormInput;
+  partyProvenance: PartySwapProvenance;
+}): Promise<MutationActionResult> {
+  const result = await swapDocumentParties(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+/** Every month of the company: a late-arrival move changes the source month and the open one. */
+function revalidateCompanyMonths(companyId: number): void {
+  revalidatePath(`/companies/${companyId}`, "layout");
+  revalidatePath("/companies");
+}
+
+/** Moves the company's proposed late arrivals into the open month, in one batch (ADR 0006). */
+export async function moveLateArrivalsAction(input: {
+  companyId: number;
+  ids?: number[];
+}): Promise<{ ok: true; moved: number; failed: Array<{ name: string; message: string }> } | { ok: false; message: string }> {
+  if (!(await resolveDriveParentFolderId())) {
+    return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
+  }
+  const result = await moveLateArrivals({ driveClient: createDriveClient(), companyId: input.companyId, ids: input.ids });
+  revalidateCompanyMonths(input.companyId);
+  return result;
+}
+
+export async function undoLateArrivalMoveAction(input: {
+  companyId: number;
+  lateArrivalId: number;
+}): Promise<MutationActionResult> {
+  if (!(await resolveDriveParentFolderId())) {
+    return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
+  }
+  const result = await undoLateArrivalMove({
+    driveClient: createDriveClient(),
+    companyId: input.companyId,
+    lateArrivalId: input.lateArrivalId,
+  });
+  revalidateCompanyMonths(input.companyId);
+  return result;
+}
+
+export async function setLateArrivalIgnoredAction(input: {
+  companyId: number;
+  lateArrivalId: number;
+  ignored: boolean;
+}): Promise<MutationActionResult> {
+  const result = await setLateArrivalIgnored(input);
+  revalidateCompanyMonths(input.companyId);
   return result;
 }

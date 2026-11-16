@@ -1,7 +1,8 @@
 import type { CompanyCountry } from "./company-profile";
 import type { DocumentVatRecapRow } from "./document-payload";
 
-export type VatProvenance = "confirmed" | "extracted" | "profile" | "derived" | "empty";
+// register and directory are party values only; no VAT figure carries them.
+export type VatProvenance = "confirmed" | "extracted" | "profile" | "derived" | "register" | "directory" | "empty";
 
 export type VatMoney = {
   literal: string;
@@ -101,6 +102,8 @@ export function deriveVat(input: {
   supplierIcDph?: string | null;
   profileCountry?: CompanyCountry | null;
   enabled?: boolean;
+  /** An advance-settled invoice: its total and base are not VAT-bearing totals, so no rate is inferred. */
+  advanceSettled?: boolean;
 }): VatDerivationResult {
   let recapBase = input.recapBase;
   let recapVat = input.recapVat;
@@ -134,6 +137,7 @@ export function deriveVat(input: {
   const { country: issuerCountry, fallback: issuerCountryFallback } = inferredCountry(input);
   const canInferSingleRate =
     enabled &&
+    input.advanceSettled !== true &&
     nonEmptyRows.length === 0 &&
     input.amount.cents !== null &&
     input.recapBase.cents !== null &&

@@ -52,9 +52,13 @@ test("czech company profile from fake ARES shows CZK without foreign-currency wa
   await expect(page).toHaveURL(/\/companies$/);
 
   await expect(page.getByTestId("company-profile-missing-2")).toBeVisible();
+  // The folder is "Konto Gamma s.r.o."; the company is shown and searched without the prefix.
+  await expect(page.getByTestId("company-2")).toHaveText("Gamma s.r.o.");
 
   await page.goto("/companies/2/profile?country=CZ");
   await expect(page.getByRole("heading", { name: "Vyhľadať v ARES" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Profil firmy — Gamma s.r.o." })).toBeVisible();
+  await expect(page.getByTestId("profile-search-query")).toHaveValue("Gamma s.r.o.");
 
   await expect(page.getByTestId("profile-candidate-87654321")).toBeVisible({
     timeout: 15_000,

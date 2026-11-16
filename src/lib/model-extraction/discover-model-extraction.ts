@@ -5,10 +5,11 @@ import type { Ocr } from "@/adapters/ocr/port";
 import {
   beginExtractionAttempt,
   ensureDocumentsForMonth,
+  finishPipelineReread,
   getDocument,
   recordExtractionCrash,
 } from "@/adapters/store/documents";
-import { needsExtraction } from "@/modules/extraction-pipeline";
+import { needsExtraction, needsPipelineReread } from "@/modules/extraction-pipeline";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { RECEIPT_FOLDER_SLOTS } from "@/lib/cash-discovery/discover-cash-payments";
@@ -94,23 +95,30 @@ export async function discoverModelExtractionForMonth(
   await ensureDocumentsForMonth(companyId, monthKey, now);
   const candidates = await listModelExtractionCandidates(companyId, monthKey);
 
-  const pending = [];
+  // Each item carries the prior payload when it is a re-read of a complete result.
+  const pending: Array<{ file: (typeof candidates)[number]; priorPayloadJson: string | null }> = [];
   for (const file of candidates) {
-    if (needsExtraction(await getDocument(file.driveFileId))) {
-      pending.push(file);
+    const document = await getDocument(file.driveFileId);
+    if (needsExtraction(document)) {
+      pending.push({ file, priorPayloadJson: null });
+    } else if (needsPipelineReread(document)) {
+      pending.push({ file, priorPayloadJson: document!.extractedPayloadJson });
     }
   }
 
-  for (const file of pending) {
-    await beginExtractionAttempt(file.driveFileId);
+  for (const item of pending) {
+    if (item.priorPayloadJson === null) {
+      await beginExtractionAttempt(item.file.driveFileId);
+    }
   }
 
   const concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
 
-  await runPool(pending, concurrency, async (file) => {
+  await runPool(pending, concurrency, async ({ file, priorPayloadJson }) => {
+    let written = true;
     try {
       const fileBytes = await deps.driveClient.download(file.driveFileId);
-      await processModelExtractionFile(
+      written = await processModelExtractionFile(
         {
           companyId,
           monthKey,
@@ -118,6 +126,7 @@ export async function discoverModelExtractionForMonth(
           folderSlot: file.folderSlot,
           mimeType: file.mimeType,
           fileBytes,
+          reread: priorPayloadJson !== null,
         },
         {
           pdfAccess: deps.pdfAccess,
@@ -128,6 +137,9 @@ export async function discoverModelExtractionForMonth(
       );
     } catch (error) {
       await recordExtractionCrash(file.driveFileId, error);
+    }
+    if (priorPayloadJson !== null) {
+      await finishPipelineReread(file.driveFileId, priorPayloadJson, written);
     }
   });
 }

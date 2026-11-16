@@ -110,3 +110,59 @@ all survive a folder rename. Renaming is materially less dangerous than moving.
   configuration surface that only ever accumulates.
 - **Exact match only, unrecognised folders shown as "unmapped" for her to fix in Drive by hand.**
   Honest, but pushes manual work back onto the person the app exists to unburden.
+
+## Amendment, 2026-11-11 — the office's names, and conformance above the month (PRD 0004)
+
+**Default names.** The office's agreed structure renames two slots: `04 Bločky_hotovosť` becomes
+`04 Platby hotovosťou` and `05 Bločky_firemná karta` becomes `05 Platby kartou`. The default list
+changes; a stored list is migrated only if it still equals the old default, and the impact preview
+remains the way to check a change. The old and new names are far beyond the edit distance of the
+near-miss rule, so a folder still carrying an old name is *unrecognised*, not a repair candidate —
+deliberately: a rename across a convention change is a decision, not a typo.
+
+**Conformance beyond the month folder.** Classification stays as decided here. The structure check
+of PRD 0004 extends the same "visible rather than silently dropped" principle upward: a company folder
+without the `Konto ` prefix, a missing or duplicate month of the current year, a past-year `YYYY_MM`
+folder left beside the current year, an unknown folder at company level, and files lying directly in
+a company or archive folder are all reported. Past-year archive folders (`YYYY`) are accepted and not
+inspected. Only near-miss subfolders get a rename proposal; everything else is for a person to fix in
+Drive. Deviations are recomputed on every sweep, so a fix in Drive clears them.
+
+**Display name.** The `Konto ` prefix is part of the Drive name, not the company's name. Hugo strips
+it for display and for the register search of ADR 0018; the stored Drive name is unchanged.
+
+## Amendment, 2026-11-12 — the office's structure: read by depth, types by code
+
+The office described its drive ("Štruktúra disku Doklady klientov – podklad pre dashboard",
+`.agents/ctx/`): disk → accountant → client → month → document type, to be read by **position and
+folder ID, not by names**. Hugo follows it:
+
+- **Level 1:** every folder at the root of the drive is an accountant, or the archive (its name says
+  "archív"); the group's name is the part before " – ". A root folder that holds month folders itself
+  is still read as a company, as in the flat layouts before 2026-11-11.
+- **Level 2:** every folder in a group folder is a client, whatever its name (now `Doklady <client>`;
+  the display name strips `Doklady ` and the older `Konto `). A client in the archive gets no new
+  months and is not chased.
+- **Level 3:** a month is a folder whose name **starts** with `YYYY_MM` (`2026_10`, `2027_01 január`);
+  other folders there (year archives) are ignored.
+- **Level 4, from 2027_01:** a folder is its **code** `01`–`08`, whatever follows it. The canonical
+  list is the office's eight types: `01 Vystavené faktúry`, `02 Prijaté faktúry`, `03 Bankové výpisy`,
+  `04 Bločky`, `05 Cestovné príkazy`, `06 Ostatné dokumenty`, `07 Mzdy`, `08 DPH`. No repairs are
+  proposed in these months; a folder without a code is unrecognised.
+- **Level 4, before 2027_01:** by **name**, because the old numbers meant other things:
+
+| Older name | Type |
+|---|---|
+| `04 Platby hotovosťou`, `05 Platby kartou`, `05 Platby firemnou kartou`, `04/05 Bločky_…` variants | `04 Bločky` |
+| `06 Iné doklady`, `05 Iné doklady` | `06 Ostatné dokumenty` |
+| `06 Cestovné príkazy` | `05 Cestovné príkazy` |
+| `06 Mzdy` | `07 Mzdy` |
+| `07 DPH` | `08 DPH` |
+
+  An older month is not expected to hold `05` or `08` (it never had them). A near-miss of a name is
+  still a repair candidate, renamed to the type's current name.
+
+Cash and card receipts are one type, `04 Bločky`; Hugo no longer tells them apart by folder (nothing
+downstream used the difference). Processed types: `01`, `02`, `04`, `06`; `03` is presence-only;
+`05`, `07`, `08` are not read. Movable by default: `02`, `04`, `06`. Stored slot values are migrated
+(0008), and a settings list still on an earlier default moves to the eight types.

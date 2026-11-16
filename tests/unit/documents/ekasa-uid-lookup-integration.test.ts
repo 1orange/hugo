@@ -40,7 +40,7 @@ async function seed(): Promise<void> {
       driveFileId: RECEIPT_ID,
       companyId: 1,
       monthKey: "2026_04",
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       parentId: "m1",
       name: "photo-receipt.pdf",
       mimeType: "application/pdf",
@@ -160,7 +160,7 @@ test("a receipt that prints no eKasa mark is read without asking for a UID", asy
   const readAs = async (lines: string[]) => {
     await seed();
     await processModelExtractionFromLines(
-      { companyId: 1, monthKey: "2026_04", driveFileId: RECEIPT_ID, folderSlot: "04 Bločky_hotovosť", lines, source: "ocr" },
+      { companyId: 1, monthKey: "2026_04", driveFileId: RECEIPT_ID, folderSlot: "04 Bločky", lines, source: "ocr" },
       { extractor: createStubExtractor(), now: () => "2026-04-10T10:00:00.000Z" },
     );
     const view = await buildMonthDocumentView(1, "2026_04");

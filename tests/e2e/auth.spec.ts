@@ -85,6 +85,7 @@ test("the chase list can be pointed at a specific month", async ({ page }) => {
     "page",
   );
 
+  await page.getByTestId("chase-month-picker").click();
   await page.getByTestId("chase-month-2026_01").click();
   await expect(page).toHaveURL(/\/companies\?month=2026_01$/);
   await expect(page.getByTestId("chase-month-2026_01")).toHaveAttribute(
@@ -107,10 +108,11 @@ test("refresh button triggers another sweep", async ({ page }) => {
   const before = await page.getByTestId("last-sweep-at").getAttribute("data-sweep-at");
   await page.waitForTimeout(1100);
   await page.getByTestId("refresh-sweep").click();
-  await expect(page.getByTestId("refresh-sweep")).toHaveText("Obnoviť", {
+  // The button is an icon; its name says when the sweep is done.
+  await expect(page.getByTestId("refresh-sweep")).toHaveAccessibleName("Obnoviť", { timeout: 10_000 });
+  await expect(page.getByTestId("last-sweep-at")).not.toHaveAttribute("data-sweep-at", before ?? "", {
     timeout: 10_000,
   });
   const after = await page.getByTestId("last-sweep-at").getAttribute("data-sweep-at");
   expect(after).toBeTruthy();
-  expect(after).not.toEqual(before);
 });

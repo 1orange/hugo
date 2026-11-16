@@ -1,10 +1,14 @@
 import { classifyFolder } from "./folder-taxonomy";
 
+/**
+ * What a late arrival may be moved out of (ADR 0006): received invoices, receipts and
+ * other documents. Issued invoices, statements, travel orders, payroll and VAT belong
+ * to their period.
+ */
 export const DEFAULT_MOVABLE_FOLDER_NAMES = [
   "02 Prijaté faktúry",
-  "04 Bločky_hotovosť",
-  "05 Bločky_firemná karta",
-  "06 Iné doklady",
+  "04 Bločky",
+  "06 Ostatné dokumenty",
 ] as const;
 
 export type FolderListValidationError = {
@@ -191,8 +195,8 @@ export function previewCanonicalListImpact(input: {
   const newlyRecognisedFolders: ExistingFolderRef[] = [];
 
   for (const folder of input.existingFolders) {
-    const current = classifyFolder(folder.folderName, currentSettings);
-    const proposed = classifyFolder(folder.folderName, proposedSettings);
+    const current = classifyFolder(folder.folderName, currentSettings, folder.monthKey);
+    const proposed = classifyFolder(folder.folderName, proposedSettings, folder.monthKey);
 
     if (current.kind !== "canonical") {
       if (proposed.kind === "canonical") {

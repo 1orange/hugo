@@ -13,9 +13,9 @@ import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts"
 test("processed folder slots cover issued and received invoices, receipts and other docs", () => {
   assert.ok(PROCESSED_FOLDER_SLOTS.includes("01 Vystavené faktúry"));
   assert.ok(PROCESSED_FOLDER_SLOTS.includes("02 Prijaté faktúry"));
-  assert.ok(PROCESSED_FOLDER_SLOTS.includes("04 Bločky_hotovosť"));
-  assert.ok(PROCESSED_FOLDER_SLOTS.includes("05 Bločky_firemná karta"));
-  assert.ok(PROCESSED_FOLDER_SLOTS.includes("06 Iné doklady"));
+  assert.ok(PROCESSED_FOLDER_SLOTS.includes("04 Bločky"));
+  assert.ok(PROCESSED_FOLDER_SLOTS.includes("04 Bločky"));
+  assert.ok(PROCESSED_FOLDER_SLOTS.includes("06 Ostatné dokumenty"));
   assert.equal(isProcessedFolderSlot("03 Bankové výpisy"), false);
   assert.equal(isProcessedFolderSlot("07 Mzdy"), false);
   assert.equal(isProcessedFolderSlot(null), false);
@@ -40,17 +40,16 @@ test("processed slots are pinned literals, not positions in the canonical list",
     [
       "01 Vystavené faktúry",
       "02 Prijaté faktúry",
-      "04 Bločky_hotovosť",
-      "05 Bločky_firemná karta",
-      "06 Iné doklady",
+      "04 Bločky",
+      "06 Ostatné dokumenty",
     ],
   );
 });
 
-test("cash versus card is derived from folder slot only", () => {
-  assert.equal(deriveReceiptKind("04 Bločky_hotovosť"), "cash");
-  assert.equal(deriveReceiptKind("05 Bločky_firemná karta"), "card");
+test("a receipt is told by its folder; cash and card are one type (04 Bločky)", () => {
+  assert.equal(deriveReceiptKind("04 Bločky"), "receipt");
   assert.equal(deriveReceiptKind("02 Prijaté faktúry"), null);
+  assert.equal(deriveReceiptKind("05 Cestovné príkazy"), null);
 });
 
 test("derived status is advisory and reflects extraction state", () => {
@@ -60,7 +59,7 @@ test("derived status is advisory and reflects extraction state", () => {
       decision: null,
       extractionStatus: "pending",
       extractionFailureReason: null,
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       mimeType: "application/pdf",
     }),
     { kind: "pending-extraction", hint: "Spracúva sa…" },
@@ -70,7 +69,7 @@ test("derived status is advisory and reflects extraction state", () => {
       decision: null,
       extractionStatus: "failed",
       extractionFailureReason: "No text layer",
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       mimeType: "application/pdf",
     }),
     { kind: "manual-entry", hint: "No text layer" },
@@ -80,7 +79,7 @@ test("derived status is advisory and reflects extraction state", () => {
       decision: "confirmed",
       extractionStatus: "complete",
       extractionFailureReason: null,
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       mimeType: "application/pdf",
     }),
     { kind: "extracted", hint: "Spracované" },
@@ -105,7 +104,7 @@ test("a document no parser handles says so instead of waiting forever", () => {
       decision: null,
       extractionStatus: "pending",
       extractionFailureReason: null,
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       mimeType: "image/heic",
     }),
     { kind: "manual-only", hint: "Vyplň ručne" },
@@ -115,21 +114,21 @@ test("a document no parser handles says so instead of waiting forever", () => {
 test("automatic extraction covers text-layer PDFs in processed folders", () => {
   assert.equal(
     hasAutomaticExtraction({
-      folderSlot: "04 Bločky_hotovosť",
+      folderSlot: "04 Bločky",
       mimeType: "application/pdf",
     }),
     true,
   );
   assert.equal(
     hasAutomaticExtraction({
-      folderSlot: "05 Bločky_firemná karta",
+      folderSlot: "04 Bločky",
       mimeType: "application/pdf",
     }),
     true,
   );
   assert.equal(
     hasAutomaticExtraction({
-      folderSlot: "05 Bločky_firemná karta",
+      folderSlot: "04 Bločky",
       mimeType: "image/jpeg",
     }),
     false,

@@ -144,7 +144,7 @@ async function seedMonth(): Promise<void> {
         driveFileId: RECEIPT_ID,
         companyId: 1,
         monthKey: "2026_01",
-        folderSlot: "04 Bločky_hotovosť",
+        folderSlot: "04 Bločky",
         parentId: SLOT_04_ID,
         name: "cash.pdf",
         mimeType: "application/pdf",
@@ -206,7 +206,7 @@ test("discovery creates ekasa payload without touching confirmed payload", async
     },
     {
       id: SLOT_04_ID,
-      name: "04 Bločky_hotovosť",
+      name: "04 Bločky",
       parents: [MONTH_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
@@ -373,18 +373,18 @@ test("closed month rejects confirming and dismissing", async () => {
   );
 });
 
-test("moving folder slot on file updates derived receipt kind in the view", async () => {
+test("a file moved into the receipts folder is a receipt in the view", async () => {
   await seedMonth();
   const db = getDb();
 
   await db.update(files)
-    .set({ folderSlot: "05 Bločky_firemná karta" })
+    .set({ folderSlot: "04 Bločky" })
     .where(eq(files.driveFileId, RECEIPT_ID));
   await ensureDocumentsForMonth(1, "2026_01", "2026-01-13T10:00:00.000Z");
 
   const view = (await buildMonthDocumentView(1, "2026_01"))!;
   const receipt = view.documents.find((document) => document.driveFileId === RECEIPT_ID);
-  assert.equal(receipt?.receiptKind, "card");
+  assert.equal(receipt?.receiptKind, "receipt");
 });
 
 test("saveDocumentFields writes confirmed payload only", async () => {
@@ -448,7 +448,7 @@ test("confirmed field values survive re-extraction", async () => {
     },
     {
       id: SLOT_04_ID,
-      name: "04 Bločky_hotovosť",
+      name: "04 Bločky",
       parents: [MONTH_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,

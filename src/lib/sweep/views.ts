@@ -3,6 +3,7 @@ import { listCompanyIdsWithoutProfile } from "@/adapters/store/company-profiles"
 import { getActiveMutationForFolder } from "@/adapters/store/drive-mutations";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { listMonthFolders } from "@/adapters/store/month-folders";
+import { countStructureDeviationsByCompany } from "@/adapters/store/structure-deviations";
 import {
   countAwaitingDecision,
   companyHasDocuments,
@@ -13,7 +14,8 @@ import {
   listMonthsForCompany,
 } from "@/adapters/store/months";
 import { getSettings } from "@/adapters/store/settings";
-import { classifyFolder } from "@/modules/folder-taxonomy";
+import { companyDisplayName } from "@/modules/company-display-name";
+import { classifyFolder, expectedSlotsFor, observedFolderName } from "@/modules/folder-taxonomy";
 import {
   isProcessedFolderSlot,
   STATEMENT_FOLDER_SLOT,
@@ -21,18 +23,30 @@ import {
 import {
   deriveChaseState,
   sortChaseRows,
+  summariseChaseList,
   type ChaseState,
+  type ChaseSummary,
 } from "@/modules/chase-list";
+
 import {
   describeMissingSlots,
   deriveCompanyStage,
+  isFutureMonth,
+  monthKeyAt,
   type CompanyStage,
   type MissingSlot,
 } from "@/modules/month-lifecycle";
 
+/** The summariser lives in the pure chase-list module; re-exported for server callers. */
+export { summariseChaseList, type ChaseSummary };
+
 export type CompanyListItem = {
   id: number;
+  /** Stable across database rebuilds; what *Moje firmy* is keyed by (PRD 0004). */
+  driveFolderId: string;
   name: string;
+  /** The accountant's folder on the shared drive ("Eva"); null for a company at the root. */
+  groupName: string | null;
   /** The month this row is reporting on. */
   monthKey: string | null;
   monthClosed: boolean;
@@ -48,15 +62,12 @@ export type CompanyListItem = {
   lastUploadAt: string | null;
   chaseState: ChaseState;
   profileMissing: boolean;
+  /** Open deviations from the company's Drive structure, from the last sweep. */
+  structureDeviations: number;
 };
 
-export type ChaseSummary = {
-  awaitingTotal: number;
-  withoutStatement: number;
-  silent: number;
-  readyToClose: number;
-  withoutProfile: number;
-};
+/** Documents a client uploaded into a month that has not started yet. */
+export type FutureMonthUpload = { monthKey: string; count: number };
 
 export type MonthDocumentGroup = {
   driveFolderId: string;
@@ -124,10 +135,14 @@ async function monthPresence(companyId: number, monthKey: string): Promise<{
 export async function listCompanySummaries(
   monthKey?: string | null,
 ): Promise<CompanyListItem[]> {
-  const requested = monthKey ?? null;
+  // A future month is never the one the dashboard reports, even when asked for.
+  const currentMonthKey = monthKeyAt(new Date());
+  const requested =
+    monthKey && !isFutureMonth(monthKey, currentMonthKey) ? monthKey : null;
 
   const companiesList = await listCompanies();
   const missingProfiles = await listCompanyIdsWithoutProfile(companiesList.map((c) => c.id));
+  const deviationCounts = await countStructureDeviationsByCompany();
 
   const rows = await Promise.all(companiesList.map(async (company) => {
     const openMonth = await getOpenMonthKey(company.id);
@@ -152,7 +167,9 @@ export async function listCompanySummaries(
 
     return {
       id: company.id,
-      name: company.name,
+      driveFolderId: company.driveFolderId,
+      name: companyDisplayName(company.name),
+      groupName: company.groupName ?? null,
       monthKey: resolvedMonth,
       monthClosed: month?.closedAt !== null && month?.closedAt !== undefined,
       openMonth,
@@ -166,8 +183,10 @@ export async function listCompanySummaries(
         monthClosed: month?.closedAt != null,
         awaitingCount,
         ...presence,
+        archived: company.archived,
       }),
       profileMissing: missingProfiles.has(company.id),
+      structureDeviations: deviationCounts.get(company.id) ?? 0,
     };
   }));
 
@@ -175,39 +194,20 @@ export async function listCompanySummaries(
 }
 
 /**
- * Every month key any company has, newest first. Drives the month picker on the
- * chase list — she can only look at months that exist somewhere in Drive.
+ * Every month key any company has that has started, newest first. Drives the
+ * month picker on the chase list. Pre-created future months are left out.
  */
 export async function listAllMonthKeys(): Promise<string[]> {
+  const currentMonthKey = monthKeyAt(new Date());
   const keys = new Set<string>();
   for (const company of await listCompanies()) {
     for (const month of await listMonthsForCompany(company.id)) {
-      keys.add(month.monthKey);
+      if (!isFutureMonth(month.monthKey, currentMonthKey)) {
+        keys.add(month.monthKey);
+      }
     }
   }
   return [...keys].sort((left, right) => right.localeCompare(left));
-}
-
-export function summariseChaseList(
-  companies: readonly CompanyListItem[],
-): ChaseSummary {
-  return {
-    awaitingTotal: companies.reduce(
-      (total, company) => total + (company.awaitingCount ?? 0),
-      0,
-    ),
-    withoutStatement: companies.filter(
-      (company) =>
-        company.monthKey !== null &&
-        !company.monthClosed &&
-        company.statementArrivedAt === null,
-    ).length,
-    silent: companies.filter((company) => company.chaseState === "silent").length,
-    readyToClose: companies.filter(
-      (company) => company.chaseState === "ready-to-close",
-    ).length,
-    withoutProfile: companies.filter((company) => company.profileMissing).length,
-  };
 }
 
 function renameBlockedReason(canRename: boolean): string | null {
@@ -215,6 +215,26 @@ function renameBlockedReason(canRename: boolean): string | null {
     return "Drive reports this folder cannot be renamed. It may be owned by the client or shared with restricted permissions.";
   }
   return null;
+}
+
+/** Non-deleted files in months after the current one, by month. */
+async function listFutureMonthUploads(
+  companyId: number,
+  currentMonthKey: string,
+): Promise<FutureMonthUpload[]> {
+  const uploads: FutureMonthUpload[] = [];
+  for (const month of await listMonthsForCompany(companyId)) {
+    if (!isFutureMonth(month.monthKey, currentMonthKey)) {
+      continue;
+    }
+    const count = (await listFilesForMonth(companyId, month.monthKey)).filter(
+      (file) => !file.deleted,
+    ).length;
+    if (count > 0) {
+      uploads.push({ monthKey: month.monthKey, count });
+    }
+  }
+  return uploads;
 }
 
 export async function buildMonthView(
@@ -228,6 +248,7 @@ export async function buildMonthView(
   isOpenMonth: boolean;
   closedAt: string | null;
   missingSlots: MissingSlot[];
+  futureUploads: FutureMonthUpload[];
   groups: MonthDocumentGroup[];
 } | null> {
   const company = await getCompanyById(companyId);
@@ -249,17 +270,16 @@ export async function buildMonthView(
   const groups = new Map<string, MonthDocumentGroup>();
 
   for (const folder of monthFolders) {
-    const classification = classifyFolder(folder.name, {
-      canonicalFolderNames: settings.canonicalFolderNames,
-    });
+    const classification = classifyFolder(
+      folder.name,
+      { canonicalFolderNames: settings.canonicalFolderNames },
+      monthKey,
+    );
     const proposedTargetName =
       classification.kind === "repair-candidate"
         ? classification.targetName
         : null;
-    const observedName =
-      classification.kind === "repair-candidate"
-        ? classification.observedName
-        : classification.name;
+    const observedName = observedFolderName(classification);
     const title =
       classification.kind === "canonical"
         ? classification.name
@@ -318,10 +338,7 @@ export async function buildMonthView(
       classification.kind === "repair-candidate"
         ? classification.targetName
         : null;
-    const observedName =
-      classification.kind === "repair-candidate"
-        ? classification.observedName
-        : classification.name;
+    const observedName = observedFolderName(classification);
     const title =
       classification.kind === "canonical"
         ? classification.name
@@ -352,21 +369,30 @@ export async function buildMonthView(
     groups.set(folderId, existing);
   }
 
+  const isOpenMonth = openMonthKey === monthKey;
+
   return {
-    companyName: company.name,
+    companyName: companyDisplayName(company.name),
     monthKey,
     canonicalFolderNames: settings.canonicalFolderNames,
     readOnly: month.closedAt !== null,
-    isOpenMonth: openMonthKey === monthKey,
+    isOpenMonth,
     closedAt: month.closedAt,
+    // Early uploads are noted on the open month only; they are never moved.
+    futureUploads: isOpenMonth
+      ? await listFutureMonthUploads(companyId, monthKeyAt(new Date()))
+      : [],
     missingSlots: describeMissingSlots(
       monthFolders.map((folder) => ({
         name: folder.name,
-        classification: classifyFolder(folder.name, {
-          canonicalFolderNames: settings.canonicalFolderNames,
-        }),
+        classification: classifyFolder(
+          folder.name,
+          { canonicalFolderNames: settings.canonicalFolderNames },
+          monthKey,
+        ),
       })),
-      settings.canonicalFolderNames,
+      // An older month is not expected to hold the types it never had (travel orders, VAT).
+      expectedSlotsFor(monthKey, settings.canonicalFolderNames),
     ),
     groups: [...groups.values()],
   };

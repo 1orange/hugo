@@ -1,10 +1,15 @@
-import { boolean, index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, primaryKey, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const companies = pgTable("companies", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   driveFolderId: text("drive_folder_id").notNull().unique(),
   name: text("name").notNull(),
   active: boolean("active").notNull().default(true),
+  /** The accountant's folder it sits in on the shared drive ("Eva"); null for a company at the root. */
+  groupName: text("group_name"),
+  /** In the archive group: a former client that gets no new months. */
+  archived: boolean("archived").notNull().default(false),
 });
 
 export const companyProfiles = pgTable("company_profiles", {
@@ -53,6 +58,25 @@ export const settings = pgTable("settings", {
   driveWatchResourceId: text("drive_watch_resource_id"),
   driveWatchToken: text("drive_watch_token"),
   driveWatchExpiresAt: text("drive_watch_expires_at"),
+  // Register data older than this is refreshed on the next sighting (ADR 0022).
+  subjectRefreshDays: integer("subject_refresh_days").notNull().default(30),
+  // Where the sweep last read Drive's change log, and when it last listed every file (ADR 0003).
+  driveChangesToken: text("drive_changes_token"),
+  driveSnapshotAt: text("drive_snapshot_at"),
+});
+
+/**
+ * Every item the service account sees in Drive, as of the last sweep: the
+ * listing the sweep diffs, kept so a sweep reads only Drive's changes since.
+ */
+export const driveItems = pgTable("drive_items", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  parentsJson: text("parents_json").notNull(),
+  createdTime: text("created_time").notNull(),
+  mimeType: text("mime_type").notNull(),
+  canRename: boolean("can_rename"),
+  canMove: boolean("can_move"),
 });
 
 export const months = pgTable("months", {
@@ -78,7 +102,16 @@ export const files = pgTable("files", {
   mimeType: text("mime_type").notNull(),
   driveCreatedTime: text("drive_created_time").notNull(),
   firstSeenAt: text("first_seen_at").notNull(),
+  // The last sweep that changed the row; a sweep writes only the rows it changed.
   lastSeenAt: text("last_seen_at").notNull(),
+  /**
+   * When the file arrived in the month it is in: moved there from another
+   * month; null when it has been there since it was first seen. A file that
+   * arrived after its month was closed is a late arrival (ADR 0005, amended 2026-11-12).
+   */
+  arrivedAt: text("arrived_at"),
+  /** Drive's `canMoveItemWithinDrive` at the last sweep (ADR 0006). */
+  canMove: boolean("can_move").notNull().default(true),
   deleted: boolean("deleted").notNull().default(false),
 }, (table) => [index("files_company_month").on(table.companyId, table.monthKey)]);
 
@@ -134,6 +167,12 @@ export const documents = pgTable("documents", {
   stagedExtractionStatus: text("staged_extraction_status"),
   stagedExtractionFailureReason: text("staged_extraction_failure_reason"),
   confirmedPayloadJson: text("confirmed_payload_json").notNull().default("{}"),
+  /**
+   * The worker's integrity verdict for each party, with the identity it was
+   * judged for (ADR 0018 amendment, ADR 0022). Null until the worker has checked
+   * the document; pages read it and never call a register.
+   */
+  partyIntegrityJson: text("party_integrity_json"),
   note: text("note"),
   exportedAt: text("exported_at"),
   exportBatch: text("export_batch"),
@@ -183,3 +222,126 @@ export const driveMutations = pgTable("drive_mutations", {
   failureMessage: text("failure_message"),
   undoneAt: text("undone_at"),
 });
+
+/**
+ * The late-arrivals log (ADR 0005, ADR 0006): a file that arrived in a month
+ * after it was closed. One row per file, kept whatever happens to it, so that
+ * nothing landed late is lost by navigating away. `pending` until it is moved
+ * into the open month, ignored, or resolved (it left the closed month, or the
+ * month was reopened).
+ */
+export const lateArrivals = pgTable("late_arrivals", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  driveFileId: text("drive_file_id").notNull().unique(),
+  /** The closed month it arrived in, its folder slot and folder. */
+  sourceMonthKey: text("source_month_key").notNull(),
+  folderSlot: text("folder_slot").notNull(),
+  sourceParentId: text("source_parent_id").notNull(),
+  arrivedAt: text("arrived_at").notNull(),
+  detectedAt: text("detected_at").notNull(),
+  /** pending | moved | ignored | resolved. */
+  status: text("status").notNull().default("pending"),
+  statusChangedAt: text("status_changed_at"),
+  /** Where it was moved, and the mutation that moved it (undo reads it). */
+  targetMonthKey: text("target_month_key"),
+  mutationId: integer("mutation_id"),
+}, (table) => [index("late_arrivals_company").on(table.companyId, table.status)]);
+
+/**
+ * What the last sweep found wrong with a company's Drive layout (*Štruktúra
+ * Drive*, PRD 0004). Recomputed on every sweep and replaced wholesale, so this
+ * is a picture of Drive, not a to-do list: a fix in Drive clears its row.
+ */
+export const structureDeviations = pgTable("structure_deviations", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  kind: text("kind").notNull(),
+  severity: text("severity").notNull(),
+  path: text("path").notNull(),
+  monthKey: text("month_key"),
+  driveFolderId: text("drive_folder_id"),
+  detailsJson: text("details_json").notNull(),
+  detectedAt: text("detected_at").notNull(),
+}, (table) => [index("structure_deviations_company").on(table.companyId)]);
+
+/**
+ * The shared subject directory (ADR 0022): one row per subject across every
+ * client company. Keyed by (country, IČO); a foreign subject without a Slovak
+ * or Czech IČO by its normalised VAT ID. Register values are kept with the
+ * source of each (`register`, `vies`, `manual`, `profile`).
+ */
+export const subjects = pgTable("subjects", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  /** SK, CZ, or foreign. */
+  country: text("country").notNull(),
+  ico: text("ico"),
+  /** Normalised: SK + IČ DPH, or CZ + DIČ for a Czech subject; the key of a foreign one. */
+  vatId: text("vat_id"),
+  legalName: text("legal_name"),
+  formerNamesJson: text("former_names_json").notNull().default("[]"),
+  dic: text("dic"),
+  icDph: text("ic_dph"),
+  /** VAT-group membership, where VIES says so (slice 14). */
+  vatGroupId: text("vat_group_id"),
+  address: text("address"),
+  /** active, dissolved, or unknown (never looked up, or not in the register). */
+  registerStatus: text("register_status").notNull().default("unknown"),
+  /** VIES status of the IČ DPH (slice 14); null until VIES was asked. */
+  viesStatus: text("vies_status"),
+  /** Per field: where its value came from. */
+  sourcesJson: text("sources_json").notNull().default("{}"),
+  /** Fields an accountant corrected: a refresh never overwrites them. */
+  manualFieldsJson: text("manual_fields_json").notNull().default("[]"),
+  /** Disagreements a refresh or a profile found, for the directory screen. */
+  findingsJson: text("findings_json").notNull().default("[]"),
+  /** The client company this subject is, through its profile's IČO (ADR 0022). */
+  linkedCompanyId: integer("linked_company_id").references(() => companies.id),
+  /** When the register (or VIES) last answered; null while never. */
+  verifiedAt: text("verified_at"),
+  lastSeenAt: text("last_seen_at").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("subjects_country_ico")
+    .on(table.country, table.ico)
+    .where(sql`${table.ico} IS NOT NULL`),
+  uniqueIndex("subjects_vat_id_without_ico")
+    .on(table.vatId)
+    .where(sql`${table.ico} IS NULL`),
+  index("subjects_vat_id").on(table.vatId),
+  index("subjects_linked_company").on(table.linkedCompanyId),
+]);
+
+/** The names a subject is printed under on documents, with how often (ADR 0022). */
+export const subjectAliases = pgTable("subject_aliases", {
+  subjectId: integer("subject_id")
+    .notNull()
+    .references(() => subjects.id),
+  /** Lowercase, without diacritics or punctuation: the key of an alias lookup. */
+  normalizedName: text("normalized_name").notNull(),
+  displayName: text("display_name").notNull(),
+  count: integer("count").notNull().default(0),
+  lastSeenAt: text("last_seen_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.subjectId, table.normalizedName] }),
+  index("subject_aliases_name").on(table.normalizedName),
+]);
+
+/**
+ * Which document each sighting of an alias came from. An alias counts once per
+ * document, so checking the same document again does not inflate its count (ADR 0022).
+ */
+export const subjectAliasSightings = pgTable("subject_alias_sightings", {
+  subjectId: integer("subject_id")
+    .notNull()
+    .references(() => subjects.id),
+  normalizedName: text("normalized_name").notNull(),
+  documentId: text("document_id").notNull(),
+  sightedAt: text("sighted_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.subjectId, table.normalizedName, table.documentId] }),
+]);

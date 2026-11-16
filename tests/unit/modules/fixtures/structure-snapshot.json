@@ -1,0 +1,353 @@
+{
+  "note": "Conforming Drive layout of three companies, names only, copied from the Drive snapshot (.agents/ctx/gdrive/structure). Used as the zero-deviation baseline.",
+  "companies": {
+    "Konto A": {
+      "archives": [
+        "2024",
+        "2025"
+      ],
+      "months": {
+        "2026_01": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_02": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_03": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_04": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_05": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_06": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_07": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_08": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_09": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_10": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_11": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_12": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ]
+      }
+    },
+    "Konto B": {
+      "archives": [
+        "2024",
+        "2025"
+      ],
+      "months": {
+        "2026_01": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_02": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_03": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_04": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_05": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_06": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_07": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_08": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_09": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_10": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_11": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_12": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ]
+      }
+    },
+    "Konto C": {
+      "archives": [
+        "2024",
+        "2025"
+      ],
+      "months": {
+        "2026_01": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_02": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_03": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_04": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_05": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_06": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_07": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_08": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_09": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_10": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_11": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ],
+        "2026_12": [
+          "01 Vystavené faktúry",
+          "02 Prijaté faktúry",
+          "03 Bankové výpisy",
+          "04 Platby hotovosťou",
+          "05 Platby kartou",
+          "06 Iné doklady",
+          "07 Mzdy"
+        ]
+      }
+    }
+  }
+}

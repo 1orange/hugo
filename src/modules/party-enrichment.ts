@@ -11,7 +11,19 @@ export type EnrichedParty = {
 };
 
 export type PartyField = keyof EnrichedParty;
-export type PartyValueProvenance = "empty" | "extracted" | "confirmed" | "profile" | "derived";
+/**
+ * Where a party value came from. `register`: the accountant took it from the
+ * register (PRD 0004, story 34); `directory`: filled from a known subject of
+ * the shared directory (ADR 0022). Both yield to anything typed.
+ */
+export type PartyValueProvenance =
+  | "empty"
+  | "extracted"
+  | "confirmed"
+  | "profile"
+  | "derived"
+  | "register"
+  | "directory";
 
 export type PartyFieldValue = {
   value: string;
@@ -77,6 +89,38 @@ function profileValue(profile: PartyEnrichmentProfile, field: PartyField): strin
     return profile.legalName?.trim() ?? "";
   }
   return profile[field]?.trim() ?? "";
+}
+
+/** What the shared subject directory knows of a party's subject, for the fields it may fill. */
+export type DirectoryPartyFacts = {
+  name: string;
+  dic: string;
+  icDph: string;
+};
+
+/** The directory's facts by subject key (see directoryKeyOf): the pages look them up, never a register. */
+export type DirectoryFactsByKey = Record<string, DirectoryPartyFacts>;
+
+/**
+ * Fills what a party lacks from its subject (ADR 0022): a missing DIČ or IČ DPH,
+ * and the name only when the party has none. A value that is printed or was
+ * typed is never replaced, and a field the accountant emptied on purpose
+ * (provenance `confirmed`, no value) stays empty.
+ */
+export function fillFromDirectory(party: PartySource, facts: DirectoryPartyFacts | undefined): PartySource {
+  if (!facts) {
+    return party;
+  }
+  const next = cloneParty(party);
+  for (const field of ["name", "dic", "icDph"] as const) {
+    const value = facts[field].trim();
+    const current = next[field];
+    if (value.length === 0 || current.value.trim().length > 0 || current.provenance === "confirmed") {
+      continue;
+    }
+    next[field] = { value, provenance: "directory" };
+  }
+  return next;
 }
 
 function cloneParty(party: PartySource): PartySource {

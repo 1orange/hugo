@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
+import { MessageSquare, Search, X } from "lucide-react";
 import type {
   DocumentListItem,
   FolderFilterOption,
@@ -12,6 +13,7 @@ import { driveFileViewUrl } from "@/modules/file-preview";
 import {
   documentSortQuery,
   filterReadOnlyFiles,
+  hasSubjectProblem,
   normalizeDocumentSearch,
   type DocumentSortDirection,
   type DocumentSortKey,
@@ -33,6 +35,10 @@ type DocumentRailProps = {
   liveExtraction: Map<string, LiveExtraction>;
   onSelect: (documentId: string) => void;
   basePath: string;
+  /** Documents in this folder scope with a party whose verdict is a mismatch. */
+  subjectProblemCount: number;
+  subjectProblemsOnly: boolean;
+  onSubjectProblemsOnlyChange: (next: boolean) => void;
 };
 
 /**
@@ -54,6 +60,9 @@ export function DocumentRail({
   liveExtraction,
   onSelect,
   basePath,
+  subjectProblemCount,
+  subjectProblemsOnly,
+  onSubjectProblemsOnlyChange,
 }: DocumentRailProps) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -63,6 +72,8 @@ export function DocumentRail({
     () => filterReadOnlyFiles(readOnlyFiles, normalizedSearch),
     [normalizedSearch, readOnlyFiles],
   );
+  // Narrowing to problems hides the VAT outputs: they carry no party, so none can be one.
+  const showReadOnlyFiles = readOnlyFiles.length > 0 && !subjectProblemsOnly;
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -106,39 +117,12 @@ export function DocumentRail({
   }
 
   return (
-    <div ref={browserRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-      <div className="flex h-[38px] shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-3">
-        <h2 className="eyebrow">Doklady</h2>
-        <div className="flex-1" />
-        <span className="font-mono text-[11px] text-ink-3">{documents.length}</span>
-      </div>
-
-      {folderFilters.length > 0 ? (
-        <div className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2.5 py-2">
-            <FilterChip
-            href={folderHref(null)}
-            active={folderFilter === null}
-            label="Všetky"
-            count={totalCount}
-            title="Všetky spracúvané priečinky"
-          />
-          {folderFilters.map((option) => (
-            <FilterChip
-              key={option.slot}
-              href={folderHref(option.slot)}
-              active={folderFilter === option.slot}
-              label={option.shortLabel}
-              count={option.count}
-              title={option.slot}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      <div className="shrink-0 border-b border-line bg-surface px-2.5 py-2" data-testid="document-browser-toolbar">
-        <div className="flex items-center gap-1.5">
+    <div ref={browserRef} tabIndex={-1} className="flex min-h-0 flex-1 flex-col bg-surface-2 outline-none">
+      <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 pb-2" data-testid="document-browser-toolbar">
+        <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="document-browser-search">Hľadať doklad</label>
-          <div className="relative min-w-0 flex-1">
+          <div className="relative flex min-w-0 flex-1 items-center rounded-[9px] bg-fill text-ink-3 focus-within:bg-surface focus-within:shadow-[0_0_0_2px_rgb(43_93_114/0.45)]">
+            <Search aria-hidden className="ml-2.5 size-3.5 shrink-0" strokeWidth={2.2} />
             <input
               ref={searchRef}
               id="document-browser-search"
@@ -153,8 +137,8 @@ export function DocumentRail({
                   browserRef.current?.focus();
                 }
               }}
-              placeholder="Hľadať doklad…"
-              className="h-8 w-full rounded border border-line-2 bg-surface-2 px-2.5 pr-8 text-[12px] outline-none placeholder:text-ink-3 focus:border-accent focus:bg-surface"
+              placeholder="Hľadať aj v poznámkach"
+              className="h-8 w-full min-w-0 bg-transparent px-2 pr-7 text-[13.5px] text-ink outline-none placeholder:text-ink-4 [&::-webkit-search-cancel-button]:hidden"
               data-testid="document-search"
             />
             {search.length > 0 ? (
@@ -164,65 +148,103 @@ export function DocumentRail({
                   onSearchChange("");
                   searchRef.current?.focus();
                 }}
-                className="absolute inset-y-0 right-0 px-2 text-[14px] text-ink-3 hover:text-ink"
+                className="absolute inset-y-0 right-0 grid w-7 place-items-center text-ink-3 hover:text-ink"
                 aria-label="Vymazať hľadanie"
                 data-testid="document-search-clear"
               >
-                ×
+                <X aria-hidden className="size-3.5" strokeWidth={2.4} />
               </button>
             ) : null}
           </div>
-          <span className="shrink-0 font-mono text-[10.5px] text-ink-3" data-testid="document-count">
+          <span className="tabular shrink-0 text-[12px] text-ink-3" data-testid="document-count">
             {documents.length}/{totalCount}
           </span>
         </div>
-        <div className="mt-1.5 flex items-center gap-1.5 max-[420px]:flex-col max-[420px]:items-stretch">
+
+        {folderFilters.length > 0 ? (
+          <nav aria-label="Priečinky" className="segmented flex w-full">
+            <FilterChip
+              href={folderHref(null)}
+              active={folderFilter === null}
+              label="Všetky"
+              count={totalCount}
+              title="Všetky spracúvané priečinky"
+            />
+            {folderFilters.map((option) => (
+              <FilterChip
+                key={option.slot}
+                href={folderHref(option.slot)}
+                active={folderFilter === option.slot}
+                label={option.shortLabel}
+                count={option.count}
+                title={option.slot}
+              />
+            ))}
+          </nav>
+        ) : null}
+
+        <div className="flex items-center gap-1.5">
           <label className="sr-only" htmlFor="document-sort">Zoradiť doklady</label>
           <select
             id="document-sort"
             value={sortKey}
             onChange={(event) => changeSort(event.target.value as DocumentSortKey)}
-            className="h-7 min-w-0 flex-1 rounded border border-line bg-surface px-1.5 text-[11px] text-ink-2"
+            className="h-7 min-w-0 flex-1 rounded-lg bg-transparent px-1 text-[12.5px] text-ink-2 hover:bg-fill"
             data-testid="document-sort"
           >
-            <option value="issueDate">Vystavené</option>
-            <option value="price">Cena</option>
-            <option value="partner">Partner</option>
-            <option value="filename">Názov súboru</option>
-            <option value="status">Stav</option>
+            <option value="issueDate">Podľa dátumu vystavenia</option>
+            <option value="price">Podľa ceny</option>
+            <option value="partner">Podľa partnera</option>
+            <option value="filename">Podľa názvu súboru</option>
+            <option value="status">Podľa stavu</option>
           </select>
           <button
             type="button"
             onClick={changeDirection}
-            className="h-7 shrink-0 rounded border border-line px-2 font-mono text-[11px] text-ink-2 hover:bg-surface-2"
+            className="press h-7 shrink-0 rounded-lg px-2 text-[12.5px] text-ink-2 hover:bg-fill"
             aria-label={`Smer triedenia: ${sortDirection === "asc" ? "vzostupne" : "zostupne"}`}
             data-testid="document-sort-direction"
           >
             {sortDirection === "asc" ? "↑ A–Z" : "↓ Z–A"}
           </button>
+          <button
+            type="button"
+            onClick={() => onSubjectProblemsOnlyChange(!subjectProblemsOnly)}
+            aria-pressed={subjectProblemsOnly}
+            title="Zobraziť len doklady, ktorých strana nesedí s registrom"
+            className={`press inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12px] ${
+              subjectProblemsOnly
+                ? "bg-bad-soft font-semibold text-bad"
+                : subjectProblemCount > 0
+                  ? "text-bad hover:bg-fill"
+                  : "text-ink-3 hover:bg-fill"
+            }`}
+            data-testid="rail-filter-integrity"
+          >
+            <span aria-hidden>▲</span>
+            <span className="sr-only">Len s problémom subjektu</span>
+            <span className="tabular">{subjectProblemCount}</span>
+          </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {documents.length === 0 ? (
-          <p className="p-2 text-sm text-ink-3">
+          <p className="px-3 py-8 text-center text-[13px] text-ink-3">
             {normalizedSearch
               ? "Hľadaniu nezodpovedá žiadny doklad."
+              : subjectProblemsOnly
+              ? "Žiadny doklad nemá problém so subjektom."
               : folderFilter
               ? "V tomto priečinku nie sú žiadne doklady."
               : "V tomto mesiaci zatiaľ nie sú žiadne doklady."}
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5">
-            <li className="grid grid-cols-[18px_minmax(0,1fr)_auto_auto] gap-2.5 px-[7px] pb-0.5 text-[9px] font-semibold uppercase tracking-[0.11em] text-ink-3 max-[420px]:grid-cols-[18px_minmax(0,1fr)]" aria-hidden>
-              <span />
-              <span>Doklad</span>
-              <span className="max-[420px]:col-start-2 max-[420px]:row-start-2">Cena</span>
-              <span className="max-[420px]:col-start-2 max-[420px]:row-start-3">Vystavené</span>
-            </li>
+          <ul className="flex flex-col gap-0.5" aria-label="Doklady mesiaca">
             {documents.map((document) => {
               const selected = document.id === selectedDocumentId;
               const dismissed = document.decision === "not_relevant";
+              const vat = document.fieldEditor.fields.recapVatLiteral.trim();
 
               return (
                 <li key={document.id}>
@@ -234,63 +256,67 @@ export function DocumentRail({
                     // The label turns into the supplier once extraction reads it.
                     title={document.name}
                     aria-current={selected ? "true" : undefined}
-                    className={`grid w-full grid-cols-[18px_minmax(0,1fr)_auto_auto] items-start gap-2.5 rounded-md border-l-2 py-2 pl-[7px] pr-2.5 text-left max-[420px]:grid-cols-[18px_minmax(0,1fr)] ${
-                      selected
-                        ? "border-l-accent bg-accent-soft"
-                        : "border-l-transparent hover:bg-surface-2"
-                    }`}
+                    className={`group press flex w-full items-start gap-2.5 rounded-[9px] px-2.5 py-2 text-left transition-colors duration-100 ${
+                      selected ? "bg-accent text-white" : "text-ink hover:bg-black/[0.035]"
+                    } ${dismissed && !selected ? "opacity-60" : ""}`}
                   >
-                    <StateGlyph document={document} />
-                    <span className="min-w-0">
-                      <span
-                        className={`block truncate text-[12.5px] font-medium ${
-                          dismissed ? "text-ink-3" : ""
-                        }`}
-                      >
-                        {document.label}
+                    <StateGlyph document={document} selected={selected} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline gap-2">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                          <span className="block min-w-0 truncate text-[13.5px] font-semibold">{document.label}</span>
+                          {hasSubjectProblem(document) ? (
+                            <SubjectProblemMark documentId={document.id} selected={selected} />
+                          ) : null}
+                        </span>
+                        <span className="tabular shrink-0 text-[13px] font-medium">{document.amountDisplay}</span>
                       </span>
-                      <span className="block truncate font-mono text-[11px] text-ink-3">
-                        {document.folderSlot}
-                        {document.receiptOfFile
-                          ? ` · bloček ${document.receiptOfFile.index} z ${document.receiptOfFile.count}`
-                          : ""}
+                      <span className={`mt-px flex items-baseline gap-2 text-[12px] ${selected ? "text-white/80" : "text-ink-3"}`}>
+                        {/* The date first, so a long folder name never pushes it out of view. */}
+                        <DocumentDate document={document} />
+                        <span className="min-w-0 flex-1 truncate" title={document.folderSlot}>
+                          {document.folderSlot}
+                          {document.receiptOfFile
+                            ? ` · bloček ${document.receiptOfFile.index} z ${document.receiptOfFile.count}`
+                            : ""}
+                        </span>
+                        {vat ? <span className="tabular shrink-0">DPH {vat}</span> : null}
                       </span>
                       {document.sameReceiptAs.length > 0 && document.decision === null ? (
-                        <span className="block truncate text-[11px] text-warn">
+                        <span className={`mt-0.5 block truncate text-[12px] ${selected ? "text-white/85" : "text-warn"}`}>
                           Rovnaký bloček aj v {document.sameReceiptAs[0]!.fileName}
                         </span>
                       ) : null}
-                      {document.decision === null &&
-                      document.derivedStatus.kind === "pending-extraction" ? (
+                      {document.decision === null && document.derivedStatus.kind === "pending-extraction" ? (
                         <PendingHint
                           live={liveExtraction.get(document.driveFileId)}
                           fallback={document.derivedStatus.hint}
+                          selected={selected}
                         />
-                      ) : document.decision === null &&
-                        document.derivedStatus.kind !== "awaiting-decision" ? (
+                      ) : document.decision === null && document.derivedStatus.kind !== "awaiting-decision" ? (
                         <span
-                          className={`block truncate text-[11px] ${
-                            document.derivedStatus.kind === "manual-entry" ? "text-warn" : "text-ink-3"
+                          className={`mt-0.5 block truncate text-[12px] ${
+                            selected
+                              ? "text-white/85"
+                              : document.derivedStatus.kind === "manual-entry"
+                                ? "text-warn"
+                                : "text-ink-3"
                           }`}
                         >
                           {document.derivedStatus.hint}
                         </span>
                       ) : null}
-                      {dismissed && document.notRelevantReason ? (
-                        <span className="block truncate text-[11px] text-ink-3">
-                          „{document.notRelevantReason}“
+                      {dismissed ? (
+                        <span className={`mt-0.5 block truncate text-[12px] italic ${selected ? "text-white/85" : "text-ink-3"}`}>
+                          Nerelevantné{document.notRelevantReason ? `: ${document.notRelevantReason}` : ""}
                         </span>
                       ) : null}
-                    </span>
-                    <span
-                      className={`pt-px font-mono text-[12px] whitespace-nowrap max-[420px]:col-start-2 max-[420px]:row-start-2 ${
-                        dismissed ? "text-ink-3" : "text-ink-2"
-                      }`}
-                    >
-                      {document.amountDisplay}
-                    </span>
-                    <span className="pt-px font-mono text-[11px] whitespace-nowrap text-ink-3 max-[420px]:col-start-2 max-[420px]:row-start-3">
-                      {document.issueDateDisplay}
+                      {document.note ? (
+                        <span className={`mt-0.5 flex items-center gap-1.5 text-[12px] ${selected ? "text-white/85" : "text-ink-3"}`}>
+                          <MessageSquare aria-hidden className="size-3 shrink-0" strokeWidth={2} />
+                          <span className="truncate">{document.note}</span>
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 </li>
@@ -299,15 +325,10 @@ export function DocumentRail({
           </ul>
         )}
 
-        {readOnlyFiles.length > 0 ? (
-          <section
-            className="mt-3 border-t border-line pt-2.5"
-            data-testid="folder-group-vat-output"
-          >
-            <h3 className="eyebrow px-2">Výstupy DPH — len na čítanie</h3>
-            <p className="px-2 pt-1 text-[11px] text-ink-3">
-              Súbory v koreni mesiaca. Nikdy sa nespracúvajú ako vstupné doklady.
-            </p>
+        {showReadOnlyFiles ? (
+          <section className="mx-1 mt-4 border-t border-line pt-3" data-testid="folder-group-vat-output">
+            <h3 className="eyebrow px-1.5">Výstupy DPH — len na čítanie</h3>
+            <p className="px-1.5 pt-0.5 text-[12px] text-ink-3">Súbory v koreni mesiaca. Nikdy sa nespracúvajú ako doklady.</p>
             <ul className="mt-1.5 flex flex-col">
               {visibleReadOnlyFiles.map((file) => (
                 <li key={file.driveFileId} data-testid="month-document">
@@ -315,7 +336,7 @@ export function DocumentRail({
                     href={driveFileViewUrl(file.driveFileId)}
                     target="_blank"
                     rel="noreferrer"
-                    className="block truncate rounded-md px-2 py-1 font-mono text-[11.5px] text-ink-3 hover:bg-surface-2 hover:text-accent"
+                    className="block truncate rounded-lg px-1.5 py-1 text-[12.5px] text-ink-3 hover:bg-fill hover:text-accent"
                     title={file.name}
                   >
                     {file.name}
@@ -324,67 +345,81 @@ export function DocumentRail({
               ))}
             </ul>
             {visibleReadOnlyFiles.length === 0 ? (
-              <p className="px-2 pt-1 text-[11px] text-ink-3">Hľadaniu nezodpovedá žiadny výstup.</p>
+              <p className="px-1.5 pt-1 text-[12px] text-ink-3">Hľadaniu nezodpovedá žiadny výstup.</p>
             ) : null}
           </section>
         ) : null}
-      </div>
-
-      <div className="flex shrink-0 flex-wrap gap-2.5 border-t border-line bg-surface-2 px-3 py-2 text-[10.5px] text-ink-3">
-        <Legend className="border-[1.5px] border-ink-3" label="čaká" />
-        <Legend className="bg-good" label="potvrdené" />
-        <Legend className="border-[1.5px] border-ink-3 bg-surface-3" label="nerelevantné" />
-        <Legend className="bg-warn" label="ručne" />
       </div>
     </div>
   );
 }
 
-function Legend({ className, label }: { className: string; label: string }) {
+/**
+ * The document's issue date once it is read; before that, the day the file
+ * reached Drive, marked as such.
+ */
+function DocumentDate({ document }: { document: DocumentListItem }) {
+  const issued = document.issueDateDisplay && document.issueDateDisplay !== "—" ? document.issueDateDisplay : null;
+  const uploaded = document.fileDateDisplay && document.fileDateDisplay !== "—" ? document.fileDateDisplay : null;
+  if (issued) {
+    return (
+      <span className="tabular shrink-0" title="Dátum vystavenia" data-testid="document-date">
+        {issued}
+      </span>
+    );
+  }
+  if (uploaded) {
+    return (
+      <span className="tabular shrink-0" title="Nahraté do Drive" data-testid="document-date">
+        nahraté {uploaded}
+      </span>
+    );
+  }
+  return null;
+}
+
+/** A party of this document disagrees with its register, VIES or profile. Notices do not mark. */
+function SubjectProblemMark({ documentId, selected }: { documentId: string; selected: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <i aria-hidden className={`inline-block size-[9px] rounded-full ${className}`} />
-      {label}
+    <span
+      role="img"
+      aria-label="Strana dokladu nesedí s registrom"
+      title="Strana dokladu nesedí s registrom"
+      data-testid={`rail-integrity-${documentId}`}
+      className={`shrink-0 text-[10px] leading-none ${selected ? "text-[#ffd27a]" : "text-warn-dot"}`}
+    >
+      ▲
     </span>
   );
 }
 
-function StateGlyph({ document }: { document: DocumentListItem }) {
-  const base =
-    "mt-px grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold leading-none";
+function StateGlyph({ document, selected }: { document: DocumentListItem; selected: boolean }) {
+  const base = "mt-px grid size-[18px] shrink-0 place-items-center rounded-full text-[11px] leading-none font-bold";
 
   if (document.decision === "confirmed") {
     return (
-      <span className={`${base} bg-good text-good-ink`} title="Potvrdené" aria-label="Potvrdené">
+      <span className={`${base} bg-good-dot text-white`} title="Potvrdené" aria-label="Potvrdené">
         ✓
       </span>
     );
   }
   if (document.decision === "not_relevant") {
     return (
-      <span
-        className={`${base} border-[1.5px] border-ink-3 text-[11px] text-ink-3`}
-        title="Nerelevantné"
-        aria-label="Nerelevantné"
-      >
+      <span className={`${base} bg-ink-4 text-[12px] text-white`} title="Nerelevantné" aria-label="Nerelevantné">
         –
       </span>
     );
   }
   if (document.derivedStatus.kind === "manual-entry") {
     return (
-      <span
-        className={`${base} bg-warn text-warn-soft`}
-        title="Treba vyplniť ručne"
-        aria-label="Treba vyplniť ručne"
-      >
+      <span className={`${base} bg-warn-dot text-white`} title="Treba vyplniť ručne" aria-label="Treba vyplniť ručne">
         !
       </span>
     );
   }
   return (
     <span
-      className={`${base} border-[1.5px] border-ink-3`}
+      className={`${base} ${selected ? "shadow-[inset_0_0_0_1.5px_rgb(255_255_255/0.85)]" : "shadow-[inset_0_0_0_1.5px_#a1a1a6]"}`}
       title="Čaká na rozhodnutie"
       aria-label="Čaká na rozhodnutie"
     />
@@ -411,29 +446,34 @@ function FilterChip({
       scroll={false}
       aria-current={active ? "true" : undefined}
       data-testid="folder-filter"
-      className={`rounded-full border px-2.5 py-[2.5px] text-[11.5px] ${
-        active
-          ? "border-ink bg-ink font-medium text-surface"
-          : "border-line bg-surface text-ink-2 hover:border-line-2 hover:bg-surface-2"
-      }`}
+      className={`segment flex-1 px-1.5 text-center text-[12.5px] ${active ? "!bg-surface !text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : ""}`}
     >
       {label}
-      <span className="ml-1 opacity-60">{count}</span>
+      <span className="tabular ml-1 opacity-60">{count}</span>
     </Link>
   );
 }
 
 /** A document being read: its stage and share from the queue, its place in it, or what it waits for. */
-function PendingHint({ live, fallback }: { live: LiveExtraction | undefined; fallback: string }) {
+function PendingHint({
+  live,
+  fallback,
+  selected,
+}: {
+  live: LiveExtraction | undefined;
+  fallback: string;
+  selected: boolean;
+}) {
+  const ink = selected ? "text-white/85" : "text-accent";
   if (live?.state === "running") {
     return (
       <span className="block" data-testid="document-extraction-progress">
-        <span className="block truncate text-[11px] text-accent" title={live.stageLabel}>
+        <span className={`mt-0.5 block truncate text-[12px] ${ink}`} title={live.stageLabel}>
           {live.percent} % · {live.stageLabel}
         </span>
-        <span className="mt-1 block h-[3px] overflow-hidden rounded-full bg-surface-3" aria-hidden>
+        <span className={`mt-1 block h-[3px] overflow-hidden rounded-full ${selected ? "bg-white/30" : "bg-fill-2"}`} aria-hidden>
           <span
-            className="block h-full rounded-full bg-accent transition-[width] duration-700"
+            className={`block h-full rounded-full transition-[width] duration-700 ${selected ? "bg-white" : "bg-accent"}`}
             style={{ width: `${live.percent}%` }}
           />
         </span>
@@ -441,10 +481,10 @@ function PendingHint({ live, fallback }: { live: LiveExtraction | undefined; fal
     );
   }
   if (live?.state === "waiting") {
-    return <span className="block truncate text-[11px] text-accent">V rade · {live.position}.</span>;
+    return <span className={`mt-0.5 block truncate text-[12px] ${ink}`}>V rade · {live.position}.</span>;
   }
   if (live?.state === "blocked") {
-    return <span className="block truncate text-[11px] text-warn">{live.label}</span>;
+    return <span className={`mt-0.5 block truncate text-[12px] ${selected ? "text-white/85" : "text-warn"}`}>{live.label}</span>;
   }
-  return <span className="block truncate text-[11px] text-accent">{fallback}</span>;
+  return <span className={`mt-0.5 block truncate text-[12px] ${ink}`}>{fallback}</span>;
 }

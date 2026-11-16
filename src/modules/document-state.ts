@@ -1,3 +1,4 @@
+import { extractionFailureMessage } from "./extraction-failure";
 /**
  * ponytail: pinned to the default folder names while the canonical list itself is
  * editable in settings. Ceiling: rename one of these there and documents stop
@@ -9,13 +10,12 @@
 export const PROCESSED_FOLDER_SLOTS = [
   "01 Vystavené faktúry",
   "02 Prijaté faktúry",
-  "04 Bločky_hotovosť",
-  "05 Bločky_firemná karta",
-  "06 Iné doklady",
+  "04 Bločky",
+  "06 Ostatné dokumenty",
 ] as const;
 
-const CASH_FOLDER_SLOT = "04 Bločky_hotovosť";
-const CARD_FOLDER_SLOT = "05 Bločky_firemná karta";
+/** Cash and card receipts are one type since the office's eight types (2026-11-12). */
+const RECEIPT_FOLDER_SLOT = "04 Bločky";
 
 /**
  * Presence-only (ADR 0013). The app records that a statement arrived and never
@@ -58,10 +58,7 @@ export function hasAutomaticExtraction(document: {
   if (document.mimeType !== "application/pdf") {
     return false;
   }
-  if (
-    document.folderSlot === CASH_FOLDER_SLOT ||
-    document.folderSlot === CARD_FOLDER_SLOT
-  ) {
+  if (document.folderSlot === RECEIPT_FOLDER_SLOT) {
     return true;
   }
   return (
@@ -80,16 +77,12 @@ export function isProcessedFolderSlot(
   return (PROCESSED_FOLDER_SLOTS as readonly string[]).includes(folderSlot);
 }
 
-export function deriveReceiptKind(
-  folderSlot: string,
-): "cash" | "card" | null {
-  if (folderSlot === CASH_FOLDER_SLOT) {
-    return "cash";
-  }
-  if (folderSlot === CARD_FOLDER_SLOT) {
-    return "card";
-  }
-  return null;
+/**
+ * "receipt" for the receipts folder: eKasa reading, the UID box. Cash and card are no
+ * longer told apart by folder; nothing downstream needed the difference.
+ */
+export function deriveReceiptKind(folderSlot: string): "receipt" | null {
+  return folderSlot === RECEIPT_FOLDER_SLOT ? "receipt" : null;
 }
 
 export function deriveDocumentStatus(
@@ -103,7 +96,7 @@ export function deriveDocumentStatus(
   if (document.extractionStatus === "failed") {
     return {
       kind: "manual-entry",
-      hint: document.extractionFailureReason ?? "Treba vyplniť ručne",
+      hint: document.extractionFailureReason ? extractionFailureMessage(document.extractionFailureReason) : "Treba vyplniť ručne",
     };
   }
   if (document.decision === null) {

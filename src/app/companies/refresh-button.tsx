@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { RefreshCw } from "lucide-react";
 import { refreshSweepAction } from "./actions";
 
 /**
- * Forces a re-read of Drive. The freshness label lives in the app bar beside
- * it, so this stays a single small control rather than a stacked pair.
+ * Reads Drive's changes now instead of waiting for the next sweep. An icon in
+ * the app bar; it spins while the sweep runs.
  */
 export function RefreshButton() {
   const router = useRouter();
@@ -17,7 +18,9 @@ export function RefreshButton() {
       type="button"
       disabled={pending}
       data-testid="refresh-sweep"
-      className="rounded-md border border-line-2 bg-surface px-2.5 py-[3px] text-[11.5px] text-ink-2 hover:border-accent hover:text-accent disabled:opacity-50"
+      aria-label={pending ? "Obnovujem…" : "Obnoviť"}
+      title="Obnoviť z Drive"
+      className="press grid size-[34px] place-items-center rounded-lg text-ink-2 hover:bg-fill hover:text-ink disabled:text-ink-3"
       onClick={() => {
         startTransition(async () => {
           await refreshSweepAction();
@@ -25,7 +28,11 @@ export function RefreshButton() {
         });
       }}
     >
-      {pending ? "Obnovujem…" : "Obnoviť"}
+      <RefreshCw
+        aria-hidden
+        className={`size-[17px] ${pending ? "animate-spin motion-reduce:animate-none" : ""}`}
+        strokeWidth={1.9}
+      />
     </button>
   );
 }

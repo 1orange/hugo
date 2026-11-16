@@ -37,7 +37,8 @@ import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
 import {
   extractFromEmbeddedInvoiceXml,
-  processModelExtractionFromLines,
+  sendToModel,
+  type ModelDeps,
 } from "@/lib/model-extraction/process-model-extraction";
 import {
   extractModelTextLines,
@@ -56,10 +57,7 @@ import { stubTextLinesForDriveFile } from "@/adapters/extractor/stub-fixtures";
  * Literal names rather than positions in the canonical list, which is editable in
  * settings and would otherwise silently repoint this.
  */
-export const RECEIPT_FOLDER_SLOTS = [
-  "04 Bločky_hotovosť",
-  "05 Bločky_firemná karta",
-] as const;
+export const RECEIPT_FOLDER_SLOTS = ["04 Bločky"] as const;
 
 export type CashDiscoveryDeps = {
   driveClient: DriveClient;
@@ -179,10 +177,7 @@ export async function processCashReceiptFile(
     mimeType: string;
     fileBytes: Uint8Array;
   },
-  deps: Pick<
-    CashDiscoveryDeps,
-    "pdfAccess" | "qrReader" | "ekasaLookup" | "ocr" | "extractor" | "now"
-  >,
+  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "qrReader" | "ekasaLookup" | "ocr"> & ModelDeps,
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
   const editable = await assertMonthEditable(input.companyId, input.monthKey);
@@ -301,7 +296,7 @@ export async function processCashReceiptFile(
         hadTextLayer && e2eLines === null
           ? await wholeDocumentLines(input.fileBytes, deps.pdfAccess, lines)
           : (ocrReadingLines ?? lines);
-      await processModelExtractionFromLines(
+      await sendToModel(
         {
           companyId: input.companyId,
           monthKey: input.monthKey,
@@ -310,7 +305,7 @@ export async function processCashReceiptFile(
           lines: modelLines,
           source: modelSource,
         },
-        { extractor: deps.extractor, now: deps.now },
+        deps,
       );
       return;
     }

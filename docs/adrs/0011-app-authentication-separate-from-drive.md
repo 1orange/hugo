@@ -46,3 +46,14 @@ Tailscale can be layered later if she wants the app unreachable from the public 
   dependency, but it is authentication code we would own.
 - **Tailscale only.** Strong isolation, but requires a client on every device she uses and offers
   no browser-native sign-in.
+
+## Amendment, 2026-11-11 — several accountants (PRD 0004)
+
+"There is exactly one user" no longer holds: several accountants of the office use Hugo. Nothing in
+the decision changes — the allowlist always accepted a list of addresses, and it remains the entire
+authorisation model. Every allowlisted user can open every company.
+
+Which companies an accountant works on is a **personal filter, not a permission**: *Moje firmy* is
+kept in the browser's local storage, namespaced by the signed-in email, and never sent to the server.
+Server-side assignment, per-user visibility and recording who performed an action are deliberately
+not introduced; if the office later needs any of them, they get their own ADR.

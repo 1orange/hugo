@@ -25,6 +25,7 @@ export type SettingsRow = {
   omegaT00SeriesCode: string;
   omegaT00DocumentTypeCode: string;
   omegaT00ForeignDocumentTypeCode: string;
+  subjectRefreshDays: number;
 };
 
 function defaultMovableFolderNames(): string[] {
@@ -76,6 +77,7 @@ export async function getSettings(): Promise<SettingsRow> {
     omegaT00SeriesCode: row.omegaT00SeriesCode ?? "IDk",
     omegaT00DocumentTypeCode: row.omegaT00DocumentTypeCode ?? "180",
     omegaT00ForeignDocumentTypeCode: row.omegaT00ForeignDocumentTypeCode ?? "380",
+    subjectRefreshDays: row.subjectRefreshDays ?? DEFAULT_SUBJECT_REFRESH_DAYS,
   };
 }
 
@@ -106,6 +108,16 @@ export async function setOmegaExportDefaults(input: {
     omegaT00ForeignDocumentTypeCode:
       input.t00ForeignDocumentTypeCode.trim() || "380",
   });
+}
+
+export const DEFAULT_SUBJECT_REFRESH_DAYS = 30;
+
+/** How old register data of a subject may be before the next sighting refreshes it (ADR 0022). */
+export async function setSubjectRefreshDays(days: number): Promise<void> {
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    throw new Error("Obnovenie údajov subjektov musí byť 1 až 365 dní.");
+  }
+  await updateSettings({ subjectRefreshDays: days });
 }
 
 export async function setAutoAdvanceAfterDecision(enabled: boolean): Promise<void> {
@@ -215,4 +227,20 @@ export async function saveDriveWatchChannel(channel: DriveWatchChannel | null): 
     driveWatchToken: channel?.token ?? null,
     driveWatchExpiresAt: channel?.expiresAt ?? null,
   });
+}
+
+export type DriveSnapshotState = {
+  /** Where Drive's change log was last read; null before the first full listing. */
+  changesToken: string | null;
+  /** When every file was last listed. */
+  snapshotAt: string | null;
+};
+
+export async function getDriveSnapshotState(): Promise<DriveSnapshotState> {
+  const row = await settingsRow();
+  return { changesToken: row?.driveChangesToken ?? null, snapshotAt: row?.driveSnapshotAt ?? null };
+}
+
+export async function saveDriveSnapshotState(state: DriveSnapshotState): Promise<void> {
+  await updateSettings({ driveChangesToken: state.changesToken, driveSnapshotAt: state.snapshotAt });
 }

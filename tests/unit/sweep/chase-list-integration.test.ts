@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getDb } from "../../../src/lib/db/client.ts";
-import { companies, documents, files, months } from "../../../src/lib/db/schema.ts";
+import { companies, documents, files, months, structureDeviations } from "../../../src/lib/db/schema.ts";
 import {
   listAllMonthKeys,
   listCompanySummaries,
@@ -163,4 +163,33 @@ test("a closed month is not counted as missing a statement", async () => {
   const january = summariseChaseList(await listCompanySummaries("2026_01"));
   // Alfa's January is closed, so it is not chased for a statement it never got.
   assert.equal(january.withoutStatement, 1);
+});
+
+test("the summary counts companies with a structure deviation, not the deviations", async () => {
+  await seed();
+  const db = getDb();
+  const deviation = (driveFolderId: string, companyId: number, path: string) => ({
+    companyId,
+    kind: "folder-unrecognised",
+    severity: "attention",
+    path,
+    monthKey: "2026_02",
+    driveFolderId,
+    detailsJson: "{}",
+    detectedAt: "2026-02-20T10:00:00.000Z",
+  });
+  await db.insert(structureDeviations).values([
+    deviation("a-x1", COMPANY_A, "Alfa s.r.o./2026_02/08 Ostatné"),
+    deviation("a-x2", COMPANY_A, "Alfa s.r.o./2026_02/09 Ostatné"),
+  ]);
+
+  const rows = await listCompanySummaries();
+  assert.equal(rows.find((row) => row.id === COMPANY_A)?.structureDeviations, 2);
+  assert.equal(rows.find((row) => row.id === COMPANY_B)?.structureDeviations, 0);
+  assert.equal(summariseChaseList(rows).withStructureDeviations, 1);
+
+  await db.insert(structureDeviations).values([
+    deviation("b-x1", COMPANY_B, "Beta s.r.o./2026_01/08 Ostatné"),
+  ]);
+  assert.equal(summariseChaseList(await listCompanySummaries()).withStructureDeviations, 2);
 });

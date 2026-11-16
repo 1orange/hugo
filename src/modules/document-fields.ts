@@ -6,12 +6,14 @@ import { cashRoundingCents } from "./cash-rounding";
 import { parseDecimalAmount } from "./money";
 import { homeCurrencyForCountry, type HomeCurrency } from "./company-profile";
 import type {
+  AdvanceSettlementPayload,
   ConfirmedPayload,
   DocumentVatRecapRow,
   EkasaExtractedPayload,
   ExtractedPayload,
 } from "./document-payload";
 import { isEkasaPayload, isModelExtractedPayload } from "./document-payload";
+import { applyAdvanceOverride } from "./advance-settlement";
 import {
   assignPartiesFromExtracted,
   validateLabeledPartyRoles,
@@ -19,12 +21,18 @@ import {
 } from "./party-roles";
 import {
   enrichInvoiceParties,
+  fillFromDirectory,
   partySourceFromValues,
+  type DirectoryFactsByKey,
+  type DirectoryPartyFacts,
   type PartyField,
+  type PartySource,
   type PartyValueProvenance,
 } from "./party-enrichment";
+import { directoryKeyOf } from "./subject-directory";
 import { PARTY_ENRICHMENT_PIPELINE_VERSION } from "./extraction-pipeline";
 import { deriveVat, type VatProvenance } from "./vat-derivation";
+import type { PartySwapField } from "./party-swap";
 
 export type EditableDocumentFields = {
   supplierName: string;
@@ -61,6 +69,8 @@ export type FieldProvenance =
   | "extracted"
   | "profile"
   | "derived"
+  | "register"
+  | "directory"
   | "empty";
 
 export type FieldCheckState = "correct" | "flagged" | "empty";
@@ -97,6 +107,10 @@ export type MergedDocumentFields = {
   rolesFlagged: boolean;
   missingProfile: boolean;
   vatWarnings: string[];
+  /** The invoice is settled by an advance: its amount is the supply, its VAT is never inferred. */
+  advanceSettled: boolean;
+  /** The settlement in effect — detected, or hers over it. Null when the invoice is not settled. */
+  advanceSettlement: AdvanceSettlementPayload | null;
 };
 
 export type MergeDocumentFieldsOptions = {
@@ -105,6 +119,8 @@ export type MergeDocumentFieldsOptions = {
   homeCurrency?: HomeCurrency;
   /** Results from older extraction contracts must remain byte-for-byte stable. */
   extractionPipelineVersion?: number | null;
+  /** The shared subject directory's facts by subject key, read by the page or the worker, never a register (ADR 0022). */
+  directory?: DirectoryFactsByKey | null;
 };
 
 export type ExportSectionFormValue = "" | "T01" | "T00";
@@ -240,12 +256,20 @@ function hasDerivedField(confirmed: ConfirmedPayload, key: string): boolean {
   return Boolean(confirmed.derived?.[key]);
 }
 
-function derivationEnabled(options?: MergeDocumentFieldsOptions): boolean {
+/**
+ * Party enrichment and derivation apply to extraction contracts from the
+ * version that introduced them; older results keep their stored behaviour.
+ */
+export function enrichmentEnabledFor(extractionPipelineVersion: number | null | undefined): boolean {
   return (
-    options?.extractionPipelineVersion === undefined ||
-    (options.extractionPipelineVersion !== null &&
-      options.extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION)
+    extractionPipelineVersion === undefined ||
+    (extractionPipelineVersion !== null &&
+      extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION)
   );
+}
+
+function derivationEnabled(options?: MergeDocumentFieldsOptions): boolean {
+  return enrichmentEnabledFor(options?.extractionPipelineVersion);
 }
 
 function dependencyValue(
@@ -402,6 +426,115 @@ function mergeDateAt(
   return (extracted[atKey] as string | null | undefined) ?? null;
 }
 
+/**
+ * Completes both parties from the profile, then judges the roles against it.
+ * Shared by the server merge and the panel, which recomputes the flags from
+ * the values she has just swapped.
+ */
+export function resolvePartyRoles(input: {
+  folderSlot: string | undefined;
+  profile: ClientIdentity | null;
+  enabled: boolean;
+  /** Whether any party value is confirmed or extracted, so roles can be judged. */
+  labeled: boolean;
+  supplier: PartySource;
+  customer: PartySource;
+  /** The directory's facts for the parties' subjects; missing values only are filled. */
+  directory?: DirectoryFactsByKey | null;
+}): {
+  supplier: PartySource;
+  customer: PartySource;
+  rolesFlagged: boolean;
+  missingProfile: boolean;
+} {
+  const completed = enrichInvoiceParties({
+    folderSlot: input.folderSlot ?? "",
+    supplier: input.supplier,
+    customer: input.customer,
+    profile: input.profile,
+    enabled: input.enabled,
+  });
+  // The directory fill is an enrichment too: an older extraction contract keeps its stored behaviour.
+  const fill = (party: PartySource) =>
+    input.enabled ? fillFromDirectory(party, directoryFactsOf(input.directory, party)) : party;
+  const enriched = {
+    ...completed,
+    supplier: fill(completed.supplier),
+    customer: fill(completed.customer),
+  };
+
+  const folderSlot = input.folderSlot;
+  const invoiceFolder =
+    folderSlot !== undefined &&
+    (folderSlot.startsWith("01 ") || folderSlot.startsWith("02 "));
+  let rolesFlagged = false;
+  let missingProfile = false;
+  if (invoiceFolder && input.labeled) {
+    const validation = validateLabeledPartyRoles({
+      folderSlot,
+      profile: input.profile,
+      supplier: {
+        name: enriched.supplier.name.value,
+        ico: enriched.supplier.ico.value,
+        dic: enriched.supplier.dic.value,
+        icDph: enriched.supplier.icDph.value,
+      },
+      customer: {
+        name: enriched.customer.name.value,
+        ico: enriched.customer.ico.value,
+        dic: enriched.customer.dic.value,
+        icDph: enriched.customer.icDph.value,
+      },
+    });
+    rolesFlagged = validation.rolesFlagged;
+    missingProfile = validation.missingProfile;
+  }
+  rolesFlagged = rolesFlagged || enriched.conflicts.supplier || enriched.conflicts.customer;
+
+  return {
+    supplier: enriched.supplier,
+    customer: enriched.customer,
+    rolesFlagged,
+    missingProfile,
+  };
+}
+
+/** The directory's facts for the subject a party resolves to; none when the party has no subject key. */
+function directoryFactsOf(
+  directory: DirectoryFactsByKey | null | undefined,
+  party: PartySource,
+): DirectoryPartyFacts | undefined {
+  if (!directory) {
+    return undefined;
+  }
+  const key = directoryKeyOf({
+    name: party.name.value,
+    ico: party.ico.value,
+    dic: party.dic.value,
+    icDph: party.icDph.value,
+  });
+  return key === null ? undefined : directory[key];
+}
+
+/**
+ * A party value confirmed by a swap keeps the badge of its source. Only
+ * applies while the value is stored as confirmed, so extraction never gets it.
+ */
+function withPartyProvenance(
+  key: PartySwapField,
+  result: { value: string; provenance: FieldProvenance },
+  confirmed: ConfirmedPayload,
+): { value: string; provenance: FieldProvenance } {
+  const recorded = confirmed.partyProvenance?.[key];
+  if (recorded === undefined || !hasConfirmedKey(confirmed, key)) {
+    return result;
+  }
+  return {
+    value: result.value,
+    provenance: result.value.length === 0 ? "empty" : recorded,
+  };
+}
+
 function mergePartyFields(
   extracted: ExtractedPayload,
   confirmed: ConfirmedPayload,
@@ -470,15 +603,19 @@ function mergePartyFields(
     fromExtracted = { ...fromExtracted, ...roleSeed };
   }
 
-  const supplier = mergeScalar("supplierName", "supplierName", fromExtracted, confirmed);
-  const ico = mergeScalar("ico", "ico", fromExtracted, confirmed);
-  const dic = mergeScalar("dic", "dic", fromExtracted, confirmed);
-  const icDph = mergeScalar("icDph", "icDph", fromExtracted, confirmed);
-  const customerName = mergeScalar("customerName", "customerName", fromExtracted, confirmed);
-  const customerIco = mergeScalar("customerIco", "customerIco", fromExtracted, confirmed);
-  const customerDic = mergeScalar("customerDic", "customerDic", fromExtracted, confirmed);
-  const customerIcDph = mergeScalar("customerIcDph", "customerIcDph", fromExtracted, confirmed);
+  const partyScalar = (key: PartySwapField) =>
+    withPartyProvenance(key, mergeScalar(key, key, fromExtracted, confirmed), confirmed);
+  const supplier = partyScalar("supplierName");
+  const ico = partyScalar("ico");
+  const dic = partyScalar("dic");
+  const icDph = partyScalar("icDph");
+  const customerName = partyScalar("customerName");
+  const customerIco = partyScalar("customerIco");
+  const customerDic = partyScalar("customerDic");
+  const customerIcDph = partyScalar("customerIcDph");
 
+  // An emptied field keeps `confirmed` while the enrichment reads it, so that the
+  // directory does not refill what she cleared; it shows as empty, as it always has.
   const partySource = (values: Record<PartyField, ReturnType<typeof mergeScalar>>) => {
     const source = partySourceFromValues(
       Object.fromEntries(
@@ -487,70 +624,54 @@ function mergePartyFields(
       "extracted",
     );
     for (const field of Object.keys(values) as PartyField[]) {
-      if (source[field].value) {
-        source[field].provenance = values[field].provenance as PartyValueProvenance;
+      const provenance = values[field].provenance as PartyValueProvenance;
+      if (source[field].value || provenance === "confirmed") {
+        source[field].provenance = provenance;
       }
     }
     return source;
   };
+  const visible = (field: ReturnType<typeof mergeScalar>) =>
+    field.value.length === 0 && field.provenance === "confirmed"
+      ? { value: "", provenance: "empty" as const }
+      : field;
 
-  const enriched = enrichInvoiceParties({
-    folderSlot: options?.folderSlot ?? "",
+  const resolved = resolvePartyRoles({
+    folderSlot: options?.folderSlot,
+    profile: options?.profile ?? null,
+    enabled: derivationEnabled(options),
+    labeled: hasLabeledSupplier || hasLabeledCustomer || supplier.provenance !== "empty",
     supplier: partySource({ name: supplier, ico, dic, icDph }),
     customer: partySource({ name: customerName, ico: customerIco, dic: customerDic, icDph: customerIcDph }),
-    profile: options?.profile ?? null,
-    enabled:
-      options?.extractionPipelineVersion === undefined ||
-      (options.extractionPipelineVersion !== null &&
-        options.extractionPipelineVersion >= PARTY_ENRICHMENT_PIPELINE_VERSION),
+    directory: options?.directory ?? null,
   });
-
-  const folderSlot = options?.folderSlot;
-  const invoiceFolder =
-    folderSlot !== undefined &&
-    (folderSlot.startsWith("01 ") || folderSlot.startsWith("02 "));
-  if (invoiceFolder && (hasLabeledSupplier || hasLabeledCustomer || supplier.provenance !== "empty")) {
-    const validation = validateLabeledPartyRoles({
-      folderSlot,
-      profile: options?.profile ?? null,
-      supplier: {
-        name: enriched.supplier.name.value,
-        ico: enriched.supplier.ico.value,
-        dic: enriched.supplier.dic.value,
-        icDph: enriched.supplier.icDph.value,
-      },
-      customer: {
-        name: enriched.customer.name.value,
-        ico: enriched.customer.ico.value,
-        dic: enriched.customer.dic.value,
-        icDph: enriched.customer.icDph.value,
-      },
-    });
-    rolesFlagged = rolesFlagged || validation.rolesFlagged;
-    missingProfile = missingProfile || validation.missingProfile;
-  }
-  rolesFlagged =
-    rolesFlagged || enriched.conflicts.supplier || enriched.conflicts.customer;
+  rolesFlagged = rolesFlagged || resolved.rolesFlagged;
+  missingProfile = missingProfile || resolved.missingProfile;
+  const enriched = resolved;
 
   return {
-    supplier: enriched.supplier.name,
-    ico: enriched.supplier.ico,
-    dic: enriched.supplier.dic,
-    icDph: enriched.supplier.icDph,
-    customerName: enriched.customer.name,
-    customerIco: enriched.customer.ico,
-    customerDic: enriched.customer.dic,
-    customerIcDph: enriched.customer.icDph,
+    supplier: visible(enriched.supplier.name),
+    ico: visible(enriched.supplier.ico),
+    dic: visible(enriched.supplier.dic),
+    icDph: visible(enriched.supplier.icDph),
+    customerName: visible(enriched.customer.name),
+    customerIco: visible(enriched.customer.ico),
+    customerDic: visible(enriched.customer.dic),
+    customerIcDph: visible(enriched.customer.icDph),
     rolesFlagged,
     missingProfile,
   };
 }
 
 export function mergeDocumentFields(
-  extracted: ExtractedPayload,
+  extractedAsRead: ExtractedPayload,
   confirmed: ConfirmedPayload,
   options?: MergeDocumentFieldsOptions,
 ): MergedDocumentFields {
+  // Her settled / not-settled decision applies to what was read, before anything reads it.
+  const extracted = isModelExtractedPayload(extractedAsRead)
+    ? applyAdvanceOverride(extractedAsRead, confirmed.advanceSettlement?.settled)
+    : extractedAsRead;
   let fromExtracted = extractedEditableFields(extracted);
   confirmed = invalidateStaleDerivedFields(extracted, confirmed, options);
 
@@ -584,7 +705,12 @@ export function mergeDocumentFields(
     confirmed,
   );
   const currency = mergeScalar("currency", "currency", fromExtracted, confirmed);
-  const amount = mergeMoneyLiteral("amountLiteral", "amountCents", fromExtracted, confirmed);
+  const settlement = isModelExtractedPayload(extracted) ? extracted.advanceSettlement : undefined;
+  let amount = mergeMoneyLiteral("amountLiteral", "amountCents", fromExtracted, confirmed);
+  if (settlement?.totalProvenance === "derived" && amount.provenance === "extracted") {
+    // The supply total was summed from its rows, not printed: shown as calculated.
+    amount = { ...amount, provenance: "derived" };
+  }
   const recapBase = mergeMoneyLiteral(
     "recapBaseLiteral",
     "recapBaseCents",
@@ -642,6 +768,7 @@ export function mergeDocumentFields(
     folderSlot: options?.folderSlot ?? "",
     supplierIcDph: parties.icDph.value,
     profileCountry: options?.profile?.country ?? null,
+    advanceSettled: settlement !== undefined,
     enabled:
       options?.extractionPipelineVersion === undefined ||
       (options.extractionPipelineVersion !== null &&
@@ -705,6 +832,8 @@ export function mergeDocumentFields(
     rolesFlagged: parties.rolesFlagged,
     missingProfile: parties.missingProfile,
     vatWarnings: vat.warnings,
+    advanceSettled: settlement !== undefined,
+    advanceSettlement: settlement ?? null,
   };
 }
 

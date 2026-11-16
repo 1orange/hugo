@@ -41,7 +41,7 @@ function buildFixture() {
     folder(PARENT_ID, "Clients", []),
     folder(COMPANY_ID, "Delta s.r.o.", [PARENT_ID]),
     folder(MONTH_ID, "2026_03", [COMPANY_ID]),
-    folder(TYPO_SLOT_ID, "04 Bločky_hotorvosť", [MONTH_ID]),
+    folder(TYPO_SLOT_ID, "04 Platby hotorvosťou", [MONTH_ID]),
     {
       id: DOC_ID,
       name: "receipt.pdf",
@@ -72,23 +72,23 @@ test("folder rename: propose, confirm, verify fake Drive, undo, verify events", 
       .limit(1)
   )[0];
   assert.ok(beforeFile);
-  assert.equal(beforeFile.folderSlot, "04 Bločky_hotorvosť");
+  assert.equal(beforeFile.folderSlot, "04 Platby hotorvosťou");
 
   const applyResult = await applyFolderRename(client, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
-    targetName: "04 Bločky_hotovosť",
+    currentName: "04 Platby hotorvosťou",
+    targetName: "04 Bločky",
     parentId: MONTH_ID,
   });
   assert.equal(applyResult.ok, true);
 
   const renamedFolder = fixture.find((entry) => entry.id === TYPO_SLOT_ID);
-  assert.equal(renamedFolder?.name, "04 Bločky_hotovosť");
+  assert.equal(renamedFolder?.name, "04 Bločky");
 
   const mutationRows = await db.select().from(driveMutations).orderBy(driveMutations.id);
   assert.equal(mutationRows.length, 1);
-  assert.equal(mutationRows[0]?.previousName, "04 Bločky_hotorvosť");
-  assert.equal(mutationRows[0]?.newName, "04 Bločky_hotovosť");
+  assert.equal(mutationRows[0]?.previousName, "04 Platby hotorvosťou");
+  assert.equal(mutationRows[0]?.newName, "04 Bločky");
   assert.equal(mutationRows[0]?.undoneAt, null);
 
   const afterFile = (
@@ -101,7 +101,7 @@ test("folder rename: propose, confirm, verify fake Drive, undo, verify events", 
   assert.ok(afterFile);
   assert.equal(afterFile.driveFileId, DOC_ID);
   assert.equal(afterFile.firstSeenAt, beforeFile.firstSeenAt);
-  assert.equal(afterFile.folderSlot, "04 Bločky_hotovosť");
+  assert.equal(afterFile.folderSlot, "04 Bločky");
 
   const renamedEvents = (await db.select().from(events).orderBy(events.id)).filter((row) => row.type === "Renamed");
   assert.equal(renamedEvents.length, 1);
@@ -114,7 +114,7 @@ test("folder rename: propose, confirm, verify fake Drive, undo, verify events", 
   assert.equal(undoResult.ok, true);
 
   const restoredFolder = fixture.find((entry) => entry.id === TYPO_SLOT_ID);
-  assert.equal(restoredFolder?.name, "04 Bločky_hotorvosť");
+  assert.equal(restoredFolder?.name, "04 Platby hotorvosťou");
 
   const undoneMutation = (
     await db
@@ -132,7 +132,7 @@ test("folder rename: propose, confirm, verify fake Drive, undo, verify events", 
       .where(eq(files.driveFileId, DOC_ID))
       .limit(1)
   )[0];
-  assert.equal(restoredFile?.folderSlot, "04 Bločky_hotorvosť");
+  assert.equal(restoredFile?.folderSlot, "04 Platby hotorvosťou");
   assert.equal(restoredFile?.driveFileId, DOC_ID);
   assert.equal(restoredFile?.firstSeenAt, beforeFile.firstSeenAt);
 
@@ -165,8 +165,8 @@ test("a repaired folder reads as canonical-with-undo, not as an open problem", a
     (
       await applyFolderRename(client, company.id, {
         driveFileId: TYPO_SLOT_ID,
-        currentName: "04 Bločky_hotorvosť",
-        targetName: "04 Bločky_hotovosť",
+        currentName: "04 Platby hotorvosťou",
+        targetName: "04 Bločky",
         parentId: MONTH_ID,
       })
     ).ok,
@@ -184,7 +184,7 @@ test("a repaired folder reads as canonical-with-undo, not as an open problem", a
     (group) => group.driveFolderId === TYPO_SLOT_ID,
   );
   assert.equal(afterGroup?.kind, "canonical");
-  assert.equal(afterGroup?.observedName, "04 Bločky_hotovosť");
+  assert.equal(afterGroup?.observedName, "04 Bločky");
   assert.ok(afterGroup?.activeMutationId);
 
   const stillBroken = after?.groups.filter(
@@ -212,8 +212,8 @@ test("a rename that fails mid-flight still leaves a reversible record", async ()
 
   const result = await applyFolderRename(failing, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
-    targetName: "04 Bločky_hotovosť",
+    currentName: "04 Platby hotorvosťou",
+    targetName: "04 Bločky",
     parentId: MONTH_ID,
   });
 
@@ -222,7 +222,7 @@ test("a rename that fails mid-flight still leaves a reversible record", async ()
   const row = (await getDb().select().from(driveMutations).orderBy(driveMutations.id).limit(1))[0];
   assert.ok(row, "the attempt must be recorded even though it failed");
   assert.equal(row.status, "failed");
-  assert.equal(row.previousName, "04 Bločky_hotorvosť");
+  assert.equal(row.previousName, "04 Platby hotorvosťou");
   assert.equal(row.appliedAt, null);
   assert.match(row.failureMessage ?? "", /503/);
 
@@ -243,14 +243,14 @@ test("undo refuses when the folder was renamed again afterwards", async () => {
 
   const applied = await applyFolderRename(client, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
-    targetName: "04 Bločky_hotovosť",
+    currentName: "04 Platby hotorvosťou",
+    targetName: "04 Bločky",
     parentId: MONTH_ID,
   });
   assert.equal(applied.ok, true);
   assert.ok(applied.ok);
 
-  await client.rename(TYPO_SLOT_ID, "04 Bločky_hotovosť ARCHIV");
+  await client.rename(TYPO_SLOT_ID, "04 Platby hotovosťou ARCHIV");
   await runSweep(client);
 
   const undo = await undoFolderRename(client, applied.mutationId);
@@ -260,7 +260,7 @@ test("undo refuses when the folder was renamed again afterwards", async () => {
   }
 
   const folderNow = fixture.find((entry) => entry.id === TYPO_SLOT_ID);
-  assert.equal(folderNow?.name, "04 Bločky_hotovosť ARCHIV");
+  assert.equal(folderNow?.name, "04 Platby hotovosťou ARCHIV");
 });
 
 test("a target outside the canonical list never reaches Drive", async () => {
@@ -275,7 +275,7 @@ test("a target outside the canonical list never reaches Drive", async () => {
 
   const result = await applyFolderRename(client, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
+    currentName: "04 Platby hotorvosťou",
     targetName: "../../etc anything she never chose",
     parentId: MONTH_ID,
   });
@@ -283,7 +283,7 @@ test("a target outside the canonical list never reaches Drive", async () => {
   assert.equal(result.ok, false);
   assert.equal(
     fixture.find((entry) => entry.id === TYPO_SLOT_ID)?.name,
-    "04 Bločky_hotorvosť",
+    "04 Platby hotorvosťou",
   );
   assert.equal((await getDb().select().from(driveMutations).orderBy(driveMutations.id)).length, 0);
 });
@@ -307,8 +307,8 @@ test("applyFolderRename refuses when canRename is false", async () => {
 
   const result = await applyFolderRename(client, company.id, {
     driveFileId: TYPO_SLOT_ID,
-    currentName: "04 Bločky_hotorvosť",
-    targetName: "04 Bločky_hotovosť",
+    currentName: "04 Platby hotorvosťou",
+    targetName: "04 Bločky",
     parentId: MONTH_ID,
     capabilities: { canRename: false, canMoveItemWithinDrive: true },
   });

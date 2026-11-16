@@ -1,0 +1,357 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { eq } from "drizzle-orm";
+import { FakeCompanyRegister } from "../../../src/adapters/company-register/fake-company-register.ts";
+import { FakeVatRegister } from "../../../src/adapters/vat-register/fake-vat-register.ts";
+import { saveCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
+import { ensureDocumentsForMonth, getDocument, writeExtractedPayload } from "../../../src/adapters/store/documents.ts";
+import { getDb } from "../../../src/lib/db/client.ts";
+import {
+  companies,
+  documents,
+  events,
+  files,
+  months,
+  subjectAliases,
+  subjectAliasSightings,
+  subjects,
+} from "../../../src/lib/db/schema.ts";
+import {
+  confirmDocument,
+  saveDocumentFields,
+  takePartyFromRegister,
+} from "../../../src/lib/documents/service.ts";
+import { buildMonthDocumentView, type DocumentListItem } from "../../../src/lib/documents/view.ts";
+import { MemorySubjectVerificationQueue } from "../../../src/adapters/job-queue/memory-subject-verification-queue.ts";
+import { useSubjectVerificationQueue } from "../../../src/lib/subject-directory/queue.ts";
+import { InProcessLookupLock } from "../../../src/lib/subject-directory/lookup-lock.ts";
+import { createLookupRateLimiter } from "../../../src/lib/subject-directory/rate-limit.ts";
+import type { DirectoryDeps } from "../../../src/lib/subject-directory/service.ts";
+import { verifyDocumentParties } from "../../../src/lib/subject-directory/verify-document.ts";
+import type { DocumentFieldFormInput, EditableDocumentFields } from "../../../src/modules/document-fields.ts";
+import type { ModelExtractedPayload } from "../../../src/modules/document-payload.ts";
+import { PARTY_SWAP_FIELDS } from "../../../src/modules/party-swap.ts";
+import { freshTestDb } from "../support/test-db.ts";
+
+/**
+ * *Prevziať z registra* (PRD 0004, story 34-36): the register's values become the
+ * accountant's, with the `register` badge; the verdict is judged again.
+ */
+
+const COMPANY_FOLDER = "take-company";
+const MONTH_FOLDER = "take-month";
+const SLOT_02 = "take-slot-02";
+const INVOICE = "take-invoice";
+const MONTH = "2026_03";
+const START = "2026-03-10T10:00:00.000Z";
+
+const CLIENT = { name: "Delta s.r.o.", ico: "31333532", dic: "2020311337", icDph: "SK2020311337" };
+// The counterparty as the invoice prints it: a trade name, the register's DIČ and IČ DPH.
+const PRINTED_SUPPLIER = { name: "Alfa Holding s.r.o.", ico: "31322832", dic: "2020322832", icDph: "SK2020322832" };
+const REGISTER_ALFA = {
+  country: "SK" as const,
+  ico: "31322832",
+  legalName: "Alfa s.r.o.",
+  address: "Bratislava",
+  dic: "2020322832",
+  status: "active" as const,
+};
+
+const EXTRACTION: ModelExtractedPayload = {
+  kind: "extracted",
+  source: "model",
+  // Folder 02 is received invoices: the counterparty is the supplier, Delta the customer.
+  parties: [PRINTED_SUPPLIER, CLIENT],
+  documentNumber: "FA-3",
+  variableSymbol: "3",
+  issueDate: "2026-03-09",
+  taxableSupplyDate: null,
+  dueDate: null,
+  currency: "EUR",
+  amountCents: 12000,
+  amountLiteral: "120.00",
+  vatRecap: [],
+  docTypeHint: "invoice",
+};
+
+let now = START;
+
+function deps(register: FakeCompanyRegister, vat: FakeVatRegister): DirectoryDeps {
+  return {
+    register,
+    vat,
+    lock: new InProcessLookupLock(),
+    limiter: createLookupRateLimiter({ perMinute: 1000 }),
+    refreshDays: 30,
+    now: () => now,
+    waitMs: 5000,
+  };
+}
+
+async function seedInvoice(
+  extraction: ModelExtractedPayload = EXTRACTION,
+  folderSlot = "02 Prijaté faktúry",
+): Promise<void> {
+  await freshTestDb();
+  now = START;
+  const db = getDb();
+  await db.insert(companies).values({ id: 1, driveFolderId: COMPANY_FOLDER, name: "Delta s.r.o.", active: true });
+  await db.insert(months).values({
+    id: 1,
+    companyId: 1,
+    monthKey: MONTH,
+    driveFolderId: MONTH_FOLDER,
+    closedAt: null,
+    openedAt: "2026-03-01T00:00:00.000Z",
+  });
+  await db.insert(files).values({
+    driveFileId: INVOICE,
+    companyId: 1,
+    monthKey: MONTH,
+    folderSlot,
+    parentId: SLOT_02,
+    name: "invoice.pdf",
+    mimeType: "application/pdf",
+    driveCreatedTime: START,
+    firstSeenAt: START,
+    lastSeenAt: START,
+    deleted: false,
+  });
+  await ensureDocumentsForMonth(1, MONTH, START);
+  await writeExtractedPayload(INVOICE, extraction, "complete", null);
+  await saveCompanyProfile(1, {
+    country: "SK",
+    legalName: CLIENT.name,
+    address: "Bratislava",
+    ico: CLIENT.ico,
+    dic: CLIENT.dic,
+    icDph: CLIENT.icDph,
+    registerSource: "fake",
+    savedAt: START,
+  });
+}
+
+/** The register knows Alfa under its legal name, and VIES holds its IČ DPH under that name. */
+function registers(): { register: FakeCompanyRegister; vat: FakeVatRegister } {
+  return {
+    register: new FakeCompanyRegister({ lookups: [REGISTER_ALFA] }),
+    vat: new FakeVatRegister({ SK2020322832: "Alfa s.r.o." }),
+  };
+}
+
+async function invoiceItem(): Promise<DocumentListItem> {
+  const view = await buildMonthDocumentView(1, MONTH);
+  const item = view!.documents.find((document) => document.id === INVOICE);
+  assert.ok(item, "invoice is listed");
+  return item;
+}
+
+function formFrom(fields: EditableDocumentFields): DocumentFieldFormInput {
+  return {
+    exportSection: "",
+    supplierName: fields.supplierName,
+    ico: fields.ico,
+    dic: fields.dic,
+    icDph: fields.icDph,
+    customerName: fields.customerName,
+    customerIco: fields.customerIco,
+    customerDic: fields.customerDic,
+    customerIcDph: fields.customerIcDph,
+    documentNumber: fields.documentNumber,
+    variableSymbol: fields.variableSymbol,
+    issueDateRaw: fields.issueDateRaw,
+    taxableSupplyDateRaw: fields.taxableSupplyDateRaw,
+    dueDateRaw: fields.dueDateRaw,
+    receiptNumber: fields.receiptNumber,
+    receiptTimestampRaw: fields.receiptTimestampRaw,
+    currency: fields.currency,
+    amountLiteral: fields.amountLiteral,
+    recapBaseLiteral: fields.recapBaseLiteral,
+    recapVatLiteral: fields.recapVatLiteral,
+    vatRecap: fields.vatRecap.map((row) => ({
+      rateLiteral: row.rateLiteral,
+      baseLiteral: row.baseLiteral,
+      vatLiteral: row.vatLiteral,
+    })),
+  };
+}
+
+async function takeEvents() {
+  return getDb().select().from(events).where(eq(events.type, "PartyTakenFromRegister"));
+}
+
+function take(side: "supplier" | "customer" = "supplier") {
+  return takePartyFromRegister({ companyId: 1, monthKey: MONTH, documentId: INVOICE, side, now: START });
+}
+
+test("taking the register's values writes name, DIČ and IČ DPH as hers, keeps the IČO, and clears the mismatch", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  const queue = new MemorySubjectVerificationQueue();
+  useSubjectVerificationQueue(queue);
+  try {
+    const stored = await verifyDocumentParties(INVOICE, deps(register, vat));
+    assert.equal(stored?.supplier.verdict, "mismatch");
+    assert.deepEqual(
+      stored?.supplier.findings.map((finding) => [finding.code, finding.expected]),
+      [["register-name", "Alfa s.r.o."]],
+    );
+    const before = await invoiceItem();
+    assert.equal(before.fieldEditor.partyIntegrityStored, true);
+    queue.jobs.clear();
+
+    assert.deepEqual(await take("supplier"), { ok: true });
+
+    const after = await invoiceItem();
+    assert.equal(after.fieldEditor.fields.supplierName, "Alfa s.r.o.");
+    assert.equal(after.fieldEditor.fields.dic, "2020322832");
+    assert.equal(after.fieldEditor.fields.icDph, "SK2020322832");
+    assert.equal(after.fieldEditor.fields.ico, PRINTED_SUPPLIER.ico, "the IČO is never changed");
+    assert.equal(after.fieldEditor.provenance.supplierName, "register");
+    assert.equal(after.fieldEditor.provenance.dic, "register");
+    assert.equal(after.fieldEditor.provenance.icDph, "register");
+    assert.equal(after.fieldEditor.provenance.ico, "extracted");
+    assert.equal(after.fieldEditor.fields.customerName, CLIENT.name, "the other party is untouched");
+    assert.equal(after.fieldEditor.provenance.customerName, "extracted");
+
+    const taken = await takeEvents();
+    assert.equal(taken.length, 1);
+    assert.deepEqual(JSON.parse(taken[0]!.payloadJson), {
+      monthKey: MONTH,
+      driveFileId: INVOICE,
+      documentId: INVOICE,
+      side: "supplier",
+    });
+    assert.deepEqual([...queue.jobs.keys()], [INVOICE], "the changed identity is checked again");
+
+    const rechecked = await verifyDocumentParties(INVOICE, deps(register, vat));
+    assert.equal(rechecked?.supplier.verdict, "verified");
+    assert.deepEqual(rechecked?.supplier.findings, []);
+    const shown = await invoiceItem();
+    assert.equal(shown.fieldEditor.partyIntegrityStored, true);
+    assert.equal(shown.fieldEditor.partyIntegrity.supplier.verdict, "verified");
+  } finally {
+    useSubjectVerificationQueue(null);
+  }
+});
+
+test("a value she types after taking one from the register is hers again", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  await verifyDocumentParties(INVOICE, deps(register, vat));
+  assert.deepEqual(await take("supplier"), { ok: true });
+
+  const item = await invoiceItem();
+  assert.deepEqual(
+    await saveDocumentFields({
+      companyId: 1,
+      monthKey: MONTH,
+      documentId: INVOICE,
+      fields: formFrom({ ...item.fieldEditor.fields, supplierName: "Alfa Trade s.r.o." }),
+    }),
+    { ok: true },
+  );
+
+  const edited = await invoiceItem();
+  assert.equal(edited.fieldEditor.fields.supplierName, "Alfa Trade s.r.o.");
+  assert.equal(edited.fieldEditor.provenance.supplierName, "confirmed");
+  assert.equal(edited.fieldEditor.provenance.dic, "register", "the untouched values keep their badge");
+});
+
+test("taking from the register works on a decided document too, as its fields can be edited", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  await verifyDocumentParties(INVOICE, deps(register, vat));
+  assert.deepEqual(
+    await confirmDocument({ companyId: 1, monthKey: MONTH, documentId: INVOICE, confirmed: true, now: START }),
+    { ok: true },
+  );
+  const before = await getDocument(INVOICE);
+
+  const result = await take("supplier");
+
+  assert.equal(result.ok, true);
+  const after = await getDocument(INVOICE);
+  assert.notEqual(after!.confirmedPayloadJson, before!.confirmedPayloadJson);
+  assert.equal(after!.decision, "confirmed", "the decision stands");
+  assert.equal((await takeEvents()).length, 1);
+});
+
+test("taking from the register is refused on an exported document and in a closed month", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  await verifyDocumentParties(INVOICE, deps(register, vat));
+  await getDb().update(documents).set({ exportedAt: "2026-03-20T00:00:00.000Z" }).where(eq(documents.id, INVOICE));
+  assert.equal((await take("supplier")).ok, false);
+
+  await getDb().update(documents).set({ exportedAt: null }).where(eq(documents.id, INVOICE));
+  await getDb().update(months).set({ closedAt: "2026-03-31T00:00:00.000Z" }).where(eq(months.id, 1));
+  assert.equal((await take("supplier")).ok, false);
+  assert.equal((await takeEvents()).length, 0);
+});
+
+test("a party the register does not contradict has nothing to take", async () => {
+  await seedInvoice({
+    ...EXTRACTION,
+    parties: [{ ...PRINTED_SUPPLIER, name: "Alfa s.r.o." }, CLIENT],
+  });
+  const { register, vat } = registers();
+  const stored = await verifyDocumentParties(INVOICE, deps(register, vat));
+  assert.equal(stored?.supplier.verdict, "verified");
+
+  assert.equal((await take("supplier")).ok, false);
+  assert.equal((await takeEvents()).length, 0);
+});
+
+test("a verdict judged for values she has since changed is not taken from", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  await verifyDocumentParties(INVOICE, deps(register, vat));
+  const item = await invoiceItem();
+  assert.deepEqual(
+    await saveDocumentFields({
+      companyId: 1,
+      monthKey: MONTH,
+      documentId: INVOICE,
+      fields: formFrom({ ...item.fieldEditor.fields, supplierName: "Gamma s.r.o." }),
+    }),
+    { ok: true },
+  );
+
+  assert.equal((await take("supplier")).ok, false, "the stored verdict is for the old name");
+  assert.equal((await takeEvents()).length, 0);
+});
+
+test("a counterparty the directory does not hold cannot be taken from", async () => {
+  await seedInvoice();
+  const { register, vat } = registers();
+  await verifyDocumentParties(INVOICE, deps(register, vat));
+  // The directory forgets the subject; the stored verdict still names a mismatch.
+  await getDb().delete(subjectAliasSightings);
+  await getDb().delete(subjectAliases);
+  await getDb().delete(subjects);
+
+  assert.equal((await take("supplier")).ok, false);
+  assert.equal((await takeEvents()).length, 0);
+});
+
+test("on an issued invoice the customer side is taken from the same way, and the supplier keeps its badges", async () => {
+  // Folder 01: her company is the supplier, the counterparty the customer.
+  await seedInvoice({ ...EXTRACTION, parties: [CLIENT, PRINTED_SUPPLIER] }, "01 Vystavené faktúry");
+  const { register, vat } = registers();
+  const stored = await verifyDocumentParties(INVOICE, deps(register, vat));
+  assert.equal(stored?.customer.verdict, "mismatch");
+  assert.equal(stored?.supplier.verdict, "verified");
+  // The printed name is a trade name the register does not know: the customer side is what is taken.
+  assert.equal((await invoiceItem()).fieldEditor.fields.customerName, "Alfa Holding s.r.o.");
+
+  assert.deepEqual(await take("customer"), { ok: true });
+
+  const after = await invoiceItem();
+  assert.equal(after.fieldEditor.fields.customerName, "Alfa s.r.o.");
+  assert.equal(after.fieldEditor.fields.customerIco, PRINTED_SUPPLIER.ico);
+  assert.equal(after.fieldEditor.provenance.customerName, "register");
+  assert.equal(after.fieldEditor.provenance.supplierName, "extracted");
+  assert.equal(after.fieldEditor.fields.supplierName, CLIENT.name);
+  assert.deepEqual(JSON.parse((await takeEvents())[0]!.payloadJson).side, "customer");
+});

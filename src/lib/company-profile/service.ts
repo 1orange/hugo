@@ -18,6 +18,8 @@ import {
   normalizeSkIcDph,
   validateSkIcDph,
 } from "@/modules/company-profile";
+import { companyDisplayName } from "@/modules/company-display-name";
+import { linkClientCompany } from "@/lib/subject-directory/service";
 import { coreCompanyName, normalizeCompanyName, rankRegisterHits } from "@/modules/register-search";
 
 export type ProfileSaveInput = {
@@ -94,14 +96,15 @@ export async function searchCompanyRegister(
   country: CompanyCountry,
   deps?: { register?: CompanyRegister },
 ): Promise<
-  | { ok: true; hits: RegisterSearchHit[]; total: number; folderName: string }
+  | { ok: true; hits: RegisterSearchHit[]; total: number; companyName: string }
   | { ok: false; message: string }
 > {
   const company = await getCompanyById(companyId);
   if (!company) {
     return { ok: false, message: "Firma sa nenašla." };
   }
-  const effectiveQuery = query.trim() || company.name;
+  // The folder name without its "Doklady " (or older "Konto ") prefix (ADR 0007, ADR 0018).
+  const effectiveQuery = query.trim() || companyDisplayName(company.name);
   let hits: RegisterSearchHit[];
   try {
     // An injected register is a test's; its answers are not kept.
@@ -114,7 +117,7 @@ export async function searchCompanyRegister(
     ok: true,
     hits: ranked.slice(0, REGISTER_SEARCH_LIMIT),
     total: ranked.length,
-    folderName: company.name,
+    companyName: companyDisplayName(company.name),
   };
 }
 
@@ -205,7 +208,7 @@ export async function loadCompanyProfileView(companyId: number): Promise<{
     return null;
   }
   return {
-    companyName: company.name,
+    companyName: companyDisplayName(company.name),
     profile: await getCompanyProfile(companyId),
   };
 }
@@ -232,12 +235,11 @@ export async function saveCompanyProfileForUser(
   if (!legalName || !ico) {
     return { ok: false, message: "Právny názov a IČO sú povinné." };
   }
-  if (country === "SK" && !dic) {
-    return { ok: false, message: "Právny názov, IČO a DIČ sú povinné." };
-  }
 
+  // Not every company has a DIČ or is a VAT payer (RPO lists such firms too):
+  // both are optional, but an IČ DPH she enters must be well formed.
   let icDph = "";
-  if (country === "SK") {
+  if (country === "SK" && input.icDph.trim()) {
     const icDphCheck = validateSkIcDph(input.icDph);
     if (!icDphCheck.ok) {
       return icDphCheck;
@@ -254,6 +256,18 @@ export async function saveCompanyProfileForUser(
     icDph,
     registerSource: input.registerSource.trim() || "manual",
     savedAt: timestamp,
+  });
+
+  // Her company is a subject too, linked through its IČO (ADR 0022); the profile wins where they differ.
+  await linkClientCompany({
+    companyId,
+    country: profile.country,
+    ico: profile.ico,
+    legalName: profile.legalName,
+    address: profile.address,
+    dic: profile.dic,
+    icDph: profile.icDph,
+    now: timestamp,
   });
 
   await appendUserEvent(timestamp, companyId, "CompanyProfileSaved", {
