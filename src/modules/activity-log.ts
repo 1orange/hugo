@@ -2,7 +2,7 @@ import type { DomainEvent } from "./drive-tree";
 import { formatDateTime } from "./format-sk";
 import type { SubjectField } from "./subject-directory";
 import { correctableFieldLabel } from "./subject-screen";
-import { PROFILE_FIELD_LABELS, type FieldKey } from "./client-sheet";
+import { OFFICE_FIELD_LABELS, PROFILE_FIELD_LABELS, type FieldKey, type OfficeField } from "./client-sheet";
 
 /**
  * Single source of truth for the append-only event vocabulary (ADR 0012).
@@ -44,6 +44,7 @@ export const GLOBAL_EVENT_TYPES = [
   "MovableFolderNamesChanged",
   "AutoAdvanceChanged",
   "SubjectCorrected",
+  "SubjectImportedFromClientSheet",
 ] as const;
 
 export const COMPANY_SCOPED_EVENT_TYPES = [
@@ -90,6 +91,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   MovableFolderNamesChanged: "Zmenené presunuteľné priečinky",
   AutoAdvanceChanged: "Zmenený automatický posun na ďalší doklad",
   SubjectCorrected: "Subjekt v adresári opravený",
+  SubjectImportedFromClientSheet: "Subjekt v adresári doplnený z klientskeho hárku",
 };
 
 export type StoredActivityEvent = {
@@ -135,6 +137,16 @@ function fieldLabels(value: unknown): string[] {
   return value
     .filter((key): key is FieldKey => typeof key === "string" && key in PROFILE_FIELD_LABELS)
     .map((key) => PROFILE_FIELD_LABELS[key]);
+}
+
+/** The office fields a client-sheet write set (Vedie, Spolupráca, the office-client flag). */
+function officeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((key): key is OfficeField => typeof key === "string" && key in OFFICE_FIELD_LABELS)
+    .map((key) => OFFICE_FIELD_LABELS[key]);
 }
 
 export function eventMonthKey(
@@ -297,10 +309,17 @@ export function summarizeEventPayload(
     }
     case "ImportedFromClientSheet": {
       const legalName = text(payload.legalName) ?? "firma";
-      const written = fieldLabels(payload.fields);
+      const written = [...fieldLabels(payload.fields), ...officeLabels(payload.office)];
       const overwritten = fieldLabels(payload.overwritten);
       const base = `${legalName} — z klientskeho hárku: ${written.join(", ") || "bez zmien"}`;
-      return overwritten.length > 0 ? `${base}; prepísané ručne uložené: ${overwritten.join(", ")}` : base;
+      return overwritten.length > 0 ? `${base}; prepísané uložené hodnoty: ${overwritten.join(", ")}` : base;
+    }
+    case "SubjectImportedFromClientSheet": {
+      const legalName = text(payload.legalName) ?? text(payload.ico) ?? "subjekt";
+      const written = [...fieldLabels(payload.fields), ...officeLabels(payload.office)];
+      const overwritten = fieldLabels(payload.overwritten);
+      const base = `${legalName} — z klientskeho hárku: ${written.join(", ") || "bez zmien"}`;
+      return overwritten.length > 0 ? `${base}; prepísané uložené hodnoty: ${overwritten.join(", ")}` : base;
     }
     case "PartiesSwapped":
       return `Vymenené strany dokladu ${text(payload.driveFileId) ?? "?"}`;

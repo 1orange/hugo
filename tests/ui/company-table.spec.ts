@@ -38,7 +38,7 @@ test.beforeAll(async () => {
             profileMissing: false, structureDeviations: 1 },
           { ...base, id: 3, driveFolderId: "drive-delta", name: "Delta s.r.o.", groupName: "Eva",
             chaseState: "ready-to-close", statementArrivedAt: "2026-01-05T10:00:00.000Z", awaitingCount: 0,
-            profileMissing: false, structureDeviations: 0 },
+            profileMissing: false, structureDeviations: 0, registerStanding: "dissolved" },
           { id: 4, driveFolderId: "drive-epsilon", name: "Epsilon s.r.o.", openMonth: null, monthKey: null,
             monthClosed: false, proofsArrived: 0, statementArrivedAt: null, lastUploadAt: null,
             awaitingCount: null, chaseState: "idle", stage: "idle", profileMissing: false,
@@ -85,6 +85,16 @@ function companyLink(page: Page, name: string) {
 function starFor(page: Page, name: string) {
   return page.getByRole("button", { name: `Moja firma: ${name}`, exact: true });
 }
+
+test("a client dissolved in the register is marked on its row, and the mark leads to its profile", async ({ page }) => {
+  await open(page);
+
+  const mark = page.getByTestId("company-register-3");
+  await expect(mark).toHaveText("Klient zaniknutý v registri");
+  await expect(mark).toHaveAttribute("href", "/companies/3/profile");
+  await expect(page.getByTestId("company-register-1")).toHaveCount(0);
+  await expect(page.getByTestId("company-register-2")).toHaveCount(0);
+});
 
 test("blocked localStorage (throwing accessor) shows every company with assignment disabled", async ({ page }) => {
   const errors: string[] = [];

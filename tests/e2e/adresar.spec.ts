@@ -34,7 +34,7 @@ test("the directory is searched by name, former name and IČO, and a correction 
   await page.getByTestId("directory-search").fill("gamma");
   await page.getByTestId("directory-search-submit").click();
   await page.locator('[data-testid^="directory-link-"]').first().click();
-  await expect(page.getByTestId("subject-source-dic")).toHaveText("z registra");
+  await expect(page.getByTestId("subject-state-dic")).toHaveText("overené");
   // The form is a client component: typed into before it hydrates, the value is lost.
   await page.waitForLoadState("networkidle");
 
@@ -42,7 +42,7 @@ test("the directory is searched by name, former name and IČO, and a correction 
   await expect(page.getByTestId("subject-field-input-dic")).toHaveValue("2020357599");
   await page.getByTestId("subject-correct-submit").click();
   await expect(page.getByTestId("subject-correct-saved")).toHaveText("Úprava uložená.");
-  await expect(page.getByTestId("subject-source-dic")).toHaveText("ručne");
+  await expect(page.getByTestId("subject-state-dic")).toHaveText("upravené ručne");
 
   // The correction is in the activity log.
   await page.goto("/activity");

@@ -9,11 +9,13 @@ import {
   parseCsvRecords,
   planClientSheet,
   readFacts,
+  selectAdresarWrites,
   selectClientSheetWrites,
   tickKey,
+  type ClientSheetPlan,
   type ClientSheetRow,
   type MatchCompany,
-  type MatchProfile,
+  type MatchSubject,
   type SheetFacts,
 } from "../../../src/modules/client-sheet.ts";
 import type { ColumnKey } from "../../../src/modules/client-sheet.ts";
@@ -21,13 +23,13 @@ import {
   FIXTURE_COMPANIES,
   FIXTURE_CSV,
   FIXTURE_HEADERS,
-  FIXTURE_PROFILES,
   FIXTURE_ROWS,
+  FIXTURE_SUBJECTS,
   csvText,
 } from "../support/client-sheet-fixture.ts";
 
 const COMPANIES: MatchCompany[] = FIXTURE_COMPANIES;
-const PROFILES: MatchProfile[] = FIXTURE_PROFILES;
+const SUBJECTS: MatchSubject[] = FIXTURE_SUBJECTS;
 
 function parsedRows(text: string): ClientSheetRow[] {
   const parsed = parseClientSheet(text);
@@ -40,8 +42,8 @@ function factsFrom(cells: Partial<Record<ColumnKey, string>>): SheetFacts {
   return readFacts(row!);
 }
 
-function fixturePlan() {
-  return planClientSheet(parsedRows(FIXTURE_CSV), COMPANIES, PROFILES);
+function fixturePlan(): ClientSheetPlan {
+  return planClientSheet(parsedRows(FIXTURE_CSV), COMPANIES, SUBJECTS);
 }
 
 function rowOf(plan: ReturnType<typeof fixturePlan>, rowNumber: number) {
@@ -169,7 +171,7 @@ test("each match path finds its company, and the strongest key wins", () => {
     name: string;
     cells: Partial<Record<ColumnKey, string>>;
     companies?: MatchCompany[];
-    profiles?: MatchProfile[];
+    subjects?: MatchSubject[];
     expected: { companyId: number; by: string } | "unmatched" | "ambiguous-name" | "ambiguous-ico";
   }> = [
     {
@@ -214,14 +216,20 @@ test("each match path finds its company, and the strongest key wins", () => {
     {
       name: "an IČO that two profiles hold is not guessed",
       cells: { ico: "30000009" },
-      profiles: [...PROFILES, { companyId: 9, country: "SK", legalName: "", address: "", ico: "30000009", dic: "", icDph: "" }],
+      subjects: [...SUBJECTS, { ...SUBJECTS[2]!, id: 109, linkedCompanyId: 9 }],
       expected: "ambiguous-ico",
+    },
+    {
+      name: "an IČO held by an Adresár subject that no company links does not name a company",
+      cells: { client: "Neznáma", ico: "36000001" },
+      subjects: [...SUBJECTS, { ...SUBJECTS[2]!, id: 110, ico: "36000001", linkedCompanyId: null, officeClient: true }],
+      expected: "unmatched",
     },
   ];
 
   for (const c of cases) {
     const facts = factsFrom({ client: "Test", ...c.cells });
-    const result = matchRow(facts, c.companies ?? COMPANIES, c.profiles ?? PROFILES);
+    const result = matchRow(facts, c.companies ?? COMPANIES, c.subjects ?? SUBJECTS);
     if (c.expected === "unmatched") {
       assert.ok("reason" in result, c.name);
     } else if (c.expected === "ambiguous-name") {
@@ -316,6 +324,13 @@ test("the plan: changed, new as a guess, fills only, malformed, unchanged, unmat
       ["icDph", "fill", "", "SK2020000001"],
     ],
   );
+  assert.deepEqual(
+    alfa.officeChanges.map((change) => [change.field, change.old, change.next]),
+    [
+      ["keeper", "", "Eva"],
+      ["cooperation", "", "aktívna"],
+    ],
+  );
 
   const beta = rowOf(plan, 2);
   assert.equal(beta.status, "new");
@@ -340,26 +355,43 @@ test("the plan: changed, new as a guess, fills only, malformed, unchanged, unmat
   assert.match(epsilon.reason ?? "", /nemá osem číslic/);
   assert.deepEqual(epsilon.disagreements, ["Stav subjektu je zaniknutý, ale spolupráca je aktívna."]);
 
+  // Zeta's identity agrees with the sheet, but the office data is new: the row is changed, with no identity field.
   const zeta = rowOf(plan, 5);
-  assert.equal(zeta.status, "unchanged");
+  assert.equal(zeta.status, "changed");
   assert.deepEqual(zeta.fields, []);
+  assert.deepEqual(zeta.officeChanges.map((change) => change.field), ["keeper", "cooperation"]);
 
   const neznama = rowOf(plan, 6);
   assert.equal(neznama.status, "unmatched");
   assert.equal(neznama.companyId, null);
   assert.ok(neznama.reason);
 
+  const delta = rowOf(plan, 7);
+  assert.equal(delta.status, "adresar");
+  assert.equal(delta.companyId, null);
+  assert.equal(delta.current, null, "no subject holds the IČO yet");
+  assert.equal(delta.companyName, "Delta, s.r.o.");
+  assert.deepEqual(
+    delta.officeChanges.map((change) => [change.field, change.old, change.next]),
+    [
+      ["officeClient", null, "áno"],
+      ["keeper", null, "Katarína"],
+      ["cooperation", null, "aktívna"],
+    ],
+  );
+
   assert.deepEqual(
     {
       new: plan.counts.new,
       changed: plan.counts.changed,
       unchanged: plan.counts.unchanged,
+      adresar: plan.counts.adresar,
       invalid: plan.counts.invalid,
       unmatched: plan.counts.unmatched,
       guesses: plan.counts.guesses,
       disagreements: plan.counts.disagreements,
     },
-    { new: 1, changed: 2, unchanged: 1, invalid: 1, unmatched: 1, guesses: 1, disagreements: 2 },
+    { new: 1, changed: 3, unchanged: 0, adresar: 1, invalid: 1, unmatched: 1, guesses: 1, disagreements: 2 },
   );
 });
 
@@ -367,7 +399,7 @@ test("a row without an IČO is matched but not written", () => {
   const plan = planClientSheet(
     parsedRows(csvText(FIXTURE_HEADERS, [{ client: "Alfa", folderId: "folder-alfa", ico: "" }])),
     COMPANIES,
-    PROFILES,
+    SUBJECTS,
   );
   const row = rowOf(plan, 1);
   assert.equal(row.status, "no-ico");
@@ -379,7 +411,7 @@ test("an IČO that another company's profile holds makes the row invalid, not a 
   const plan = planClientSheet(
     parsedRows(csvText(FIXTURE_HEADERS, [{ client: "Epsilon", folderId: "folder-epsilon", ico: "12345679" }])),
     COMPANIES,
-    PROFILES,
+    SUBJECTS,
   );
   const row = rowOf(plan, 1);
   assert.equal(row.status, "invalid");
@@ -396,7 +428,7 @@ test("two rows for one company are both refused, since they would race each othe
       ]),
     ),
     COMPANIES,
-    PROFILES,
+    SUBJECTS,
   );
   for (const row of plan.rows) {
     assert.equal(row.status, "invalid");
@@ -409,13 +441,15 @@ test("a change is written only when ticked, a fill always, a guess only when con
   const writes = (decisions: { confirmedRows?: number[]; tickedFields?: string[] } = {}) =>
     selectClientSheetWrites(plan, { confirmedRows: decisions.confirmedRows ?? [], tickedFields: decisions.tickedFields ?? [] });
 
-  // Nothing ticked: Alfa's hand-saved address stays, its empty IČ DPH is filled; Gama is filled.
+  // Nothing ticked: Alfa's hand-saved address stays, its empty IČ DPH is filled; Gama is filled; the
+  // office data of Alfa, Gama and Zeta is written, since the sheet owns it.
   const untouched = writes();
   assert.deepEqual(
-    untouched.map((write) => [write.companyId, write.written, write.overwritten]),
+    untouched.map((write) => [write.companyId, write.written, write.overwritten, write.office]),
     [
-      [1, ["icDph"], []],
-      [3, ["legalName", "address", "dic", "icDph"], []],
+      [1, ["icDph"], [], ["keeper", "cooperation"]],
+      [3, ["legalName", "address", "dic", "icDph"], [], ["keeper", "cooperation"]],
+      [5, [], [], ["keeper", "cooperation"]],
     ],
   );
   assert.equal(untouched[0]!.values.address, "Pod Hradom 1, Bratislava");
@@ -444,7 +478,8 @@ test("the write values are the sheet's, and a tick for a row that is not changed
     confirmedRows: [],
     tickedFields: [tickKey(5, "address"), tickKey(1, "legalName"), tickKey(9, "dic")],
   });
-  assert.deepEqual(writes.map((write) => write.companyId), [1, 3], "Zeta, unchanged, is never written");
+  assert.deepEqual(writes.map((write) => write.companyId), [1, 3, 5], "Zeta is written for its office data only");
+  assert.deepEqual(writes[2]!.written, [], "Zeta's identity agrees with the sheet: a tick on it writes nothing");
   assert.equal(writes[0]!.values.legalName, "Alfa s.r.o.", "a tick on an unchanged field writes nothing");
   assert.equal(writes[0]!.values.address, "Pod Hradom 1, Bratislava");
 
@@ -457,4 +492,188 @@ test("the write values are the sheet's, and a tick for a row that is not changed
     dic: "2020000003",
     icDph: "SK2020000003",
   });
+});
+
+// The Adresár (0006/04): an IČO no company holds. Made-up companies with valid IČOs.
+const DELTA = { client: "Delta", officialName: "Delta, s.r.o.", ico: "36000001", seat: "Mierová 3, Žilina", keeper: "Katarína", cooperation: "aktívna", status: "aktívny" };
+
+function planOf(rows: Array<Partial<Record<ColumnKey, string>>>, subjects: MatchSubject[] = SUBJECTS): ClientSheetPlan {
+  return planClientSheet(parsedRows(csvText(FIXTURE_HEADERS, rows)), COMPANIES, subjects);
+}
+
+/**
+ * What the store holds after a write, as the next plan reads it (pure): an identity field the
+ * write set takes its value, and the office data takes the sheet's. A new subject is linked only
+ * when a company's profile is written.
+ */
+function subjectsAfter(
+  subjects: readonly MatchSubject[],
+  profiles: ReturnType<typeof selectClientSheetWrites>,
+  adresar: ReturnType<typeof selectAdresarWrites>,
+): MatchSubject[] {
+  const next: MatchSubject[] = subjects.map((subject) => ({ ...subject }));
+  const apply = (subject: MatchSubject, write: { written: string[]; values: Record<string, string>; keeper: string | null; cooperation: string | null; office: string[] }) => {
+    for (const field of write.written) {
+      if (field === "legalName" || field === "address" || field === "dic" || field === "icDph") {
+        subject[field] = write.values[field] ?? "";
+      }
+    }
+    if (write.office.includes("keeper") && write.keeper !== null) subject.officeKeeper = write.keeper;
+    if (write.office.includes("cooperation") && write.cooperation !== null) subject.officeCooperation = write.cooperation;
+  };
+  for (const write of profiles) {
+    let subject = next.find((candidate) => candidate.linkedCompanyId === write.companyId);
+    if (!subject) {
+      subject = next.find((candidate) => candidate.country === "SK" && candidate.ico === write.values.ico);
+    }
+    if (!subject) {
+      subject = { id: 900 + next.length, country: "SK", ico: write.values.ico, linkedCompanyId: null, legalName: "", address: "", dic: "", icDph: "", officeClient: false, officeKeeper: "", officeCooperation: "" };
+      next.push(subject);
+    }
+    subject.linkedCompanyId = write.companyId;
+    apply(subject, write);
+  }
+  for (const write of adresar) {
+    let subject = next.find((candidate) => candidate.linkedCompanyId === null && candidate.country === "SK" && candidate.ico === write.ico);
+    if (!subject) {
+      subject = { id: 900 + next.length, country: "SK", ico: write.ico, linkedCompanyId: null, legalName: "", address: "", dic: "", icDph: "", officeClient: false, officeKeeper: "", officeCooperation: "" };
+      next.push(subject);
+    }
+    subject.officeClient = true;
+    apply(subject, write);
+  }
+  return next;
+}
+
+test("a row with an IČO that no company holds goes into the Adresár; a row without one is only reported", () => {
+  const plan = planOf([DELTA, { client: "Neznáma", folderId: "folder-nobody" }]);
+  const delta = rowOf(plan, 1);
+  assert.equal(delta.status, "adresar");
+  assert.equal(delta.ico, "36000001");
+  assert.equal(delta.companyId, null);
+  assert.equal(delta.reason, null);
+
+  const neznama = rowOf(plan, 2);
+  assert.equal(neznama.status, "unmatched", "no IČO: it stays only reported");
+  assert.equal(plan.counts.adresar, 1);
+  assert.equal(plan.counts.unmatched, 1);
+});
+
+test("an IČO row whose IČ DPH is malformed is refused, not written to the Adresár", () => {
+  const plan = planOf([{ ...DELTA, icDph: "CZ2020000007" }]);
+  const row = rowOf(plan, 1);
+  assert.equal(row.status, "invalid");
+  assert.match(row.reason ?? "", /SK a desať číslic/);
+});
+
+test("an existing Adresár subject with the IČO is updated: its empty fields are filled, its other values need a tick", () => {
+  const delta: MatchSubject = {
+    id: 42,
+    country: "SK",
+    ico: "36000001",
+    linkedCompanyId: null,
+    legalName: "Delta Holding, a.s.",
+    address: "",
+    dic: "",
+    icDph: "",
+    officeClient: false,
+    officeKeeper: "",
+    officeCooperation: "",
+  };
+  const plan = planOf([DELTA], [...SUBJECTS, delta]);
+  const row = rowOf(plan, 1);
+  assert.equal(row.status, "adresar");
+  assert.equal(row.current?.legalName, "Delta Holding, a.s.");
+  assert.deepEqual(row.fields.map((change) => [change.field, change.kind]), [
+    ["legalName", "change"],
+    ["address", "fill"],
+  ]);
+
+  const untouched = selectAdresarWrites(plan, { confirmedRows: [], tickedFields: [] });
+  assert.deepEqual(untouched.map((write) => [write.isNew, write.written, write.overwritten, write.office]), [
+    [false, ["address"], [], ["officeClient", "keeper", "cooperation"]],
+  ]);
+  assert.equal(untouched[0]!.values.legalName, "Delta Holding, a.s.", "a value she did not tick is kept");
+
+  const ticked = selectAdresarWrites(plan, { confirmedRows: [], tickedFields: [tickKey(1, "legalName")] });
+  assert.deepEqual(ticked[0]!.overwritten, ["legalName"]);
+  assert.equal(ticked[0]!.values.legalName, "Delta, s.r.o.");
+});
+
+test("re-importing the same sheet changes nothing: the second plan writes nothing", () => {
+  const rows = parsedRows(FIXTURE_CSV);
+  const decisions = { confirmedRows: [2], tickedFields: [] };
+  const first = planClientSheet(rows, COMPANIES, SUBJECTS);
+  const profiles = selectClientSheetWrites(first, decisions);
+  const adresar = selectAdresarWrites(first, decisions);
+  assert.equal(adresar.length, 1, "Delta is written once");
+
+  const after = subjectsAfter(SUBJECTS, profiles, adresar);
+  const second = planClientSheet(rows, COMPANIES, after);
+  assert.deepEqual(selectClientSheetWrites(second, decisions), [], "no company write on the second import");
+  assert.deepEqual(selectAdresarWrites(second, decisions), [], "no Adresár write on the second import");
+  assert.equal(rowOf(second, 7).status, "unchanged");
+  assert.equal(second.counts.adresar, 0);
+  assert.equal(rowOf(second, 6).status, "unmatched");
+});
+
+test("a new office client's write carries the sheet's keeper, cooperation and the office-client flag", () => {
+  const plan = planOf([DELTA]);
+  const [write] = selectAdresarWrites(plan, { confirmedRows: [], tickedFields: [] });
+  assert.equal(write!.isNew, true);
+  assert.equal(write!.keeper, "Katarína");
+  assert.deepEqual(write!.office, ["officeClient", "keeper", "cooperation"]);
+  assert.equal(write!.values.legalName, "Delta, s.r.o.");
+});
+
+test("two rows with one IČO are both refused, since they would write the same subject", () => {
+  const plan = planOf([DELTA, { ...DELTA, client: "Delta kópia", officialName: "Delta kópia, s.r.o." }]);
+  for (const row of plan.rows) {
+    assert.equal(row.status, "invalid");
+    assert.match(row.reason ?? "", /IČO 36000001 sa v hárku opakuje/);
+  }
+});
+
+test("a company whose IČO would move onto another Adresár subject is refused: no values move between subjects", () => {
+  const otherSubject: MatchSubject = {
+    id: 43,
+    country: "SK",
+    ico: "36000001",
+    linkedCompanyId: null,
+    legalName: "Iný subjekt",
+    address: "",
+    dic: "",
+    icDph: "",
+    officeClient: false,
+    officeKeeper: "",
+    officeCooperation: "",
+  };
+  const plan = planOf([{ client: "Alfa", folderId: "folder-alfa", officialName: "Alfa s.r.o.", ico: "36000001" }], [...SUBJECTS, otherSubject]);
+  const row = rowOf(plan, 1);
+  assert.equal(row.status, "invalid");
+  assert.match(row.reason ?? "", /už má v adresári iný subjekt/);
+});
+
+test("a company with no profile yet, whose IČO an Adresár subject holds, is a new profile that links that subject", () => {
+  const subject: MatchSubject = {
+    id: 44,
+    country: "SK",
+    ico: "36000001",
+    linkedCompanyId: null,
+    legalName: "Delta, s.r.o.",
+    address: "",
+    dic: "",
+    icDph: "",
+    officeClient: true,
+    officeKeeper: "",
+    officeCooperation: "",
+  };
+  const plan = planOf([{ ...DELTA, folderId: "folder-beta" }], [...SUBJECTS, subject]);
+  const row = rowOf(plan, 1);
+  assert.equal(row.companyId, 2, "matched by folder");
+  assert.equal(row.status, "new", "the profile does not exist yet");
+  assert.equal(row.current?.legalName, "Delta, s.r.o.");
+
+  const [write] = selectClientSheetWrites(plan, { confirmedRows: [], tickedFields: [] });
+  assert.equal(write!.companyId, 2, "written even with nothing to fill, so the subject is linked");
 });

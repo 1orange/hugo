@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { CompanyProfileRow } from "@/adapters/store/company-profiles";
-import type { CompanyCountry, RegisterSearchHit } from "@/modules/company-profile";
+import type { CompanyCountry, ProfileField, RegisterSearchHit } from "@/modules/company-profile";
 import {
   countrySetupLabel,
   registerDirectLookupLabel,
@@ -106,8 +106,15 @@ export function CompanyProfileForm({
     saveErrorFlash ?? registerLookupError,
   );
   const [lookupPending, setLookupPending] = useState(false);
+  // The fields she typed by hand: their values are hers (manual) and a register refresh keeps them.
+  const [typed, setTyped] = useState<ProfileField[]>([]);
 
   const isCzech = country === "CZ";
+
+  function typeField(field: ProfileField, value: string) {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+    setTyped((prev) => (prev.includes(field) ? prev : [...prev, field]));
+  }
 
   async function runLookup(ico: string) {
     setError(null);
@@ -163,6 +170,12 @@ export function CompanyProfileForm({
       icDph: fields.icDph ?? prev.icDph,
       registerSource: fields.registerSource,
     }));
+    // What the lookup fills is the register's now, not hers: the IČ DPH only when VIES gave one.
+    setTyped((prev) =>
+      prev.filter((field) =>
+        field === "icDph" ? fields.icDph === null : !["legalName", "address", "dic"].includes(field),
+      ),
+    );
     setError(null);
     setMessage(lookupMessage(country, fields.icDphNote));
   }
@@ -269,6 +282,7 @@ export function CompanyProfileForm({
         <form action={saveFormAction} className="flex flex-col gap-3 p-4">
           <input type="hidden" name="country" value={country} />
           <input type="hidden" name="registerSource" value={draft.registerSource} />
+          <input type="hidden" name="typedFields" value={JSON.stringify(typed)} />
           {initialProfile ? (
             <p className="text-[12.5px] text-ink-2" data-testid="profile-country-display">
               Krajina: {countrySetupLabel(country)}
@@ -281,7 +295,7 @@ export function CompanyProfileForm({
               name="legalName"
               required
               value={draft.legalName}
-              onChange={(event) => setDraft({ ...draft, legalName: event.target.value })}
+              onChange={(event) => typeField("legalName", event.target.value)}
               data-testid="profile-legal-name"
               className="rounded border border-line bg-surface-2 px-3 py-2 text-[13px]"
             />
@@ -292,7 +306,7 @@ export function CompanyProfileForm({
               type="text"
               name="address"
               value={draft.address}
-              onChange={(event) => setDraft({ ...draft, address: event.target.value })}
+              onChange={(event) => typeField("address", event.target.value)}
               data-testid="profile-address"
               className="rounded border border-line bg-surface-2 px-3 py-2 text-[13px]"
             />
@@ -320,7 +334,7 @@ export function CompanyProfileForm({
                 name="dic"
                 inputMode={isCzech ? "text" : "numeric"}
                 value={draft.dic}
-                onChange={(event) => setDraft({ ...draft, dic: event.target.value })}
+                onChange={(event) => typeField("dic", event.target.value)}
                 data-testid="profile-dic"
                 className="rounded border border-line bg-surface-2 px-3 py-2 font-mono text-[13px] uppercase"
               />
@@ -335,7 +349,7 @@ export function CompanyProfileForm({
                 type="text"
                 name="icDph"
                 value={draft.icDph}
-                onChange={(event) => setDraft({ ...draft, icDph: event.target.value })}
+                onChange={(event) => typeField("icDph", event.target.value)}
                 data-testid="profile-ic-dph"
                 placeholder="SK1234567890"
                 className="rounded border border-line bg-surface-2 px-3 py-2 font-mono text-[13px] uppercase"

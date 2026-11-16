@@ -108,7 +108,19 @@ export type SubjectVerificationJobData = {
   enqueuedAt: string;
 };
 
+/**
+ * One client's subject, checked against the register and VIES (0006/03): after a
+ * profile save, a client sheet import, or when its register answer is stale.
+ */
+export type ClientSubjectVerificationJobData = {
+  subjectId: number;
+  /** ISO time it was queued. */
+  enqueuedAt: string;
+};
+
 export interface SubjectVerificationQueue {
   /** Queues the document unless it is already waiting, in any replica. True when this call queued it. */
   add(data: SubjectVerificationJobData): Promise<boolean>;
+  /** Queues the client's subject unless it is already waiting, in any replica. True when this call queued it. */
+  addClientSubject(data: ClientSubjectVerificationJobData): Promise<boolean>;
 }

@@ -13,7 +13,6 @@ import { createLookupRateLimiter } from "../../../src/lib/subject-directory/rate
 import {
   SubjectLookupDeferred,
   correctSubjectField,
-  linkClientCompany,
   resolveSubject,
   verifyCounterparty,
   type DirectoryDeps,
@@ -223,7 +222,7 @@ test("a manual correction survives a refresh, and a disagreeing register answer 
   assert.equal(JSON.parse(row!.sourcesJson).legalName, "manual");
 });
 
-test("her company's IČO links its subject to the company; the profile wins where the directory differs", async () => {
+test("a client's profile is its subject: saving it sets the subject the counterparties resolve to", async () => {
   await freshTestDb();
   now = START;
   await getDb().insert(companies).values({ id: 1, driveFolderId: "delta-folder", name: "Delta s.r.o.", active: true });
@@ -244,22 +243,14 @@ test("her company's IČO links its subject to the company; the profile wins wher
     registerSource: "fake",
     savedAt: START,
   });
-  await linkClientCompany({
-    companyId: 1,
-    country: "SK",
-    ico: "35757442",
-    legalName: "Delta s.r.o.",
-    address: "Košice",
-    dic: "2020357574",
-    icDph: "SK2020357574",
-    now: START,
-  });
 
+  // The one record: the profile's name is the subject's now, with the source a typed value has.
   const resolved = await resolveSubject({ name: "Delta s.r.o.", ico: "35757442", dic: "2020357574", icDph: "" });
   assert.equal(resolved?.linkedCompanyId, 1);
-  assert.deepEqual(resolved!.findings, [
-    { field: "legalName", kind: "profile-disagrees", value: "Delta Holding s.r.o.", at: START },
-  ]);
+  assert.equal(resolved?.legalName, "Delta s.r.o.");
+  assert.equal(resolved?.sources.legalName, "manual");
+  assert.deepEqual(resolved?.findings, []);
+  assert.equal((await allSubjects()).length, 1, "the counterparty's subject is the profile's: none is added");
 
   const check = await verifyCounterparty(
     { name: "Delta s.r.o.", ico: "35757442", dic: "2020357574", icDph: "" },
@@ -273,12 +264,13 @@ test("a company whose profile changes its IČO is unlinked from the old one", as
   await freshTestDb();
   now = START;
   await getDb().insert(companies).values({ id: 1, driveFolderId: "delta-folder", name: "Delta s.r.o.", active: true });
-  const base = { companyId: 1, country: "SK" as const, legalName: "Delta s.r.o.", address: "", dic: "2020357574", icDph: "", now: START };
-  await linkClientCompany({ ...base, ico: "35757442" });
-  await linkClientCompany({ ...base, ico: "31333532" });
+  const base = { country: "SK" as const, legalName: "Delta s.r.o.", address: "", dic: "2020357574", icDph: "", registerSource: "manual", savedAt: START };
+  await saveCompanyProfile(1, { ...base, ico: "35757442" });
+  await saveCompanyProfile(1, { ...base, ico: "31333532" });
 
   const linked = (await allSubjects()).filter((row) => row.linkedCompanyId === 1);
   assert.deepEqual(linked.map((row) => row.ico), ["31333532"]);
+  assert.equal((await allSubjects()).length, 2, "the former subject stays in the Adresár, unlinked");
 });
 
 test("concurrent resolutions of one subject make one register call", async () => {

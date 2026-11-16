@@ -36,7 +36,7 @@ const SOURCE_LABELS: Record<SubjectSource, string> = {
   register: "z registra",
   vies: "z VIES",
   manual: "ručne",
-  profile: "z profilu",
+  sheet: "z klientskeho hárku",
 };
 
 /** Where a value came from: a field nothing has set reads as a dash, not as a source. */
@@ -86,22 +86,29 @@ export function viesStatusLabel(record: ViesRecord): string {
 /** A directory finding as one Slovak sentence; the detail screen lists them. */
 export function directoryFindingMessage(finding: SubjectFinding): string {
   const label = correctableFieldLabel(finding.field);
-  if (finding.kind === "register-disagrees") {
-    return `${label}: register dnes uvádza „${finding.value}“, ručná oprava sa líši.`;
-  }
-  return `${label}: v adresári je „${finding.value}“, ale profil klienta platí.`;
+  return `${label}: register dnes uvádza „${finding.value}“, ručná oprava sa líši.`;
 }
 
 export function isCorrectableSubjectField(field: string): field is CorrectableSubjectField {
   return (CORRECTABLE_SUBJECT_FIELDS as readonly string[]).includes(field);
 }
 
-/** The register's word for a subject's standing (ADR 0022: active or dissolved; unknown until asked). */
-export function registerStatusLabelOf(status: "active" | "dissolved" | "unknown"): string {
-  if (status === "active") {
-    return "Aktívna";
+/**
+ * The register's word for a subject's standing, as the Slovak screens say it (aktívny /
+ * pozastavený / zaniknutý). Unknown until a register has found the subject. The register
+ * adapters tell active from dissolved; a suspension has no answer from them yet.
+ */
+export function registerStatusLabelOf(status: "active" | "dissolved" | "suspended" | "unknown"): string {
+  switch (status) {
+    case "active":
+      return "aktívny";
+    case "dissolved":
+      return "zaniknutý";
+    case "suspended":
+      return "pozastavený";
+    case "unknown":
+      return "nezistený";
   }
-  return status === "dissolved" ? "Zaniknutá" : "Nezistená";
 }
 
 /** The colour of a verdict badge: the same three tones the rail uses. */

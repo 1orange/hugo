@@ -2,11 +2,13 @@
 
 import { useMemo, useState, useTransition } from "react";
 import {
+  selectAdresarWrites,
   selectClientSheetWrites,
   tickKey,
   type ClientSheetDecisions,
   type ClientSheetPlan,
   type FieldChange,
+  type OfficeChange,
   type PlannedRow,
 } from "@/modules/client-sheet";
 
@@ -17,7 +19,7 @@ export type ClientSheetImportProps = {
   applyAction: (
     text: string,
     decisions: ClientSheetDecisions,
-  ) => Promise<Result<{ companies: number; fields: number }>>;
+  ) => Promise<Result<{ companies: number; adresar: number; fields: number }>>;
 };
 
 /** Slovak counts: 1 firma, 2–4 firmy, 5 and more firiem (the same for polia / pole / polí). */
@@ -27,6 +29,20 @@ function firmy(count: number): string {
 
 function polia(count: number): string {
   return `${count} ${count === 1 ? "pole" : count >= 2 && count <= 4 ? "polia" : "polí"}`;
+}
+
+function subjekty(count: number): string {
+  return `${count} ${count === 1 ? "subjekt" : count >= 2 && count <= 4 ? "subjekty" : "subjektov"}`;
+}
+
+/** What a write makes, in one line: the companies, the Adresár subjects, the fields. */
+function writeSummary(companies: number, adresar: number, fields: number): string {
+  const parts = [
+    companies > 0 ? firmy(companies) : null,
+    adresar > 0 ? `${subjekty(adresar)} do Adresára` : null,
+    polia(fields),
+  ];
+  return parts.filter((part): part is string => part !== null).join(", ");
 }
 
 function isBlank(value: string | null): boolean {
@@ -52,7 +68,12 @@ export function ClientSheetImport({ previewAction, applyAction }: ClientSheetImp
     [confirmed, ticked],
   );
   const writes = useMemo(() => (plan ? selectClientSheetWrites(plan, decisions) : []), [plan, decisions]);
-  const writtenFields = writes.reduce((total, write) => total + write.written.length, 0);
+  const adresarWrites = useMemo(() => (plan ? selectAdresarWrites(plan, decisions) : []), [plan, decisions]);
+  const writtenFields = [...writes, ...adresarWrites].reduce(
+    (total, write) => total + write.written.length + write.office.length,
+    0,
+  );
+  const writeCount = writes.length + adresarWrites.length;
 
   function chooseFile(file: File) {
     setDone(null);
@@ -86,9 +107,9 @@ export function ClientSheetImport({ previewAction, applyAction }: ClientSheetImp
         return;
       }
       setDone(
-        result.data.companies === 0
+        result.data.companies + result.data.adresar === 0
           ? "Nič sa nezapísalo."
-          : `Zapísané: ${firmy(result.data.companies)}, ${polia(result.data.fields)}.`,
+          : `Zapísané: ${writeSummary(result.data.companies, result.data.adresar, result.data.fields)}.`,
       );
       // Show the sheet as it stands now: what was written is no longer a change.
       const refreshed = await previewAction(sheet.text);
@@ -171,8 +192,9 @@ export function ClientSheetImport({ previewAction, applyAction }: ClientSheetImp
         <>
           <p data-testid="client-sheet-summary" className="text-[13.5px] text-ink-2">
             Riadkov {plan.rows.length}: nové {plan.counts.new}, zmenené {plan.counts.changed}, bez zmeny{" "}
-            {plan.counts.unchanged}, bez IČO {plan.counts["no-ico"]}, neplatné {plan.counts.invalid}, nespárované{" "}
-            {plan.counts.unmatched}, nesúlady {plan.counts.disagreements}, odhady podľa názvu {plan.counts.guesses}.
+            {plan.counts.unchanged}, do Adresára {plan.counts.adresar}, bez IČO {plan.counts["no-ico"]}, neplatné{" "}
+            {plan.counts.invalid}, nespárované {plan.counts.unmatched}, nesúlady {plan.counts.disagreements}, odhady
+            podľa názvu {plan.counts.guesses}.
           </p>
 
           <ChangeSection
@@ -188,6 +210,15 @@ export function ClientSheetImport({ previewAction, applyAction }: ClientSheetImp
             testId="section-changed"
             title="Zmenené profily"
             rows={plan.rows.filter((row) => row.status === "changed")}
+            ticked={ticked}
+            confirmed={confirmed}
+            onTick={(key, on) => setTicked((set) => toggle(set, key, on))}
+            onConfirm={(rowNumber, on) => setConfirmed((set) => toggle(set, rowNumber, on))}
+          />
+          <ChangeSection
+            testId="section-adresar"
+            title="Do Adresára"
+            rows={plan.rows.filter((row) => row.status === "adresar")}
             ticked={ticked}
             confirmed={confirmed}
             onTick={(key, on) => setTicked((set) => toggle(set, key, on))}
@@ -217,15 +248,15 @@ export function ClientSheetImport({ previewAction, applyAction }: ClientSheetImp
             className="glass rise-in fixed inset-x-0 bottom-6 z-30 mx-auto flex w-fit max-w-[calc(100vw-32px)] flex-wrap items-center gap-2.5 rounded-2xl py-2 pr-2 pl-4 shadow-[0_0_0_1px_rgb(0_0_0/0.06),0_10px_32px_rgb(0_0_0/0.16)]"
           >
             <span data-testid="client-sheet-write-count" className="text-[13.5px] text-ink-2">
-              {writes.length === 0
+              {writeCount === 0
                 ? "Nič sa nezapíše."
-                : `Zapíše sa ${firmy(writes.length)}, ${polia(writtenFields)}.`}
+                : `Zapíše sa ${writeSummary(writes.length, adresarWrites.length, writtenFields)}.`}
             </span>
             <button
               type="button"
               data-testid="client-sheet-apply"
               onClick={apply}
-              disabled={pending || writes.length === 0}
+              disabled={pending || writeCount === 0}
               className="press rounded-[9px] bg-accent px-3.5 py-1.5 text-[13.5px] font-semibold text-white disabled:opacity-50"
             >
               {pending ? "Zapisujem…" : "Zapísať"}
@@ -276,6 +307,7 @@ function ChangeSection({
               <span className="text-[14px] font-medium">{row.companyName}</span>
               <span className="text-[12.5px] text-ink-3">IČO {row.ico}</span>
               {row.guess ? <span className="text-[12px] text-warn">odhad podľa názvu</span> : null}
+              {row.companyId === null ? <span className="text-[12px] text-ink-3">bez priečinka Doklady</span> : null}
             </div>
             <ul className="mt-1.5 space-y-1">
               {row.fields.map((change) => (
@@ -286,6 +318,9 @@ function ChangeSection({
                   ticked={ticked.has(tickKey(row.rowNumber, change.field))}
                   onTick={onTick}
                 />
+              ))}
+              {row.officeChanges.map((change) => (
+                <OfficeRow key={change.field} rowNumber={row.rowNumber} change={change} />
               ))}
             </ul>
             {row.guess ? (
@@ -335,9 +370,25 @@ function FieldRow({
             checked={ticked}
             onChange={(event) => onTick(tickKey(rowNumber, change.field), event.target.checked)}
           />
-          Prepísať ručne uložené
+          Prepísať uloženú hodnotu
         </label>
       ) : null}
+    </li>
+  );
+}
+
+/** The office's own data (Vedie, Spolupráca, the client flag): the sheet's, written without a tick. */
+function OfficeRow({ rowNumber, change }: { rowNumber: number; change: OfficeChange }) {
+  return (
+    <li data-testid={`office-${rowNumber}-${change.field}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+      <span className="text-ink-3">{change.label}:</span>
+      {change.old === null ? null : isBlank(change.old) ? (
+        <span className="text-ink-4">prázdne</span>
+      ) : (
+        <span className="text-ink-3 line-through">{change.old}</span>
+      )}
+      {change.old === null ? null : <span aria-hidden className="text-ink-4">→</span>}
+      <span className="font-medium">{change.next}</span>
     </li>
   );
 }

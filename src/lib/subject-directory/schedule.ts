@@ -1,5 +1,8 @@
 import type { SubjectVerificationQueue } from "@/adapters/job-queue/port";
 import { getCompanyProfile } from "@/adapters/store/company-profiles";
+import { getSettings } from "@/adapters/store/settings";
+import { getSubjectLinkedTo, listAllSubjects } from "@/adapters/store/subjects";
+import { isStale } from "@/modules/subject-directory";
 import {
   getDocument,
   listDocumentsForFile,
@@ -62,6 +65,86 @@ export async function scheduleSubjectChecksForMonth(companyId: number, monthKey:
     await queueSubjectChecksForMonth(companyId, monthKey);
   } catch (error) {
     console.warn(`[subject] could not queue the party checks for ${companyId}/${monthKey}`, error);
+  }
+  await scheduleStaleClientSubjectCheck(companyId);
+}
+
+/** One client's subject, queued for its register and VIES check (0006/03). */
+export async function queueClientSubjectCheck(
+  subjectId: number,
+  queue: SubjectVerificationQueue = subjectVerificationQueue(),
+  now: string = new Date().toISOString(),
+): Promise<boolean> {
+  return queue.addClientSubject({ subjectId, enqueuedAt: now });
+}
+
+/**
+ * After a change to a client's subject (a save, an import, a correction): it is checked
+ * against the registers now, since what it holds has just changed. Never throws: saving
+ * must not fail because Redis did.
+ */
+export async function scheduleClientSubjectCheckForSubject(subjectId: number): Promise<void> {
+  try {
+    await queueClientSubjectCheck(subjectId);
+  } catch (error) {
+    console.warn(`[subject] could not queue the client check for subject ${subjectId}`, error);
+  }
+}
+
+/** After a profile save or a client sheet import: the company's subject is checked. Never throws. */
+export async function scheduleClientSubjectCheck(companyId: number): Promise<void> {
+  try {
+    const subject = await getSubjectLinkedTo(companyId);
+    if (subject) {
+      await queueClientSubjectCheck(subject.id);
+    }
+  } catch (error) {
+    console.warn(`[subject] could not queue the client check for company ${companyId}`, error);
+  }
+}
+
+/**
+ * When a client's page or month is looked at: its subject is checked again once its
+ * register answer is as old as the refresh age, or never came (ADR 0022). A foreign
+ * subject, or one with no IČO, has no register to ask. Never throws.
+ */
+export async function scheduleStaleClientSubjectCheck(companyId: number): Promise<void> {
+  try {
+    const subject = await getSubjectLinkedTo(companyId);
+    if (!subject || subject.country === "foreign" || subject.ico === null) {
+      return;
+    }
+    const { subjectRefreshDays } = await getSettings();
+    if (isStale(subject.verifiedAt, new Date().toISOString(), subjectRefreshDays)) {
+      await queueClientSubjectCheck(subject.id);
+    }
+  } catch (error) {
+    console.warn(`[subject] could not queue the stale client check for company ${companyId}`, error);
+  }
+}
+
+/**
+ * When the Adresár is looked at: its office clients (0006/04) whose register answer is as old as the
+ * refresh age, or never came, are checked again. A client's company page does this for a linked
+ * client; an office client has no page, so the list does it. Never throws.
+ */
+export async function scheduleStaleOfficeClientChecks(): Promise<void> {
+  try {
+    const { subjectRefreshDays } = await getSettings();
+    const now = new Date().toISOString();
+    for (const subject of await listAllSubjects()) {
+      if (
+        subject.officeClient &&
+        subject.linkedCompanyId === null &&
+        subject.country !== "foreign" &&
+        subject.ico !== null &&
+        isStale(subject.verifiedAt, now, subjectRefreshDays)
+      ) {
+        await queueClientSubjectCheck(subject.id);
+      }
+    }
+  } catch (error) {
+    console.warn("[subject] could not queue the stale office client checks", error);
   }
 }
 

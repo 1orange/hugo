@@ -45,7 +45,6 @@ export async function freshTestDb(): Promise<Db> {
       schema.subjectAliases,
       schema.subjects,
       schema.partners,
-      schema.companyProfiles,
       schema.files,
       schema.monthFolders,
       schema.months,

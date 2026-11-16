@@ -1,7 +1,6 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   companies,
-  companyProfiles,
   documents,
   files,
   subjectAliases,
@@ -18,8 +17,8 @@ import type { ViesRecord } from "@/modules/subject-directory";
 
 export type SubjectCountry = "SK" | "CZ" | "foreign";
 export type SubjectRegisterStatus = "active" | "dissolved" | "unknown";
-/** A value the directory holds, and where it came from. */
-export type SubjectSource = "register" | "vies" | "manual" | "profile";
+/** A value the directory holds, and where it came from (see the module's SubjectSource). */
+export type SubjectSource = "register" | "vies" | "manual" | "sheet";
 /** The fields a register, VIES or an accountant can set. */
 export type SubjectField =
   | "legalName"
@@ -32,8 +31,8 @@ export type SubjectField =
 
 export type SubjectFinding = {
   field: SubjectField;
-  /** register-disagrees: a fresh register answer differs from a manual value. profile-disagrees: the client's profile differs. */
-  kind: "register-disagrees" | "profile-disagrees";
+  /** A fresh register answer differs from a manual value. */
+  kind: "register-disagrees";
   /** The value the other side holds. */
   value: string;
   at: string;
@@ -58,6 +57,11 @@ export type SubjectRow = {
   manualFields: SubjectField[];
   findings: SubjectFinding[];
   linkedCompanyId: number | null;
+  /** An office client (0006/04): a client of the office with no company in Hugo. */
+  officeClient: boolean;
+  /** *Vedie* and *Spolupráca* from the client sheet; null where the sheet never said. */
+  officeKeeper: string | null;
+  officeCooperation: string | null;
   verifiedAt: string | null;
   lastSeenAt: string;
   createdAt: string;
@@ -78,6 +82,9 @@ export type SubjectPatch = Partial<
     | "manualFields"
     | "findings"
     | "linkedCompanyId"
+    | "officeClient"
+    | "officeKeeper"
+    | "officeCooperation"
     | "verifiedAt"
     | "lastSeenAt"
     | "ico"
@@ -93,7 +100,7 @@ export type SubjectAliasRow = {
   lastSeenAt: string;
 };
 
-type SubjectDbRow = typeof subjects.$inferSelect;
+export type SubjectDbRow = typeof subjects.$inferSelect;
 
 function parseJson<T>(raw: string, fallback: T): T {
   try {
@@ -103,7 +110,8 @@ function parseJson<T>(raw: string, fallback: T): T {
   }
 }
 
-function toSubject(row: SubjectDbRow): SubjectRow {
+/** A stored row as the directory's values; the client profile store reads its own columns from the row. */
+export function toSubject(row: SubjectDbRow): SubjectRow {
   return {
     id: row.id,
     country: row.country as SubjectCountry,
@@ -121,13 +129,16 @@ function toSubject(row: SubjectDbRow): SubjectRow {
     manualFields: parseJson<SubjectField[]>(row.manualFieldsJson, []),
     findings: parseJson<SubjectFinding[]>(row.findingsJson, []),
     linkedCompanyId: row.linkedCompanyId,
+    officeClient: row.officeClient,
+    officeKeeper: row.officeKeeper,
+    officeCooperation: row.officeCooperation,
     verifiedAt: row.verifiedAt,
     lastSeenAt: row.lastSeenAt,
     createdAt: row.createdAt,
   };
 }
 
-function toColumns(patch: SubjectPatch): Partial<typeof subjects.$inferInsert> {
+export function toColumns(patch: SubjectPatch): Partial<typeof subjects.$inferInsert> {
   const columns: Partial<typeof subjects.$inferInsert> = {};
   if (patch.ico !== undefined) columns.ico = patch.ico;
   if (patch.vatId !== undefined) columns.vatId = patch.vatId;
@@ -143,6 +154,9 @@ function toColumns(patch: SubjectPatch): Partial<typeof subjects.$inferInsert> {
   if (patch.manualFields !== undefined) columns.manualFieldsJson = JSON.stringify(patch.manualFields);
   if (patch.findings !== undefined) columns.findingsJson = JSON.stringify(patch.findings);
   if (patch.linkedCompanyId !== undefined) columns.linkedCompanyId = patch.linkedCompanyId;
+  if (patch.officeClient !== undefined) columns.officeClient = patch.officeClient;
+  if (patch.officeKeeper !== undefined) columns.officeKeeper = patch.officeKeeper;
+  if (patch.officeCooperation !== undefined) columns.officeCooperation = patch.officeCooperation;
   if (patch.verifiedAt !== undefined) columns.verifiedAt = patch.verifiedAt;
   if (patch.lastSeenAt !== undefined) columns.lastSeenAt = patch.lastSeenAt;
   return columns;
@@ -170,6 +184,24 @@ export async function findSubjectsByIco(ico: string): Promise<SubjectRow[]> {
     .where(and(eq(subjects.ico, ico), sql`${subjects.country} <> 'foreign'`))
     .limit(2);
   return rows.map(toSubject);
+}
+
+/** The subject a client company's profile is (ADR 0022, amended 2026-11-16), or null for a company without one. */
+export async function getSubjectLinkedTo(companyId: number): Promise<SubjectRow | null> {
+  const [row] = await getDb().select().from(subjects).where(eq(subjects.linkedCompanyId, companyId)).limit(1);
+  return row ? toSubject(row) : null;
+}
+
+/** The register's standing of each listed company's linked subject, where a company has one. */
+export async function listClientRegisterStatuses(companyIds: readonly number[]): Promise<Map<number, SubjectRegisterStatus>> {
+  if (companyIds.length === 0) {
+    return new Map();
+  }
+  const rows = await getDb()
+    .select({ companyId: subjects.linkedCompanyId, registerStatus: subjects.registerStatus })
+    .from(subjects)
+    .where(inArray(subjects.linkedCompanyId, [...companyIds]));
+  return new Map(rows.map((row) => [row.companyId as number, row.registerStatus as SubjectRegisterStatus]));
 }
 
 /** By VAT ID, whatever the IČO column holds: a subject learned with its IČO keeps its VAT ID. */
@@ -291,36 +323,6 @@ export async function listSubjectAliases(subjectId: number): Promise<SubjectAlia
     .from(subjectAliases)
     .where(eq(subjectAliases.subjectId, subjectId))
     .orderBy(desc(subjectAliases.count), asc(subjectAliases.normalizedName));
-}
-
-export async function findSubjectLinkedToCompany(companyId: number): Promise<SubjectRow[]> {
-  const rows = await getDb()
-    .select()
-    .from(subjects)
-    .where(eq(subjects.linkedCompanyId, companyId))
-    .orderBy(asc(subjects.id));
-  return rows.map(toSubject);
-}
-
-/** Unlinks every subject of this company but one: the client's IČO changed in its profile. */
-export async function unlinkCompanySubjectsExcept(companyId: number, keepSubjectId: number): Promise<void> {
-  await getDb()
-    .update(subjects)
-    .set({ linkedCompanyId: null })
-    .where(and(eq(subjects.linkedCompanyId, companyId), sql`${subjects.id} <> ${keepSubjectId}`));
-}
-
-/** The company whose profile carries this IČO, in its country (ADR 0018). */
-export async function findCompanyProfileByIco(
-  country: string,
-  ico: string,
-): Promise<{ companyId: number; legalName: string; address: string; dic: string; icDph: string } | null> {
-  const [row] = await getDb()
-    .select()
-    .from(companyProfiles)
-    .where(and(eq(companyProfiles.country, country), eq(companyProfiles.ico, ico)))
-    .limit(1);
-  return row ? { companyId: row.companyId, legalName: row.legalName, address: row.address, dic: row.dic, icDph: row.icDph } : null;
 }
 
 /** Every subject, the most recently seen first: the directory screen searches and pages these. */

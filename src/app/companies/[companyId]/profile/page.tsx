@@ -9,7 +9,11 @@ import {
   loadCompanyProfileView,
   lookupCompanyRegister,
 } from "@/lib/company-profile/service";
+import { loadProfileIdentity } from "@/lib/subject-directory/screen";
+import { scheduleStaleClientSubjectCheck } from "@/lib/subject-directory/schedule";
 import type { CompanyCountry } from "@/modules/company-profile";
+import { restoreRegisterValueAction } from "@/app/adresar/actions";
+import { IdentityStateList } from "@/components/identity/identity-states";
 import { saveCompanyProfileFormAction } from "./actions";
 import { CompanyProfileForm } from "./company-profile-form";
 
@@ -44,6 +48,9 @@ export default async function CompanyProfilePage({
   if (!view) {
     notFound();
   }
+  // The register answer is refreshed here when it is stale; the page does not wait for it.
+  await scheduleStaleClientSubjectCheck(companyId);
+  const identity = await loadProfileIdentity(companyId);
 
   const settings = await getSettings();
   const openMonth = await getOpenMonthKey(companyId);
@@ -117,9 +124,37 @@ export default async function CompanyProfilePage({
           potom sa dá upraviť.
         </p>
 
+        {identity ? (
+          <section aria-label="Overenie údajov" className="mt-6 flex flex-col gap-3" data-testid="profile-identity">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-[15px] font-semibold">Overenie údajov</h2>
+              <Link
+                href={`/adresar/${identity.subjectId}`}
+                data-testid="profile-adresar-link"
+                className="text-[13px] text-accent underline"
+              >
+                Zobraziť v Adresári
+              </Link>
+            </div>
+            <p className="text-[12.5px] text-ink-2" data-testid="profile-register-status">
+              Stav v registri: {identity.registerStatusLabel} · overené: {identity.verifiedAtLabel}
+            </p>
+            {identity.vies.length > 0 ? (
+              <ul className="text-[12.5px] text-ink-2" data-testid="profile-vies">
+                {identity.vies.map((vies) => (
+                  <li key={vies.vatId}>
+                    VIES {vies.vatId}: {vies.label} (overené {vies.checkedLabel})
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <IdentityStateList rows={identity.rows} subjectId={identity.subjectId} onRestore={restoreRegisterValueAction} />
+          </section>
+        ) : null}
+
         <div className="mt-6">
           <CompanyProfileForm
-            key={`${pickIco ?? "new"}-${setupCountry}-${saved ?? ""}`}
+            key={`${pickIco ?? "new"}-${setupCountry}-${saved ?? ""}-${view.profile ? [view.profile.legalName, view.profile.address, view.profile.dic, view.profile.icDph].join("|") : ""}`}
             companyId={companyId}
             folderName={view.companyName}
             initialCountry={setupCountry}

@@ -226,7 +226,8 @@ test("the subject worker checks a queued document's parties, and every replica h
     const record = parsePartyIntegrityRecord((await getDocument(INVOICE))!.partyIntegrityJson);
     assert.ok(record, "the verdicts are stored on the document");
     assert.equal(record.supplier.verdict, "verified");
-    const [subject] = await getDb().select().from(subjects);
+    // The supplier's subject; the client's own profile is a subject too.
+    const subject = (await getDb().select().from(subjects)).find((row) => row.ico === SUPPLIER.ico);
     assert.equal(subject?.legalName, "Beta Group s.r.o.");
     assert.equal(await subjectQueue().getJob(subjectJobId(INVOICE)), undefined, "the finished job is removed");
   } finally {

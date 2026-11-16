@@ -5,10 +5,12 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { loadSubjectDetail, type DetailField, type VerdictTone } from "@/lib/subject-directory/screen";
-import { correctSubjectAction } from "../actions";
+import { correctSubjectAction, restoreRegisterValueAction } from "../actions";
 import { SubjectCorrectionForm, type CorrectableFieldView } from "../subject-correction-form";
 import { countWithNoun } from "@/modules/format-sk";
 import { isCorrectableSubjectField } from "@/modules/subject-screen";
+import { IdentityStateBadge } from "@/components/identity/identity-states";
+import { RestoreRegisterValueButton } from "@/components/identity/restore-register-value-button";
 
 type SubjectPageProps = {
   params: Promise<{ subjectId: string }>;
@@ -108,6 +110,17 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
             Adresár je spoločný pre všetky firmy, ktoré tento subjekt používajú. Doklady, ktoré ho obsahujú, sú
             vypísané nižšie.
           </p>
+          {detail.office.client || detail.office.keeper || detail.office.cooperation ? (
+            <p className="text-[12.5px] text-ink-2" data-testid="subject-office">
+              {[
+                detail.office.client ? "Klient kancelárie" : null,
+                detail.office.keeper ? `vedie: ${detail.office.keeper}` : null,
+                detail.office.cooperation ? `spolupráca: ${detail.office.cooperation}` : null,
+              ]
+                .filter((part): part is string => part !== null)
+                .join(" · ")}
+            </p>
+          ) : null}
         </header>
 
         <section aria-label="Údaje" className="flex flex-col gap-3">
@@ -120,8 +133,35 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
                     {field.label}
                   </th>
                   <td className="py-2 pr-4 font-mono text-[12.5px] text-ink">{field.value ?? "—"}</td>
-                  <td className="py-2 align-top">
-                    <SourceBadge field={field} />
+                  <td className="py-2 pr-4 align-top">
+                    {field.identity ? (
+                      <IdentityStateBadge
+                        state={field.identity.state}
+                        label={field.identity.stateLabel}
+                        tone={field.identity.tone}
+                        testId={`subject-state-${field.field}`}
+                      />
+                    ) : (
+                      <SourceBadge field={field} />
+                    )}
+                  </td>
+                  <td className="py-2 align-top text-[12px] text-ink-3">
+                    {field.identity?.restorable && field.identity.registerValue !== null ? (
+                      <div className="flex flex-col items-start gap-2">
+                        <span>
+                          register:{" "}
+                          <span className="font-mono text-ink-2" data-testid={`subject-register-${field.field}`}>
+                            {field.identity.registerValue}
+                          </span>
+                        </span>
+                        <RestoreRegisterValueButton
+                          subjectId={detail.id}
+                          field={field.identity.field}
+                          onRestore={restoreRegisterValueAction}
+                          testId={`subject-restore-${field.field}`}
+                        />
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))}

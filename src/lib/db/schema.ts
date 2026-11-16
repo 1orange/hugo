@@ -12,20 +12,6 @@ export const companies = pgTable("companies", {
   archived: boolean("archived").notNull().default(false),
 });
 
-export const companyProfiles = pgTable("company_profiles", {
-  companyId: integer("company_id")
-    .primaryKey()
-    .references(() => companies.id),
-  country: text("country").notNull(),
-  legalName: text("legal_name").notNull(),
-  address: text("address").notNull(),
-  ico: text("ico").notNull(),
-  dic: text("dic").notNull(),
-  icDph: text("ic_dph").notNull(),
-  registerSource: text("register_source").notNull(),
-  savedAt: text("saved_at").notNull(),
-});
-
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey(),
   driveParentFolderId: text("drive_parent_folder_id"),
@@ -299,8 +285,24 @@ export const subjects = pgTable("subjects", {
   manualFieldsJson: text("manual_fields_json").notNull().default("[]"),
   /** Disagreements a refresh or a profile found, for the directory screen. */
   findingsJson: text("findings_json").notNull().default("[]"),
-  /** The client company this subject is, through its profile's IČO (ADR 0022). */
+  /**
+   * The client company this subject is: its profile is this record (ADR 0022, amended
+   * 2026-11-16). At most one subject per company.
+   */
   linkedCompanyId: integer("linked_company_id").references(() => companies.id),
+  /** Client subjects only: where the profile's identity was last taken from ("rpo+ruz", "ares", "manual"…). */
+  profileRegisterSource: text("profile_register_source"),
+  /** Client subjects only: when her profile was last saved. */
+  profileSavedAt: text("profile_saved_at"),
+  /**
+   * An office client (0006/04): a client of the office from the client sheet with an IČO but no
+   * company in Hugo, so no Doklady folder. A linked company is a client regardless of this flag.
+   */
+  officeClient: boolean("office_client").notNull().default(false),
+  /** The accountant who keeps the client: *Vedie* on the client sheet. */
+  officeKeeper: text("office_keeper"),
+  /** The cooperation state from the client sheet: *Spolupráca* (aktívna, ukončená). */
+  officeCooperation: text("office_cooperation"),
   /** When the register (or VIES) last answered; null while never. */
   verifiedAt: text("verified_at"),
   lastSeenAt: text("last_seen_at").notNull(),
@@ -313,7 +315,10 @@ export const subjects = pgTable("subjects", {
     .on(table.vatId)
     .where(sql`${table.ico} IS NULL`),
   index("subjects_vat_id").on(table.vatId),
-  index("subjects_linked_company").on(table.linkedCompanyId),
+  // A company has at most one subject: its profile (ADR 0022, amended 2026-11-16).
+  uniqueIndex("subjects_linked_company_once")
+    .on(table.linkedCompanyId)
+    .where(sql`${table.linkedCompanyId} IS NOT NULL`),
 ]);
 
 /** The names a subject is printed under on documents, with how often (ADR 0022). */

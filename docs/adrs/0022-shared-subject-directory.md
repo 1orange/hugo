@@ -37,6 +37,7 @@ month after month. What Hugo learns about one of them is equally true for every 
 - **Client companies are subjects too**, linked through their profile's IČO, so a client invoicing
   another client resolves to the same subject on both sides. Where profile and directory disagree, the
   **profile wins** and the directory entry is flagged — the profile remains the source of roles.
+  *(Amended 2026-11-16: the profile is the subject itself, so there is nothing to disagree with.)*
 - **What the directory may fill on a document:** only **missing** fields of a party whose IČO or VAT ID
   matched a subject, shown with provenance `directory`. A printed value that disagrees is never
   replaced; it produces an integrity finding.
@@ -74,3 +75,33 @@ Czech one, and resolves to the first subject that register holds; a fresh subjec
 already holds answers without a call. An absence in the Slovak register creates no empty Slovak
 subject (the IČO may be Czech). Neither register holding it is *not found*; a register that did not
 answer while neither held it is *unavailable*. An IČO failing its checksum is not looked up.
+
+## Amendment, 2026-11-16 — the subject is the client's profile
+
+A client company's profile is no longer a second copy beside its subject. The subject linked to the
+company (by country and IČO) *is* its profile: the profile form and its register lookup write that
+subject, a company without one gets it created, and `company_profiles` is dropped. The Adresár is
+the only copy, and it lists every client and partner with the data Hugo holds on each.
+
+**"The profile wins" is withdrawn.** With one copy there is nothing to disagree with, so the
+`profile-disagrees` finding and the `profile` source go. The readers of a client's identity (extraction
+checks, document roles, the Omega export, subject verification) keep reading the profile, which now
+is the subject's values.
+
+Provenance is per field, as the subject's sources are: a value a register lookup filled is
+`register` (the IČ DPH that VIES confirmed is `vies`), a value she typed is `manual`, and a manual
+value is never overwritten by a refresh. A value the save does not change keeps the source it holds.
+The migration sets the same provenance on the subjects it writes, from the profile's own register
+source. A company's IČO that another company's profile already holds is refused rather than moved.
+
+Each company has at most one linked subject (a unique index on `linked_company_id`). Changing a
+company's IČO unlinks it from the old subject, which stays in the Adresár as an ordinary subject.
+
+## Amendment, 2026-11-16 — office clients without a folder
+
+A sheet client with an IČO that no company in Hugo holds (so no Doklady folder) is an **office
+client**: an Adresár subject with the flag `office_client`, its accountant (*Vedie*) and its
+cooperation (*Spolupráca*) from the sheet. It is not linked to a company, has no months, and is
+queued for the register check like a linked client. A linked company is a client regardless of the
+flag. A later profile save with its IČO links the same subject and keeps the office data. A sheet
+row without an IČO is still only reported.

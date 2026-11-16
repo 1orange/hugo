@@ -5,30 +5,41 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { countWithNoun } from "@/modules/format-sk";
-import { listSubjectDirectory, DIRECTORY_PAGE_SIZE, type DirectoryListRow } from "@/lib/subject-directory/screen";
+import { listSubjectDirectory, DIRECTORY_PAGE_SIZE } from "@/lib/subject-directory/screen";
+import { scheduleStaleOfficeClientChecks } from "@/lib/subject-directory/schedule";
+import { DirectoryTable } from "./directory-table";
 
 type AdresarPageProps = {
-  searchParams: Promise<{ q?: string }>;
-};
-
-const TONE_CLASSES: Record<DirectoryListRow["verdictTone"], string> = {
-  good: "bg-good-soft text-good",
-  warn: "bg-warn-soft text-warn",
-  bad: "bg-bad-soft text-bad",
-  neutral: "bg-surface-2 text-ink-2",
+  searchParams: Promise<{ q?: string; klienti?: string }>;
 };
 
 const SUBJECT_FORMS = ["subjekt", "subjekty", "subjektov"] as const;
 
-function countText(total: number, shown: number, query: string): string {
+function countText(total: number, shown: number, query: string, clientsOnly: boolean): string {
   if (total === 0) {
-    return query ? "Nič sa nenašlo." : "Adresár je zatiaľ prázdny.";
+    if (query) {
+      return "Nič sa nenašlo.";
+    }
+    return clientsOnly ? "Zatiaľ nie je v adresári žiadny klient." : "Adresár je zatiaľ prázdny.";
   }
   const noun = countWithNoun(total, SUBJECT_FORMS);
   if (shown < total) {
     return `Zobrazených ${shown} z ${noun}. Upresnite hľadanie.`;
   }
   return `${noun}${query ? " zodpovedá hľadaniu" : ""}.`;
+}
+
+/** The list's address for a search and a scope; the scope's links keep the search. */
+function listHref(query: string, clientsOnly: boolean): string {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (clientsOnly) {
+    params.set("klienti", "1");
+  }
+  const search = params.toString();
+  return search ? `/adresar?${search}` : "/adresar";
 }
 
 /** The office's subject directory (ADR 0022): searched on the server, so the list is what the search finds. */
@@ -44,8 +55,11 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
     redirect("/auth/refused");
   }
 
-  const { q } = await searchParams;
-  const directory = await listSubjectDirectory(q ?? "", DIRECTORY_PAGE_SIZE);
+  const { q, klienti } = await searchParams;
+  const clientsOnly = klienti === "1";
+  // Office clients have no company page to refresh them from, so the list does (0006/04).
+  await scheduleStaleOfficeClientChecks();
+  const directory = await listSubjectDirectory(q ?? "", DIRECTORY_PAGE_SIZE, { clientsOnly });
   const settings = await getSettings();
 
   return (
@@ -65,7 +79,27 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
           </p>
         </header>
 
+        <div role="group" aria-label="Zobrazenie subjektov" className="segmented" data-testid="directory-scope">
+          <Link
+            href={listHref(directory.query, false)}
+            aria-pressed={!clientsOnly}
+            data-testid="directory-scope-all"
+            className="segment"
+          >
+            Všetky
+          </Link>
+          <Link
+            href={listHref(directory.query, true)}
+            aria-pressed={clientsOnly}
+            data-testid="directory-scope-clients"
+            className="segment"
+          >
+            Klienti
+          </Link>
+        </div>
+
         <form method="get" role="search" className="flex flex-wrap items-center gap-2">
+          {clientsOnly ? <input type="hidden" name="klienti" value="1" /> : null}
           <input
             type="search"
             name="q"
@@ -82,62 +116,18 @@ export default async function AdresarPage({ searchParams }: AdresarPageProps) {
           >
             Hľadať
           </button>
-          {directory.query ? (
-            <Link href="/adresar" className="text-[12.5px] text-ink-3 hover:text-accent">
+          {directory.query || clientsOnly ? (
+            <Link href={listHref("", clientsOnly)} className="text-[12.5px] text-ink-3 hover:text-accent">
               Zrušiť hľadanie
             </Link>
           ) : null}
         </form>
 
         <p className="text-[12px] text-ink-3" data-testid="directory-count">
-          {countText(directory.total, directory.rows.length, directory.query)}
+          {countText(directory.total, directory.rows.length, directory.query, clientsOnly)}
         </p>
 
-        {directory.rows.length > 0 ? (
-          <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="w-full min-w-[820px] border-collapse text-left text-[13px]">
-              <thead className="bg-surface-2 text-[11.5px] uppercase tracking-[0.08em] text-ink-3">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Názov</th>
-                  <th className="px-3 py-2 font-semibold">Krajina</th>
-                  <th className="px-3 py-2 font-semibold">IČO</th>
-                  <th className="px-3 py-2 font-semibold">DIČ</th>
-                  <th className="px-3 py-2 font-semibold">IČ DPH</th>
-                  <th className="px-3 py-2 font-semibold">Stav</th>
-                  <th className="px-3 py-2 font-semibold">Naposledy videný</th>
-                </tr>
-              </thead>
-              <tbody>
-                {directory.rows.map((row) => (
-                  <tr key={row.id} data-testid={`directory-row-${row.id}`} className="border-t border-line hover:bg-surface-2">
-                    <td className="px-3 py-2">
-                      <Link
-                        href={`/adresar/${row.id}`}
-                        data-testid={`directory-link-${row.id}`}
-                        className="font-medium text-ink hover:text-accent"
-                      >
-                        {row.name}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.country}</td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.ico ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.dic ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono text-[12px] text-ink-2">{row.icDph ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        data-testid={`directory-verdict-${row.id}`}
-                        className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-[3px] text-[11.5px] font-medium ${TONE_CLASSES[row.verdictTone]}`}
-                      >
-                        {row.verdictLabel}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-[12px] text-ink-3">{row.lastSeenLabel}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+        {directory.rows.length > 0 ? <DirectoryTable rows={directory.rows} /> : null}
 
       </main>
     </div>

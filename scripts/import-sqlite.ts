@@ -1,6 +1,7 @@
 import path from "node:path";
 import Database from "better-sqlite3";
 import { getTableColumns, getTableName, sql, type Table } from "drizzle-orm";
+import { saveCompanyProfile } from "../src/adapters/store/company-profiles.ts";
 import { closeDb, getDb, runMigrations } from "../src/lib/db/client.ts";
 import * as schema from "../src/lib/db/schema.ts";
 
@@ -16,7 +17,6 @@ import * as schema from "../src/lib/db/schema.ts";
  */
 const TABLES_PARENTS_FIRST: Table[] = [
   schema.companies,
-  schema.companyProfiles,
   schema.settings,
   schema.months,
   schema.monthFolders,
@@ -76,6 +76,25 @@ async function main(): Promise<void> {
       await db.insert(table).values(rows.slice(start, start + BATCH) as never);
     }
     console.log(`${name}: ${rows.length}`);
+  }
+
+  // A profile is its client's Adresár subject now (ADR 0022, amended 2026-11-16): saved through the
+  // app's own rule, not copied into a table that no longer exists.
+  if (sqliteTables.has("company_profiles")) {
+    const profiles = sqlite.prepare("SELECT * FROM company_profiles").all() as Array<Record<string, string | number>>;
+    for (const row of profiles) {
+      await saveCompanyProfile(Number(row.company_id), {
+        country: String(row.country) === "CZ" ? "CZ" : "SK",
+        legalName: String(row.legal_name),
+        address: String(row.address),
+        ico: String(row.ico),
+        dic: String(row.dic),
+        icDph: String(row.ic_dph),
+        registerSource: String(row.register_source),
+        savedAt: String(row.saved_at),
+      });
+    }
+    console.log(`company_profiles: ${profiles.length} saved as client subjects`);
   }
 
   for (const name of IDENTITY_TABLES) {

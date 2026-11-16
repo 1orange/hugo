@@ -18,6 +18,16 @@ function parseCountry(raw: string): CompanyCountry {
   return raw === "CZ" ? "CZ" : "SK";
 }
 
+/** The fields she typed, as the form sends them: a JSON list of field names. */
+function parseTypedFields(raw: FormDataEntryValue | null): string[] {
+  try {
+    const parsed: unknown = JSON.parse(String(raw ?? "[]"));
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 async function assertAllowed(): Promise<{ ok: false; message: string } | null> {
   const session = await auth();
   const allowlist = loadAllowlistFromEnv();
@@ -70,6 +80,7 @@ export async function saveCompanyProfileAction(
     dic: string;
     icDph: string;
     registerSource: string;
+    typedFields?: string[];
   },
 ): Promise<ActionResult<{ savedAt: string }>> {
   const denied = await assertAllowed();
@@ -109,6 +120,7 @@ export async function saveCompanyProfileFormAction(
       dic: String(formData.get("dic") ?? ""),
       icDph: String(formData.get("icDph") ?? ""),
       registerSource: String(formData.get("registerSource") ?? ""),
+      typedFields: parseTypedFields(formData.get("typedFields")),
     },
     new Date().toISOString(),
   );

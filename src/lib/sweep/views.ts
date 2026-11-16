@@ -4,6 +4,7 @@ import { getActiveMutationForFolder } from "@/adapters/store/drive-mutations";
 import { listFilesForMonth } from "@/adapters/store/files";
 import { listMonthFolders } from "@/adapters/store/month-folders";
 import { countStructureDeviationsByCompany } from "@/adapters/store/structure-deviations";
+import { listClientRegisterStatuses } from "@/adapters/store/subjects";
 import {
   countAwaitingDecision,
   companyHasDocuments,
@@ -62,6 +63,12 @@ export type CompanyListItem = {
   lastUploadAt: string | null;
   chaseState: ChaseState;
   profileMissing: boolean;
+  /**
+   * The register's word on the client's company, where it is not in order (0006/03): a
+   * dissolved or suspended registration. Null for an active one, an unchecked one, or a
+   * company with no profile.
+   */
+  registerStanding: "dissolved" | "suspended" | null;
   /** Open deviations from the company's Drive structure, from the last sweep. */
   structureDeviations: number;
 };
@@ -127,6 +134,11 @@ async function monthPresence(companyId: number, monthKey: string): Promise<{
   return { proofsArrived, statementArrivedAt, lastUploadAt };
 }
 
+/** The mark *Firmy* shows: only a registration that is not in order. */
+function standingOf(status: string | undefined): "dissolved" | "suspended" | null {
+  return status === "dissolved" || status === "suspended" ? status : null;
+}
+
 /**
  * One row per company. With no `monthKey` each row reports that company's own
  * open month, which is the daily chase view; pass one and every row reports the
@@ -142,6 +154,7 @@ export async function listCompanySummaries(
 
   const companiesList = await listCompanies();
   const missingProfiles = await listCompanyIdsWithoutProfile(companiesList.map((c) => c.id));
+  const registerStatuses = await listClientRegisterStatuses(companiesList.map((c) => c.id));
   const deviationCounts = await countStructureDeviationsByCompany();
 
   const rows = await Promise.all(companiesList.map(async (company) => {
@@ -186,6 +199,7 @@ export async function listCompanySummaries(
         archived: company.archived,
       }),
       profileMissing: missingProfiles.has(company.id),
+      registerStanding: standingOf(registerStatuses.get(company.id)),
       structureDeviations: deviationCounts.get(company.id) ?? 0,
     };
   }));

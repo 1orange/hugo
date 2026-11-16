@@ -30,7 +30,10 @@ test("a finding on the subject is a mismatch, whoever made it", () => {
     findings: [{ field: "legalName" as const, kind: "register-disagrees" as const, value: "Alfa s.r.o.", at: "x" }],
   };
   assert.equal(subjectVerdictOf(disagreed), "mismatch");
-  assert.equal(subjectVerdictOf({ ...CLEAN, findings: [{ field: "dic" as const, kind: "profile-disagrees" as const, value: "x", at: "x" }] }), "mismatch");
+  assert.equal(
+    subjectVerdictOf({ ...CLEAN, findings: [{ field: "dic" as const, kind: "register-disagrees" as const, value: "x", at: "x" }] }),
+    "mismatch",
+  );
 });
 
 test("a dissolved subject is a mismatch, and a lapsed VIES number too", () => {
@@ -57,7 +60,6 @@ test("every value source has its Slovak label, and a value with no source says s
   assert.equal(sourceLabel("register"), "z registra");
   assert.equal(sourceLabel("vies"), "z VIES");
   assert.equal(sourceLabel("manual"), "ručne");
-  assert.equal(sourceLabel("profile"), "z profilu");
   assert.equal(sourceLabel(undefined), "—");
 });
 
@@ -69,14 +71,10 @@ test("the correctable fields are named in Slovak", () => {
   assert.equal(correctableFieldLabel("vatGroupId"), "IČ DPH skupiny");
 });
 
-test("a register disagreement and a profile disagreement read as Slovak sentences naming the value", () => {
+test("a register disagreement reads as a Slovak sentence naming the register's value", () => {
   assert.equal(
     directoryFindingMessage({ field: "legalName", kind: "register-disagrees", value: "Alfa s.r.o.", at: "x" }),
     "Názov: register dnes uvádza „Alfa s.r.o.“, ručná oprava sa líši.",
-  );
-  assert.equal(
-    directoryFindingMessage({ field: "dic", kind: "profile-disagrees", value: "2020311335", at: "x" }),
-    "DIČ: v adresári je „2020311335“, ale profil klienta platí.",
   );
 });
 

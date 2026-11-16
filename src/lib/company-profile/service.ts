@@ -5,21 +5,23 @@ import type { VatRegister } from "@/adapters/vat-register/port";
 import { getCompanyById } from "@/adapters/store/companies";
 import {
   getCompanyProfile,
+  ProfileIcoTakenError,
   saveCompanyProfile,
   type CompanyProfileRow,
 } from "@/adapters/store/company-profiles";
 import { appendUserEvent } from "@/adapters/store/events";
+import { scheduleClientSubjectCheck } from "@/lib/subject-directory/schedule";
 import type {
   CompanyCountry,
   RegisterLookup,
   RegisterSearchHit,
 } from "@/modules/company-profile";
 import {
+  isProfileField,
   normalizeSkIcDph,
   validateSkIcDph,
 } from "@/modules/company-profile";
 import { companyDisplayName } from "@/modules/company-display-name";
-import { linkClientCompany } from "@/lib/subject-directory/service";
 import { coreCompanyName, normalizeCompanyName, rankRegisterHits } from "@/modules/register-search";
 
 export type ProfileSaveInput = {
@@ -30,6 +32,8 @@ export type ProfileSaveInput = {
   dic: string;
   icDph: string;
   registerSource: string;
+  /** The identity fields she typed by hand, as opposed to those a lookup filled. */
+  typedFields?: readonly string[];
 };
 
 function register(deps?: { register?: CompanyRegister }): CompanyRegister {
@@ -247,28 +251,30 @@ export async function saveCompanyProfileForUser(
     icDph = normalizeSkIcDph(input.icDph);
   }
 
-  const profile = await saveCompanyProfile(companyId, {
-    country,
-    legalName,
-    address,
-    ico,
-    dic,
-    icDph,
-    registerSource: input.registerSource.trim() || "manual",
-    savedAt: timestamp,
-  });
-
-  // Her company is a subject too, linked through its IČO (ADR 0022); the profile wins where they differ.
-  await linkClientCompany({
-    companyId,
-    country: profile.country,
-    ico: profile.ico,
-    legalName: profile.legalName,
-    address: profile.address,
-    dic: profile.dic,
-    icDph: profile.icDph,
-    now: timestamp,
-  });
+  const typed = (input.typedFields ?? []).filter(isProfileField);
+  let profile: CompanyProfileRow;
+  try {
+    // The profile is the client's subject in the Adresár (ADR 0022, amended 2026-11-16): one record.
+    profile = await saveCompanyProfile(
+      companyId,
+      {
+        country,
+        legalName,
+        address,
+        ico,
+        dic,
+        icDph,
+        registerSource: input.registerSource.trim() || "manual",
+        savedAt: timestamp,
+      },
+      typed,
+    );
+  } catch (error) {
+    if (error instanceof ProfileIcoTakenError) {
+      return { ok: false, message: "Toto IČO už má v Hugu profil inej firmy." };
+    }
+    throw error;
+  }
 
   await appendUserEvent(timestamp, companyId, "CompanyProfileSaved", {
     country: profile.country,
@@ -276,6 +282,8 @@ export async function saveCompanyProfileForUser(
     ico: profile.ico,
     registerSource: profile.registerSource,
   });
+  // What the subject holds has just changed: the register and VIES are asked about it (0006/03).
+  await scheduleClientSubjectCheck(companyId);
 
   return { ok: true, profile };
 }

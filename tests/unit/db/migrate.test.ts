@@ -51,7 +51,6 @@ test("migrations create the app tables", async () => {
 
   for (const table of [
     "companies",
-    "company_profiles",
     "documents",
     "drive_mutations",
     "events",

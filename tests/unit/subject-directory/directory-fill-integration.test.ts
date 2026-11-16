@@ -291,7 +291,8 @@ test("typed values survive re-extraction and a refresh of the directory; untouch
   register = new FakeCompanyRegister({ lookups: [{ ...ALFA_REGISTER, dic: "2020322999" }] });
   now = later(31);
   await verifyCounterparty(ALFA_FULL, deps(register, vat), doc("refresh"));
-  assert.equal((await getDb().select().from(subjects))[0]!.dic, "2020322999");
+  // Alfa's subject (the client's own profile is a subject too, and comes first).
+  assert.equal((await getDb().select().from(subjects)).find((row) => row.ico === "31322832")?.dic, "2020322999");
   assert.equal((await itemOf("fill-d")).fieldEditor.fields.dic, "2020111111");
 });
 

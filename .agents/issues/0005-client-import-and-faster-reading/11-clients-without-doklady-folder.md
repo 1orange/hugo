@@ -1,7 +1,7 @@
 # 11 — Clients without a Doklady folder
 
 Type: HITL — needs the office's answer before it is built
-Status: open
+Status: answered — (a), built as 0006/04
 
 ## What to build
 
@@ -34,3 +34,7 @@ answered, build:
 ## Blocked by
 
 - 09 — Fill company profiles from the office's client sheet
+
+## Answer, 2026-11-16
+
+The office's answer is (a), widened: the Adresár is the table of every client and partner the office has seen. Clients without a Doklady folder go into it as office-client subjects, without months. Built as 0006/04.

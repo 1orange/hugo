@@ -1,4 +1,4 @@
-import { CLIENT_SHEET_COLUMNS, type ColumnKey } from "../../../src/modules/client-sheet.ts";
+import { CLIENT_SHEET_COLUMNS, type ColumnKey, type MatchSubject } from "../../../src/modules/client-sheet.ts";
 
 /**
  * A made-up client sheet: invented companies, IČOs with valid check digits, invented
@@ -71,13 +71,32 @@ export const FIXTURE_PROFILES = [
 ];
 
 /**
+ * The subjects of the fixture profiles, as the plan reads them: each is its company's linked subject,
+ * with no office data yet (a sheet import writes that).
+ */
+export const FIXTURE_SUBJECTS: MatchSubject[] = FIXTURE_PROFILES.map((profile) => ({
+  id: profile.companyId + 100,
+  country: profile.country,
+  ico: profile.ico,
+  linkedCompanyId: profile.companyId,
+  legalName: profile.legalName,
+  address: profile.address,
+  dic: profile.dic,
+  icDph: profile.icDph,
+  officeClient: false,
+  officeKeeper: "",
+  officeCooperation: "",
+}));
+
+/**
  * Rows, in this order:
- * 1 Alfa, by folder: changed (address hand-saved, IČ DPH empty).
+ * 1 Alfa, by folder: changed (address hand-saved, IČ DPH empty; Vedie and Spolupráca are new).
  * 2 Beta, by name only: new, a guess, with a Vedie that disagrees with Drive.
  * 3 Gama, by folder: only fills, archived with Spolupráca ukončená (no disagreement).
  * 4 Epsilon: a 7-digit IČO, malformed, and zaniknutý while aktívna.
- * 5 Zeta, by IČO: unchanged.
- * 6 Neznáma: matches nothing.
+ * 5 Zeta, by IČO: its values agree; only its office data is new.
+ * 6 Neznáma: matches nothing and has no IČO: only reported.
+ * 7 Delta: matches nothing, has an IČO: an office client in the Adresár (no Doklady folder).
  */
 export const FIXTURE_ROWS: Array<Partial<Record<ColumnKey, string>>> = [
   {
@@ -156,6 +175,20 @@ export const FIXTURE_ROWS: Array<Partial<Record<ColumnKey, string>>> = [
   {
     client: "Neznáma",
     folderId: "folder-nobody",
+    updatedAt: "2026-11-01",
+  },
+  {
+    client: "Delta",
+    officialName: "Delta, s.r.o.",
+    legalForm: "s.r.o.",
+    ico: "36000001",
+    dic: "2020000007",
+    vatRegistration: "§4",
+    vatPeriod: "mesačne",
+    seat: "Mierová 3, Žilina",
+    status: "aktívny",
+    keeper: "Katarína",
+    cooperation: "aktívna",
     updatedAt: "2026-11-01",
   },
 ];

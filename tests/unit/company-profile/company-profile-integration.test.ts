@@ -6,7 +6,7 @@ import type { CompanyRegister } from "../../../src/adapters/company-register/por
 import { FakeVatRegister } from "../../../src/adapters/vat-register/fake-vat-register.ts";
 import type { VatRegister } from "../../../src/adapters/vat-register/port.ts";
 import { getCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
-import { events, companies } from "../../../src/lib/db/schema.ts";
+import { events, companies, subjects } from "../../../src/lib/db/schema.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import {
   loadCompanyProfileView,
@@ -231,6 +231,66 @@ test("a VIES outage leaves IČ DPH to her, and the lookup still succeeds", async
   assert.ok(lookup.ok);
   assert.equal(lookup.icDph, null);
   assert.match(lookup.icDphNote ?? "", /VIES teraz neodpovedá/);
+});
+
+// The profile is its Adresár subject (ADR 0022, amended 2026-11-16): one record, with provenance per field.
+test("a saved profile is the subject, with the lookup's values from the register and her typing manual", async () => {
+  await freshTestDb();
+  await getDb().insert(companies).values({ id: 1, driveFolderId: "co-1", name: "Beta s.r.o.", active: true });
+  const base = {
+    country: "SK" as const,
+    legalName: "Beta, a. s.",
+    address: "Hlavná 1, Košice",
+    ico: "31333532",
+    dic: "2020311335",
+    icDph: "SK2020311335",
+    registerSource: "rpo+ruz+vies",
+  };
+
+  // The lookup filled every field: all of them are the register's, and VIES's for the IČ DPH.
+  assert.equal((await saveCompanyProfileForUser(1, base, "2026-11-16T09:00:00.000Z")).ok, true);
+  let [subject] = await getDb().select().from(subjects).where(eq(subjects.ico, "31333532"));
+  assert.equal(subject?.linkedCompanyId, 1);
+  assert.deepEqual(JSON.parse(subject!.sourcesJson), { legalName: "register", address: "register", dic: "register", icDph: "vies" });
+  assert.deepEqual(JSON.parse(subject!.manualFieldsJson), []);
+
+  // She types the address by hand: that value is hers, the rest keep the register's source.
+  const typed = await saveCompanyProfileForUser(
+    1,
+    { ...base, address: "Hlavná 2, Košice", registerSource: "", typedFields: ["address"] },
+    "2026-11-16T10:00:00.000Z",
+  );
+  assert.equal(typed.ok, true);
+  [subject] = await getDb().select().from(subjects).where(eq(subjects.ico, "31333532"));
+  assert.equal(subject?.address, "Hlavná 2, Košice");
+  assert.equal(subject?.sourcesJson.includes('"address":"manual"'), true);
+  assert.deepEqual(JSON.parse(subject!.manualFieldsJson), ["address"]);
+  assert.equal(subject?.profileSavedAt, "2026-11-16T10:00:00.000Z");
+
+  // Saving the form again with nothing changed leaves every source as it was.
+  assert.equal(
+    (await saveCompanyProfileForUser(1, { ...base, address: "Hlavná 2, Košice", registerSource: "" }, "2026-11-16T11:00:00.000Z")).ok,
+    true,
+  );
+  [subject] = await getDb().select().from(subjects).where(eq(subjects.ico, "31333532"));
+  assert.deepEqual(JSON.parse(subject!.sourcesJson), { legalName: "register", address: "manual", dic: "register", icDph: "vies" });
+  assert.deepEqual(JSON.parse(subject!.manualFieldsJson), ["address"]);
+  assert.equal((await getCompanyProfile(1))?.address, "Hlavná 2, Košice");
+});
+
+test("an IČO that another company's profile holds is refused, and nothing is written", async () => {
+  await freshTestDb();
+  await getDb().insert(companies).values([
+    { id: 1, driveFolderId: "co-1", name: "Beta s.r.o.", active: true },
+    { id: 2, driveFolderId: "co-2", name: "Gamma s.r.o.", active: true },
+  ]);
+  const base = { country: "SK" as const, legalName: "Beta s.r.o.", address: "", dic: "", icDph: "", ico: "31333532", registerSource: "manual" };
+  assert.equal((await saveCompanyProfileForUser(1, base, "2026-11-16T09:00:00.000Z")).ok, true);
+
+  const refused = await saveCompanyProfileForUser(2, { ...base, legalName: "Gamma s.r.o." }, "2026-11-16T09:01:00.000Z");
+  assert.deepEqual(refused, { ok: false, message: "Toto IČO už má v Hugu profil inej firmy." });
+  assert.equal(await getCompanyProfile(2), null);
+  assert.equal((await getCompanyProfile(1))?.legalName, "Beta s.r.o.");
 });
 
 test("a register that fails says so instead of throwing", async () => {
