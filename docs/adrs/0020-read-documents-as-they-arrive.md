@@ -47,3 +47,25 @@ The webhook ADR 0003 described was never built; nothing ran in the background.
 - **Changes API page tokens.** Still rejected (ADR 0003): the notification only triggers the full
   sweep, so no delta replay or token persistence beyond the channel itself.
 - **Keep page-load sweeps.** Leaves the month-start batch and the duplicate reads.
+
+## Amendment (2026-11-16): two lanes
+
+A document that needs no model was queued behind the model's reads: an eKasa receipt or an ISDOC
+invoice waited minutes for a document ahead of it, and the next document's OCR could not start
+while the model was busy. Reading is now two lanes, each a BullMQ queue with its own workers:
+
+- **Reading lane** (`extraction`, `READ_CONCURRENCY`, default 3). Downloads the file and does
+  everything but the model: text layer, ISDOC and MOL, QR, eKasa lookup, OCR. A document that needs
+  nothing more is finished here. A document that needs the model is handed to the model lane with
+  the text lines the model is to read: it is not downloaded or OCR'd again.
+- **Model lane** (`extraction-model`, global concurrency `EXTRACTOR_CONCURRENCY`, the model's
+  slots). Only the model call, the checks and the write. A model outage leaves the document waiting
+  here (moved aside, retried when the model is back) while the reading lane goes on; an OCR outage
+  leaves the document waiting in the reading lane, as before.
+
+Each lane keeps one job per Drive file, its id the file's, so a document queued twice is read once,
+and a file the model lane holds cannot be queued for reading again. A re-read keeps its prior result
+until the lane that finishes the document writes a new one; the replacement commit, the re-read
+commit and the party checks happen in whichever lane finishes it. A document is recorded on the
+queue screen once, when it is finished. The service monitor retries each lane's waiting documents
+when the service it waits for comes back.

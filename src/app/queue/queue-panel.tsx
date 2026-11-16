@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Cpu, LoaderCircle } from "lucide-react";
 import { useExtractionQueue } from "@/components/app/use-extraction-queue";
-import type { FinishedJobView, QueueJobView } from "@/lib/extraction-queue/types";
+import type { FinishedJobView, QueueJobView, QueueLane } from "@/lib/extraction-queue/types";
 import type { ServiceHealth, ServiceState } from "@/lib/extraction-queue/service-health";
 import type { ExtractionQueueView } from "@/lib/extraction-queue/view";
 import { companyDisplayName } from "@/modules/company-display-name";
@@ -116,6 +116,63 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 }
 
 /**
+ * One lane: what it is reading, or the model is writing, and what waits behind
+ * it. Each lane keeps its own order; a document moves from the first to the
+ * second once its reading is done.
+ */
+function LaneSection({
+  lane,
+  title,
+  idle,
+  running,
+  waiting,
+}: {
+  lane: QueueLane;
+  title: string;
+  idle: string;
+  running: QueueJobView[];
+  waiting: QueueJobView[];
+}) {
+  return (
+    <Section title={title} count={running.length + waiting.length}>
+      <div data-testid={`queue-lane-${lane}`}>
+        {running.length > 0 ? (
+          <ul>
+            {running.map((job) => (
+              <RunningJob key={`${job.lane}-${job.driveFileId}`} job={job} />
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-3.5 text-[14px] text-ink-3">{idle}</p>
+        )}
+        {waiting.length > 0 ? (
+          <>
+            <p className="border-t border-line px-4 pt-2.5 text-[12.5px] text-ink-3">V rade · {waiting.length}</p>
+            <ol>
+              {waiting.map((job, index) => (
+                <li
+                  key={`${job.lane}-${job.driveFileId}`}
+                  className="flex items-baseline gap-3 border-t border-line px-4 py-2.5 first:border-t-0"
+                  data-testid="queue-waiting-job"
+                >
+                  <span className="tabular w-6 shrink-0 text-right text-[13px] text-ink-3">{index + 1}.</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[14px]" title={job.fileName}>
+                      {job.fileName}
+                    </span>
+                    <JobWhere job={job} />
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : null}
+      </div>
+    </Section>
+  );
+}
+
+/**
  * The one extraction queue, live: which document is being read and how far,
  * what waits behind it, how the last ones ended, and whether the model and
  * OCR can read anything at all.
@@ -153,39 +210,21 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
         </p>
       ) : null}
 
-      <Section title="Práve sa číta" count={view.running.length}>
-        {view.running.length > 0 ? (
-          <ul>
-            {view.running.map((job) => (
-              <RunningJob key={job.driveFileId} job={job} />
-            ))}
-          </ul>
-        ) : (
-          <p className="px-4 py-3.5 text-[14px] text-ink-3">
-            Nič sa nečíta. Rad sa plní pri otvorení mesiaca, pri zmene v Drive a každých 15 minút.
-          </p>
-        )}
-      </Section>
+      <LaneSection
+        lane="read"
+        title="Čítanie dokladov"
+        idle="Nič sa nečíta. Rad sa plní pri otvorení mesiaca, pri zmene v Drive a každých 15 minút."
+        running={view.running.filter((job) => job.lane === "read")}
+        waiting={view.waiting.filter((job) => job.lane === "read")}
+      />
 
-      <Section title="V rade" count={view.waiting.length}>
-        {view.waiting.length > 0 ? (
-          <ol>
-            {view.waiting.map((job, index) => (
-              <li key={job.driveFileId} className="flex items-baseline gap-3 border-t border-line px-4 py-2.5 first:border-t-0" data-testid="queue-waiting-job">
-                <span className="tabular w-6 shrink-0 text-right text-[13px] text-ink-3">{index + 1}.</span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-[14px]" title={job.fileName}>
-                    {job.fileName}
-                  </span>
-                  <JobWhere job={job} />
-                </span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="px-4 py-3.5 text-[14px] text-ink-3">Rad je prázdny.</p>
-        )}
-      </Section>
+      <LaneSection
+        lane="model"
+        title="Model"
+        idle="Model nič nepíše. Doklady sa sem dostanú hneď, ako ich čítanie pripraví."
+        running={view.running.filter((job) => job.lane === "model")}
+        waiting={view.waiting.filter((job) => job.lane === "model")}
+      />
 
       {view.delayed.length > 0 ? (
         <Section title="Čaká na službu" count={view.delayed.length}>
@@ -196,6 +235,7 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
                   {job.fileName}
                 </span>
                 <JobWhere job={job} />
+                <p className="mt-0.5 text-[12.5px] text-ink-3">{job.stageLabel}</p>
                 {job.waitingReason ? <p className="mt-0.5 text-[12.5px] text-warn">{job.waitingReason}</p> : null}
               </li>
             ))}
@@ -243,7 +283,8 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
       </Section>
 
       <p className="px-1 text-[12.5px] text-ink-3">
-        Bežiace workery: {view.workers} · naraz najviac {countWithNoun(view.concurrency, DOKLAD_FORMS)} spolu
+        Bežiace workery: {view.workers} · čítanie naraz najviac {countWithNoun(view.concurrency.read, DOKLAD_FORMS)}
+        (READ_CONCURRENCY), model naraz najviac {countWithNoun(view.concurrency.model, DOKLAD_FORMS)}
         (EXTRACTOR_CONCURRENCY).
         Percentá sú odhad: model hlási prečítaný text a napísané tokeny, zvyšok sa odhaduje podľa času. Rad je v
         Redise, spoločný pre všetky repliky; stav sa posiela sám, keď sa zmení.

@@ -37,7 +37,8 @@ import { needsExtraction } from "@/modules/extraction-pipeline";
 import { shouldExtractWithModel } from "@/lib/model-extraction/should-extract-with-model";
 import {
   extractFromEmbeddedInvoiceXml,
-  processModelExtractionFromLines,
+  sendToModel,
+  type ModelDeps,
 } from "@/lib/model-extraction/process-model-extraction";
 import {
   extractModelTextLines,
@@ -176,10 +177,7 @@ export async function processCashReceiptFile(
     mimeType: string;
     fileBytes: Uint8Array;
   },
-  deps: Pick<
-    CashDiscoveryDeps,
-    "pdfAccess" | "qrReader" | "ekasaLookup" | "ocr" | "extractor" | "now"
-  >,
+  deps: Pick<CashDiscoveryDeps, "pdfAccess" | "qrReader" | "ekasaLookup" | "ocr"> & ModelDeps,
 ): Promise<void> {
   const now = deps.now?.() ?? new Date().toISOString();
   const editable = await assertMonthEditable(input.companyId, input.monthKey);
@@ -298,7 +296,7 @@ export async function processCashReceiptFile(
         hadTextLayer && e2eLines === null
           ? await wholeDocumentLines(input.fileBytes, deps.pdfAccess, lines)
           : (ocrReadingLines ?? lines);
-      await processModelExtractionFromLines(
+      await sendToModel(
         {
           companyId: input.companyId,
           monthKey: input.monthKey,
@@ -307,7 +305,7 @@ export async function processCashReceiptFile(
           lines: modelLines,
           source: modelSource,
         },
-        { extractor: deps.extractor, now: deps.now },
+        deps,
       );
       return;
     }

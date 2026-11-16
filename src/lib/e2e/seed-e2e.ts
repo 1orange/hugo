@@ -31,7 +31,7 @@ import {
 } from "@/adapters/store/documents";
 import { emptyExtractedPayload } from "@/modules/document-payload";
 import { insertSubject } from "@/adapters/store/subjects";
-import { extractionQueue, subjectQueue } from "@/adapters/job-queue/bullmq-queues";
+import { extractionModelQueue, extractionQueue, subjectQueue } from "@/adapters/job-queue/bullmq-queues";
 import { redis, redisKey, redisUrl } from "@/lib/redis/connection";
 
 /** What an earlier spec left queued, and how its reads ended, goes too. */
@@ -40,6 +40,7 @@ async function clearE2eQueues(): Promise<void> {
     return;
   }
   await extractionQueue().obliterate({ force: true });
+  await extractionModelQueue().obliterate({ force: true });
   await subjectQueue().obliterate({ force: true });
   await redis().del(redisKey("extraction", "recent"));
 }

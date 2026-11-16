@@ -21,6 +21,39 @@ import { shouldExtractWithModel } from "./should-extract-with-model";
 
 export type ModelExtractionSource = ModelTextSource;
 
+/** What the model reads of one document, and where it goes once it is read. */
+export type ModelTextInput = {
+  companyId: number;
+  monthKey: string;
+  driveFileId: string;
+  folderSlot: string;
+  lines: string[];
+  source?: ModelExtractionSource;
+};
+
+export type ModelDeps = {
+  extractor: Extractor;
+  now?: () => string;
+  /**
+   * The worker's reading lane passes this: the lines go to the model lane, and
+   * the model reads them there. Without it the model reads them here, at once.
+   */
+  handOffToModel?: (input: ModelTextInput) => Promise<void>;
+};
+
+/**
+ * Sends a document's lines to the model: to the model lane, or read here. Resolves
+ * what the model read here (see processModelExtractionFromLines); handed over,
+ * the model lane writes the result, so this resolves true.
+ */
+export async function sendToModel(input: ModelTextInput, deps: ModelDeps): Promise<boolean> {
+  if (deps.handOffToModel) {
+    await deps.handOffToModel(input);
+    return true;
+  }
+  return processModelExtractionFromLines(input, { extractor: deps.extractor, now: deps.now });
+}
+
 export function isExtractorUnreachableError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return true;
@@ -56,11 +89,9 @@ export async function processModelExtractionFile(
     fileBytes: Uint8Array;
     reread?: boolean;
   },
-  deps: {
+  deps: ModelDeps & {
     pdfAccess: PdfAccess;
     ocr: Ocr;
-    extractor: Extractor;
-    now?: () => string;
   },
 ): Promise<boolean> {
   const now = deps.now?.() ?? new Date().toISOString();
@@ -112,7 +143,7 @@ export async function processModelExtractionFile(
     return true;
   }
 
-  return runModelExtractionOnLines(
+  return sendToModel(
     {
       companyId: input.companyId,
       monthKey: input.monthKey,
@@ -121,8 +152,7 @@ export async function processModelExtractionFile(
       lines,
       source: extractionSource,
     },
-    { extractor: deps.extractor, now: deps.now },
-    now,
+    deps,
   );
 }
 

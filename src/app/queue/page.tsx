@@ -55,7 +55,7 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
         <header className="mt-2.5">
           <h1 className="title-large">Spracovanie dokladov</h1>
           <p className="mt-1.5 text-[15px] text-ink-3">
-            Jeden rad pre všetky firmy: čo sa práve číta, čo čaká a ako dopadli posledné doklady.
+            Dva rady pre všetky firmy: čítanie dokladov a model. Čo sa práve číta, čo čaká a ako dopadli posledné doklady.
           </p>
         </header>
 

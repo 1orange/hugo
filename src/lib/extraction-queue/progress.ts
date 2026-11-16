@@ -1,4 +1,4 @@
-import type { ExtractorProgress } from "@/adapters/extractor/port";
+import type { Extractor, ExtractorProgress } from "@/adapters/extractor/port";
 import type { CashDiscoveryDeps } from "@/lib/cash-discovery/discover-cash-payments";
 import {
   estimateProgressPercent,
@@ -103,6 +103,28 @@ export class ProgressReporter {
 }
 
 /**
+ * The model's adapter for one job: the stage is the model, its streamed
+ * progress is reported, and its errors are kept as the reason a document waits.
+ */
+export function instrumentExtractor(extractor: Extractor, reporter: ProgressReporter): Extractor {
+  return {
+    extract(input) {
+      reporter.stage("model");
+      return extractor.extract({
+        ...input,
+        onProgress: (progress) => {
+          reporter.model(progress);
+          input.onProgress?.(progress);
+        },
+      }).catch((error: unknown) => {
+        reporter.failed(error);
+        throw error;
+      });
+    },
+  };
+}
+
+/**
  * The pipeline's adapters for one job, each reporting its stage as it is
  * called: the pipeline itself knows nothing of the queue. The model's
  * streamed progress and the model's or OCR's errors are passed on too.
@@ -152,19 +174,6 @@ export function instrumentDeps(deps: CashDiscoveryDeps, reporter: ProgressReport
         return noting(ocr.recognize(input));
       },
     },
-    extractor: {
-      extract(input) {
-        reporter.stage("model");
-        return noting(
-          extractor.extract({
-            ...input,
-            onProgress: (progress) => {
-              reporter.model(progress);
-              input.onProgress?.(progress);
-            },
-          }),
-        );
-      },
-    },
+    extractor: instrumentExtractor(extractor, reporter),
   };
 }

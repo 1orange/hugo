@@ -178,7 +178,21 @@ export function servicesFingerprint(services: ExtractionServices): string {
   return `${services.model.state}|${services.ocr.state}`;
 }
 
-export function servicesReady(services: ExtractionServices): boolean {
+/** Which services can read now. Each lane waits on its own: the model lane on the model, the reading lane on OCR. */
+export type ServiceReadiness = { model: boolean; ocr: boolean };
+
+export function serviceReadiness(services: ExtractionServices): ServiceReadiness {
   const ready = (state: ServiceState) => state === "ok" || state === "stub";
-  return ready(services.model.state) && ready(services.ocr.state);
+  return { model: ready(services.model.state), ocr: ready(services.ocr.state) };
+}
+
+/**
+ * The services that came back since the last check: a document waiting for one
+ * is tried at once. Nothing on the first check — no earlier state to come back from.
+ */
+export function servicesBackOnline(before: ServiceReadiness | null, now: ServiceReadiness): ServiceReadiness {
+  return {
+    model: before !== null && !before.model && now.model,
+    ocr: before !== null && !before.ocr && now.ocr,
+  };
 }
