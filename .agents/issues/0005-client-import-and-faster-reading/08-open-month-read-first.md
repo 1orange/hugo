@@ -1,7 +1,7 @@
 # 08 — The month she opens is read first
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 

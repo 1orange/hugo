@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
+import { raiseMonthForReading } from "@/lib/extraction-queue/raise-month";
 import { scheduleSubjectChecksForMonth } from "@/lib/subject-directory/schedule";
 import { buildMonthView } from "@/lib/sweep/views";
 import { buildMonthDocumentView } from "@/lib/documents/view";
@@ -56,10 +57,13 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
 
   // Queued after the page is sent: the month's unread documents, and the party
   // checks of documents first looked at now (ADR 0022), closed months too.
+  // The month is raised after its unread documents are queued, so the ones found
+  // just now move ahead with the rest. Raising never fails the page.
   after(async () => {
     if (!view.readOnly) {
       await scheduleDocumentExtractionForMonth(companyIdNum, monthKey);
     }
+    await raiseMonthForReading(companyIdNum, monthKey);
     await scheduleSubjectChecksForMonth(companyIdNum, monthKey);
   });
 

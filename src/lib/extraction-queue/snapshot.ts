@@ -56,9 +56,13 @@ function jobView(job: Job<LaneData>, lane: QueueLane, state: QueueJobView["state
   };
 }
 
-/** In the order BullMQ takes them: priority, then age. */
+/**
+ * In the order BullMQ takes them: priority, then age. `job.priority` is the
+ * priority BullMQ holds now: a raised month's jobs were moved, and `job.opts`
+ * still has the priority they were queued with.
+ */
 function byTurn(left: Job, right: Job): number {
-  return (left.opts.priority ?? 0) - (right.opts.priority ?? 0) || left.timestamp - right.timestamp;
+  return (left.priority ?? 0) - (right.priority ?? 0) || left.timestamp - right.timestamp;
 }
 
 const present = <D extends LaneData>(job: Job<D> | undefined): job is Job<D> => Boolean(job?.data);
@@ -79,10 +83,11 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
     modelConcurrency,
   ] = await Promise.all([
     reading.getJobs(["active"], 0, LISTED - 1),
-    reading.getJobs(["prioritized", "waiting"], 0, LISTED - 1),
+    // Oldest in take order first: the first rows are the next to be read.
+    reading.getJobs(["prioritized", "waiting"], 0, LISTED - 1, true),
     reading.getJobs(["delayed"], 0, LISTED - 1),
     modelling.getJobs(["active"], 0, LISTED - 1),
-    modelling.getJobs(["prioritized", "waiting"], 0, LISTED - 1),
+    modelling.getJobs(["prioritized", "waiting"], 0, LISTED - 1, true),
     modelling.getJobs(["delayed"], 0, LISTED - 1),
     redis().lrange(recentKey(), 0, RECENT_KEEP - 1),
     reading.getGlobalConcurrency(),

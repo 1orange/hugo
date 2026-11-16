@@ -49,9 +49,24 @@ export type ModelJobData = {
   priorPayloadJson?: string | null;
 };
 
-/** Receipts go first: most are one eKasa lookup (ADR 0020). */
-export const RECEIPT_PRIORITY = 1;
-export const DOCUMENT_PRIORITY = 2;
+/**
+ * BullMQ takes the lowest number first, and 1 is the lowest it allows, so the
+ * raised band (a month the accountant has opened) sits in 1 and 2 and the normal
+ * band above it. Receipts go first within each band: most are one eKasa lookup
+ * (ADR 0020).
+ */
+export const RAISED_RECEIPT_PRIORITY = 1;
+export const RAISED_DOCUMENT_PRIORITY = 2;
+export const RECEIPT_PRIORITY = 3;
+export const DOCUMENT_PRIORITY = 4;
+
+/** The priority a file of this kind waits with: raised when its month was opened. */
+export function priorityFor(kind: ExtractionJobData["kind"], raised: boolean): number {
+  if (raised) {
+    return kind === "receipt" ? RAISED_RECEIPT_PRIORITY : RAISED_DOCUMENT_PRIORITY;
+  }
+  return kind === "receipt" ? RECEIPT_PRIORITY : DOCUMENT_PRIORITY;
+}
 
 export interface ExtractionJobQueue {
   /**
@@ -65,6 +80,14 @@ export interface ExtractionJobQueue {
    * it: one job per file in each lane, so a file read twice is still read once.
    */
   handOff(data: ModelJobData): Promise<boolean>;
+
+  /**
+   * Opening a month: its documents waiting in either lane move ahead of the rest
+   * of the queue, receipts still first. A one-time bump for what waits now, and
+   * a document of the month handed over later keeps it. Idempotent. Returns how
+   * many jobs moved.
+   */
+  raiseMonth(companyId: number, monthKey: string): Promise<number>;
 }
 
 /** One document whose parties are to be checked against the registers (ADR 0022). */

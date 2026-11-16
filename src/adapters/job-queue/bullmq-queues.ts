@@ -1,8 +1,7 @@
 import { Queue } from "bullmq";
-import { openRedisConnection, redisKeyPrefix } from "@/lib/redis/connection";
+import { openRedisConnection, redis, redisKey, redisKeyPrefix } from "@/lib/redis/connection";
 import {
-  DOCUMENT_PRIORITY,
-  RECEIPT_PRIORITY,
+  priorityFor,
   type ExtractionJobData,
   type ExtractionJobQueue,
   type ModelJobData,
@@ -25,6 +24,17 @@ export type SweepJobName = "poll" | "notified";
 /** BullMQ ids cannot contain ":"; Drive ids are letters, digits, "-" and "_". */
 export function extractionJobId(driveFileId: string): string {
   return `doc-${driveFileId}`;
+}
+
+/**
+ * How long a month stays raised for documents handed over later. Long enough
+ * for the reading and the model backlog of a working session, and no longer:
+ * after it, a document is queued at the normal priority again.
+ */
+const RAISED_MONTH_SECONDS = 12 * 60 * 60;
+
+function raisedMonthKey(companyId: number, monthKey: string): string {
+  return redisKey("extraction", "raised", String(companyId), monthKey);
 }
 
 type Queues = {
@@ -119,14 +129,55 @@ export class BullmqExtractionJobQueue implements ExtractionJobQueue {
     if (await extractionModelQueue().getJob(jobId)) {
       return false;
     }
+    // Read here, not from the job data: the month may have been opened while
+    // the document was still being read, and the reading job cannot be changed.
+    const raised = (await redis().exists(raisedMonthKey(data.companyId, data.monthKey))) === 1;
     await extractionModelQueue().add("model", data, {
       jobId,
-      priority: data.kind === "receipt" ? RECEIPT_PRIORITY : DOCUMENT_PRIORITY,
+      priority: priorityFor(data.kind, raised),
       removeOnComplete: true,
       removeOnFail: true,
     });
     return true;
   }
+
+  async raiseMonth(companyId: number, monthKey: string): Promise<number> {
+    // The mark goes first, so a document handed over while the raise runs is
+    // raised too. Opening the month again only rewrites the mark.
+    await redis().set(raisedMonthKey(companyId, monthKey), "1", "EX", RAISED_MONTH_SECONDS);
+    const reading = await raiseWaiting(extractionQueue(), companyId, monthKey);
+    const modelling = await raiseWaiting(extractionModelQueue(), companyId, monthKey);
+    return reading + modelling;
+  }
+}
+
+/**
+ * Moves the month's jobs that wait in one lane to the raised priority. A job
+ * already there is left alone, so opening the month again moves nothing. The
+ * priority is read from `job.priority`: BullMQ's changePriority updates that, not
+ * `job.opts`. A delayed job (waiting for the model or OCR) takes the new priority
+ * when it is promoted.
+ */
+async function raiseWaiting<D extends ExtractionJobData | ModelJobData>(
+  queue: Queue<D>,
+  companyId: number,
+  monthKey: string,
+): Promise<number> {
+  // In the order BullMQ takes them, so the raised jobs keep their order among
+  // themselves. Newest first would reverse it.
+  const jobs = await queue.getJobs(["waiting", "prioritized", "delayed"], 0, -1, true);
+  let moved = 0;
+  for (const job of jobs) {
+    if (job.data.companyId !== companyId || job.data.monthKey !== monthKey) {
+      continue;
+    }
+    const priority = priorityFor(job.data.kind, true);
+    if (job.priority !== priority) {
+      await job.changePriority({ priority });
+      moved += 1;
+    }
+  }
+  return moved;
 }
 
 /** Attempts for a verification that was refused by the rate limit: one an hour at most, then given up. */
