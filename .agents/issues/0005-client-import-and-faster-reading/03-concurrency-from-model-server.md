@@ -1,7 +1,7 @@
 # 03 — The worker takes its model concurrency from the model server
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 
@@ -16,9 +16,9 @@ monitor sees the model come back. Other servers (Ollama) fall back the same way.
 
 ## Acceptance criteria
 
-- [ ] With a fake server reporting 2 slots, the model lane runs 2 documents at once without `EXTRACTOR_CONCURRENCY` set.
-- [ ] Without `/props`, or with the server down, the env value (or 1) is used. It is corrected when the server comes back.
-- [ ] The deploy README and config comments say `-np` is now the only setting. `EXTRACTOR_CONCURRENCY` is only a fallback.
+- [x] With a fake server reporting 2 slots, the model lane runs 2 documents at once without `EXTRACTOR_CONCURRENCY` set.
+- [x] Without `/props`, or with the server down, the env value (or 1) is used. It is corrected when the server comes back.
+- [x] The deploy README and config comments say `-np` is now the only setting. `EXTRACTOR_CONCURRENCY` is only a fallback.
 
 ## Blocked by
 

@@ -31,6 +31,7 @@ const view = {
   workers: 1,
   checkedAt: "2026-01-12T10:00:05.000Z",
   concurrency: { read: 3, model: 1 },
+  modelSource: "server",
   running: [
     job({}),
     job({
@@ -124,7 +125,7 @@ test("a document waiting for OCR says so, in the reading lane's delayed list", a
   await expect(delayed).toContainText("OCR is unreachable.");
 });
 
-test("the footer names both concurrency limits", async ({ page }) => {
+test("the footer names both concurrency limits, and where the model's comes from", async ({ page }) => {
   await expect(page.getByText("READ_CONCURRENCY")).toBeVisible();
-  await expect(page.getByText("EXTRACTOR_CONCURRENCY")).toBeVisible();
+  await expect(page.getByText("(podľa -np na serveri)")).toBeVisible();
 });

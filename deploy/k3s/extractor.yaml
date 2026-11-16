@@ -92,7 +92,8 @@ spec:
             # Context is split across slots: keep 8192 per slot (docker-compose.yml).
             - -c
             - "8192"
-            # Slots: keep EXTRACTOR_CONCURRENCY (config.yaml) the same.
+            # Slots: the one setting for the model lane. The workers read it from /props
+            # (total_slots); EXTRACTOR_CONCURRENCY in config.yaml is only the fallback.
             - -np
             - "1"
             - --cache-ram

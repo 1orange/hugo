@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Cpu, LoaderCircle } from "lucide-react";
 import { useExtractionQueue } from "@/components/app/use-extraction-queue";
-import type { FinishedJobView, QueueJobView, QueueLane } from "@/lib/extraction-queue/types";
+import type { FinishedJobView, ModelLimitSource, QueueJobView, QueueLane } from "@/lib/extraction-queue/types";
 import type { ServiceHealth, ServiceState } from "@/lib/extraction-queue/service-health";
 import type { ExtractionQueueView } from "@/lib/extraction-queue/view";
 import { companyDisplayName } from "@/modules/company-display-name";
@@ -24,6 +24,12 @@ const SERVICE_HINT: Partial<Record<ServiceState, string>> = {
   down: "Doklady čakajú. Služba je momentálne nedostupná. Keď bude opäť dostupná, čítanie sa obnoví automaticky.",
   loading: "Doklady počkajú, kým sa model načíta.",
   unconfigured: "Doklady čakajú. Nastavenie služby chýba; je potrebné doplniť konfiguráciu aplikácie.",
+};
+
+/** Where the model lane's limit comes from, as the worker sized it. */
+const MODEL_LIMIT_HINT: Record<ModelLimitSource, string> = {
+  server: "(podľa -np na serveri)",
+  fallback: "(záložne EXTRACTOR_CONCURRENCY, server neuviedol počet slotov)",
 };
 
 function ServiceCard({ title, health, subtitle }: { title: string; health: ServiceHealth; subtitle: string | null }) {
@@ -285,7 +291,7 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
       <p className="px-1 text-[12.5px] text-ink-3">
         Bežiace workery: {view.workers} · čítanie naraz najviac {countWithNoun(view.concurrency.read, DOKLAD_FORMS)}
         (READ_CONCURRENCY), model naraz najviac {countWithNoun(view.concurrency.model, DOKLAD_FORMS)}
-        (EXTRACTOR_CONCURRENCY).
+        {MODEL_LIMIT_HINT[view.modelSource ?? "fallback"]}.
         Percentá sú odhad: model hlási prečítaný text a napísané tokeny, zvyšok sa odhaduje podľa času. Rad je v
         Redise, spoločný pre všetky repliky; stav sa posiela sám, keď sa zmení.
       </p>

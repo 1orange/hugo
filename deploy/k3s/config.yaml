@@ -18,7 +18,8 @@ data:
   # The sidecars, as the workers reach them.
   EXTRACTOR_URL: "http://extractor:8080/v1"
   EXTRACTOR_MODEL: "local"
-  # Documents the model reads at once across all workers: the extractor's slots (-np).
+  # Fallback only: the model lane's limit while the extractor does not answer /props
+  # (or is Ollama). The setting that counts is -np in extractor.yaml (ADR 0020).
   EXTRACTOR_CONCURRENCY: "1"
   # Documents read at once by the reading lane (download, text, OCR) across all
   # workers. While the model is busy these still go on (ADR 0020, amendment).

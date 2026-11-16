@@ -1,20 +1,12 @@
-import { extractionModelQueue, extractionQueue } from "@/adapters/job-queue/bullmq-queues";
+import { extractionQueue } from "@/adapters/job-queue/bullmq-queues";
 import { createCashDiscoveryDeps } from "@/lib/cash-discovery/schedule";
 import { scheduleDrivePoll } from "@/lib/drive-watch/drive-watch";
 import { startExtractionWorker } from "./extraction-worker";
+import { fallbackModelConcurrency } from "./model-lane-size";
 import { startModelWorker } from "./model-worker";
 import { startServiceMonitor } from "./service-monitor";
 import { startSubjectWorker } from "./subject-worker";
 import { startSweepWorker } from "./sweep-worker";
-
-/**
- * Documents the model reads at once across every worker: the model server's
- * slots (EXTRACTOR_CONCURRENCY, `-np` of the extractor).
- */
-export function extractionConcurrency(env: NodeJS.ProcessEnv = process.env): number {
-  const value = Number(env.EXTRACTOR_CONCURRENCY);
-  return Number.isInteger(value) && value > 0 ? value : 1;
-}
 
 /**
  * Documents read at once across every worker by the reading lane: downloads,
@@ -35,15 +27,15 @@ export type RunningWorker = { close(): Promise<void> };
 export async function startWorker(env: NodeJS.ProcessEnv = process.env): Promise<RunningWorker> {
   const deps = createCashDiscoveryDeps(env);
   const reading = readConcurrency(env);
-  const modelling = extractionConcurrency(env);
   await extractionQueue().setGlobalConcurrency(reading);
-  await extractionModelQueue().setGlobalConcurrency(modelling);
 
   const readLane = startExtractionWorker(deps, reading);
-  const modelLane = startModelWorker(deps.extractor, modelling);
+  // The model lane's limit is the server's slots, asked now: the fallback until it answers.
+  const modelLane = startModelWorker(deps.extractor, fallbackModelConcurrency(env));
+  await modelLane.resize(env);
   const sweep = startSweepWorker(env);
   const subject = startSubjectWorker(env);
-  const stopMonitor = startServiceMonitor(env);
+  const stopMonitor = startServiceMonitor(env, { onModelReady: () => modelLane.resize(env) });
   await scheduleDrivePoll(env);
 
   for (const { worker } of [readLane, modelLane, sweep, subject]) {

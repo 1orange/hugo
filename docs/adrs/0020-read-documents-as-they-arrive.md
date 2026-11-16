@@ -69,3 +69,16 @@ until the lane that finishes the document writes a new one; the replacement comm
 commit and the party checks happen in whichever lane finishes it. A document is recorded on the
 queue screen once, when it is finished. The service monitor retries each lane's waiting documents
 when the service it waits for comes back.
+
+## Amendment (2026-11-16): the model lane's limit is the server's slots
+
+The model lane's limit was set twice, `-np` on the extractor and `EXTRACTOR_CONCURRENCY` in the
+config, and drifted apart: documents queued at the server, where they can time out, or a slot sat
+idle. The workers now ask llama.cpp for its slots (`GET /props`, `total_slots`, at the server root)
+at start and each time the monitor sees the model come back, and size the model lane to them. The
+queue's global limit and the worker's own concurrency are set together, and the size is kept in
+Redis for the queue page.
+
+`-np` is now the one setting. `EXTRACTOR_CONCURRENCY` is only the fallback: it, or 1, holds the
+lane while the server does not answer or does not say its slots (Ollama answers 404 on `/props`).
+A model that comes back is asked again, so a fallback is corrected without restarting a worker.

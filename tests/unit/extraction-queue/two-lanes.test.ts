@@ -22,7 +22,7 @@ import { enqueueMonthExtraction } from "../../../src/lib/extraction-queue/enqueu
 import { processExtractionJob } from "../../../src/lib/extraction-queue/process-job.ts";
 import { processModelJob } from "../../../src/lib/extraction-queue/process-model-job.ts";
 import { ProgressReporter } from "../../../src/lib/extraction-queue/progress.ts";
-import { servicesBackOnline, serviceReadiness } from "../../../src/lib/extraction-queue/service-health.ts";
+import { modelBecameReady, servicesBackOnline, serviceReadiness } from "../../../src/lib/extraction-queue/service-health.ts";
 import { isModelExtractedPayload, parseExtractedPayload } from "../../../src/modules/document-payload.ts";
 import { syntheticEkasaOpdResponse } from "../cash-discovery/synthetic-ekasa-opd.ts";
 import { SYNTHETIC_FIXTURE } from "../cash-discovery/synthetic-ekasa-lines.ts";
@@ -338,6 +338,18 @@ test("the service that came back is the one whose lane retries", () => {
   assert.deepEqual(servicesBackOnline(ocrDown, both), { model: false, ocr: true });
   assert.deepEqual(servicesBackOnline(both, modelDown), { model: false, ocr: false });
   assert.deepEqual(servicesBackOnline({ model: false, ocr: false }, both), { model: true, ocr: true });
+});
+
+test("the model is asked for its slots when it becomes ready, including at the first check", () => {
+  const ready = { model: true, ocr: true };
+  const down = { model: false, ocr: true };
+
+  // The first check, and a model that was down: asked again. A model that stays ready: not.
+  assert.equal(modelBecameReady(null, ready), true);
+  assert.equal(modelBecameReady(down, ready), true);
+  assert.equal(modelBecameReady(ready, ready), false);
+  assert.equal(modelBecameReady(ready, down), false);
+  assert.equal(modelBecameReady(null, down), false);
 });
 
 test("a service is ready when it answers ok or is a stub", () => {

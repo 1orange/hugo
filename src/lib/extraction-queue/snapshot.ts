@@ -1,6 +1,7 @@
 import type { Job } from "bullmq";
 import { extractionModelQueue, extractionQueue } from "@/adapters/job-queue/bullmq-queues";
 import type { ExtractionJobData, ModelJobData } from "@/adapters/job-queue/port";
+import { readModelLaneSize } from "@/lib/worker/model-lane-size";
 import { redis, redisKey } from "@/lib/redis/connection";
 import { labelOf, percentOf, type JobProgress } from "./progress";
 import { LANE_LABEL, type FinishedJobView, type QueueJobIdentity, type QueueJobView, type QueueLane, type QueueSnapshot } from "./types";
@@ -81,6 +82,7 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
     recentRaw,
     readConcurrency,
     modelConcurrency,
+    modelLane,
   ] = await Promise.all([
     reading.getJobs(["active"], 0, LISTED - 1),
     // Oldest in take order first: the first rows are the next to be read.
@@ -92,6 +94,7 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
     redis().lrange(recentKey(), 0, RECENT_KEEP - 1),
     reading.getGlobalConcurrency(),
     modelling.getGlobalConcurrency(),
+    readModelLaneSize(),
   ]);
 
   const seen = new Set<string>();
@@ -109,7 +112,9 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
   const sorted = (jobs: Job<LaneData>[]) => jobs.filter(present).sort(byTurn);
 
   return {
-    concurrency: { read: readConcurrency ?? 1, model: modelConcurrency ?? 1 },
+    // The model lane's size is what the worker set; the queue's own limit is the fallback for a queue no worker has sized.
+    concurrency: { read: readConcurrency ?? 1, model: modelLane?.concurrency ?? modelConcurrency ?? 1 },
+    modelSource: modelLane?.source ?? null,
     running: [
       ...views(readActive, "read", "running"),
       ...views(modelActive, "model", "running"),

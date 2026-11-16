@@ -42,9 +42,17 @@ export type FinishedJobView = QueueJobIdentity & {
   reason: string | null;
 };
 
+/**
+ * Where the model lane's limit came from: the model server's slots (llama.cpp
+ * `-np`), or the fallback (EXTRACTOR_CONCURRENCY, or 1) when it did not say.
+ */
+export type ModelLimitSource = "server" | "fallback";
+
 export type QueueSnapshot = {
   /** Documents read at once across every worker, per lane. */
   concurrency: { read: number; model: number };
+  /** Null until a worker has sized the model lane. */
+  modelSource: ModelLimitSource | null;
   /** Being read, in either lane. */
   running: QueueJobView[];
   /** In the order they will be read, per lane: the reading lane first. */

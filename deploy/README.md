@@ -79,8 +79,11 @@ What the manifests rely on:
   deadline) and exits at once when idle; Postgres stops with a fast shutdown, not after the grace
   period.
 - **Scaling.** `kubectl -n hugo scale deploy/web --replicas=N` at will. More workers add
-  resilience, not speed: the model's slots are the limit, `-np` in `extractor.yaml` and
-  `EXTRACTOR_CONCURRENCY` in `config.yaml` — change both together. `READ_CONCURRENCY` (default 3)
+  resilience, not speed: the model's slots are the limit, and `-np` in `extractor.yaml` is the one
+  setting for it. The workers ask the server for its slots (`/props`, `total_slots`) at start and
+  again when the model comes back, and size the model lane to them. `EXTRACTOR_CONCURRENCY` in
+  `config.yaml` is only the fallback, used while the server does not answer (or is Ollama).
+  `READ_CONCURRENCY` (default 3)
   is not the model's: downloads, text and OCR go on while the model reads, so it is sized for the
   OCR sidecar and the disk, not for `-np`.
 - **Traefik and the event stream.** `/api/events` is server-sent events: no compress middleware on
