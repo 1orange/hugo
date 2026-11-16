@@ -36,6 +36,7 @@ const SOURCE_LABELS: Record<SubjectSource, string> = {
   register: "z registra",
   vies: "z VIES",
   manual: "ručne",
+  sheet: "z klientskeho hárku",
 };
 
 /** Where a value came from: a field nothing has set reads as a dash, not as a source. */

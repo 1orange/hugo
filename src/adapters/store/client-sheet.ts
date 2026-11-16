@@ -7,6 +7,8 @@ import { CLIENT_SHEET_REGISTER_SOURCE, type ProfileWrite } from "@/modules/clien
  * Writes the confirmed profiles and their activity events in one transaction: a
  * profile never changes without the event that says so, and a failure leaves neither.
  * A profile is its Adresár subject (ADR 0022, amended 2026-11-16), so each write is a profile save.
+ * The save's registerSource marks the values it changes as the sheet's (source `sheet`), so a
+ * ticked field that was hand-saved stops being manual, and a field she did not tick keeps its source.
  */
 export async function writeClientSheetProfiles(
   writes: readonly ProfileWrite[],

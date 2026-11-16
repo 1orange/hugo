@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { asc, eq } from "drizzle-orm";
 import { listCompanyProfiles, saveCompanyProfile } from "../../../src/adapters/store/company-profiles.ts";
-import { companies, events } from "../../../src/lib/db/schema.ts";
+import { toSubject } from "../../../src/adapters/store/subjects.ts";
+import { companies, events, subjects } from "../../../src/lib/db/schema.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { applyClientSheet, previewClientSheet } from "../../../src/lib/client-sheet/service.ts";
 import { formatActivityEntry } from "../../../src/modules/activity-log.ts";
@@ -144,4 +145,74 @@ test("a refused sheet writes nothing, and the reason is in Slovak", async () => 
   assert.match(result.ok ? "" : result.message, /chýbajú stĺpce/);
   assert.deepEqual(await listCompanyProfiles(), before);
   assert.equal((await importEvents()).length, 0);
+});
+
+/** The Adresár entry of a company: the subject linked to it, as the Adresár reads it. */
+async function adresarEntryOf(companyId: number) {
+  const [row] = await getDb().select().from(subjects).where(eq(subjects.linkedCompanyId, companyId)).limit(1);
+  return row ? toSubject(row) : null;
+}
+
+test("a confirmed import writes the Adresár entry: linked to the company, values from the sheet, source sheet", async () => {
+  await seed();
+
+  // Beta is a name guess: it is written only with her confirmation, and gets a new subject.
+  const result = await applyClientSheet(FIXTURE_CSV, { confirmedRows: [2], tickedFields: [] }, FIRST);
+  assert.equal(result.ok, true);
+
+  const beta = await adresarEntryOf(2);
+  assert.ok(beta, "a new subject is created for the company and linked to it");
+  assert.equal(beta.ico, "87654326");
+  assert.equal(beta.country, "SK");
+  assert.equal(beta.linkedCompanyId, 2);
+  assert.equal(beta.legalName, "Beta Štúdio s.r.o.");
+  assert.equal(beta.address, "Hlavná 5, Košice");
+  assert.equal(beta.dic, "2020000002");
+  assert.deepEqual(beta.sources, { legalName: "sheet", address: "sheet", dic: "sheet" });
+  assert.deepEqual(beta.manualFields, []);
+
+  // Gama had only an IČO: its existing subject is filled, every value it gained carries the sheet's source.
+  const gama = await adresarEntryOf(3);
+  assert.ok(gama);
+  assert.equal(gama.ico, "50000004");
+  assert.equal(gama.legalName, "Gama, a.s.");
+  assert.equal(gama.icDph, "SK2020000003");
+  assert.deepEqual(gama.sources, { legalName: "sheet", address: "sheet", dic: "sheet", icDph: "sheet" });
+  assert.deepEqual(gama.manualFields, []);
+
+  // Alfa's address was hand-saved and is not ticked: it keeps its manual source; the empty IČ DPH is filled as sheet.
+  const alfa = await adresarEntryOf(1);
+  assert.ok(alfa);
+  assert.equal(alfa.address, "Pod Hradom 1, Bratislava");
+  assert.equal(alfa.sources.address, "manual");
+  assert.equal(alfa.sources.icDph, "sheet");
+  assert.equal(alfa.sources.legalName, "manual", "a value the sheet agreed with and did not write keeps its source");
+  assert.deepEqual([...alfa.manualFields].sort(), ["address", "dic", "legalName"]);
+
+  // Zeta matches the sheet exactly: nothing is written, so its values keep the source they had.
+  const zeta = await adresarEntryOf(5);
+  assert.equal(zeta?.sources.legalName, "manual");
+  assert.equal(zeta?.sources.icDph, "manual");
+});
+
+test("a manual field is replaced only when ticked, and then carries the sheet's source and leaves the manual list", async () => {
+  await seed();
+
+  // Not ticked: her address stays, still manual and still in the manual list.
+  await applyClientSheet(FIXTURE_CSV, { confirmedRows: [], tickedFields: [] }, FIRST);
+  const untouched = await adresarEntryOf(1);
+  assert.equal(untouched?.address, "Pod Hradom 1, Bratislava");
+  assert.equal(untouched?.sources.address, "manual");
+  assert.ok(untouched?.manualFields.includes("address"));
+
+  // Ticked: the sheet's value replaces hers, its source is sheet, and it is no longer manual.
+  const ticked = await applyClientSheet(FIXTURE_CSV, { confirmedRows: [], tickedFields: [tickKey(1, "address")] }, SECOND);
+  assert.deepEqual(ticked, { ok: true, applied: { companies: 1, fields: 1 } });
+
+  const replaced = await adresarEntryOf(1);
+  assert.equal(replaced?.address, "Pod Hradom 2, Bratislava");
+  assert.equal(replaced?.sources.address, "sheet");
+  assert.ok(!replaced?.manualFields.includes("address"), "a field the sheet wrote is no longer hand-saved");
+  assert.deepEqual([...(replaced?.manualFields ?? [])].sort(), ["dic", "legalName"], "her other hand-saved fields stay manual");
+  assert.equal(replaced?.sources.legalName, "manual");
 });

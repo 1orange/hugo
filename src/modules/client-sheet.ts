@@ -6,12 +6,11 @@
  * The sheet holds real client data, so nothing here is logged or stored, and the
  * tests use made-up companies only.
  */
-import { normalizeSkIcDph, validateSkIcDph } from "./company-profile";
+import { CLIENT_SHEET_REGISTER_SOURCE, normalizeSkIcDph, validateSkIcDph } from "./company-profile";
 import { companyDisplayName } from "./company-display-name";
 import { isValidIcoChecksum } from "./ico-checksum";
 
-/** Written to a profile by this import, in place of a register source. */
-export const CLIENT_SHEET_REGISTER_SOURCE = "client-sheet";
+export { CLIENT_SHEET_REGISTER_SOURCE };
 
 export const CLIENT_SHEET_COLUMNS = {
   client: "Klient",
@@ -354,7 +353,9 @@ export type FieldChange = {
   next: string;
   /**
    * "fill": the profile has nothing there, so the sheet's value goes in without a question.
-   * "change": the profile holds a different value, which is hers, so it is written only when ticked.
+   * "change": the profile holds a different value, so it is written only when ticked. That holds
+   * whatever the value's source: a hand-saved one is hers, and a register's or the sheet's own
+   * earlier value is still a value she did not see replaced.
    */
   kind: "fill" | "change";
 };

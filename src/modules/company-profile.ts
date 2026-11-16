@@ -66,6 +66,13 @@ export function lookupSourceOf(registerSource: string, field: ProfileField): Sub
   return "register";
 }
 
+/**
+ * The register source a client-sheet import saves a profile with. The values it writes
+ * are the office's sheet, which is neither a register's answer nor her typing, so they
+ * carry the source `sheet` until a register check confirms them.
+ */
+export const CLIENT_SHEET_REGISTER_SOURCE = "client-sheet";
+
 export type ProfileProvenance = {
   /** The source of each non-empty identity field; an empty field has none. */
   sources: Partial<Record<ProfileField, SubjectSource>>;
@@ -99,11 +106,20 @@ export function profileProvenance(input: {
       continue;
     }
     changed.push(field);
-    sources[field] = input.typed.includes(field)
-      ? "manual"
-      : (lookupSourceOf(input.registerSource, field) ?? "manual");
+    sources[field] = sourceOfChange(input.registerSource, field, input.typed);
   }
   return { sources, changed };
+}
+
+/** The source of a value a save changed: her typing wins, then the save's own origin, else manual. */
+function sourceOfChange(registerSource: string, field: ProfileField, typed: readonly ProfileField[]): SubjectSource {
+  if (typed.includes(field)) {
+    return "manual";
+  }
+  if (registerSource === CLIENT_SHEET_REGISTER_SOURCE) {
+    return "sheet";
+  }
+  return lookupSourceOf(registerSource, field) ?? "manual";
 }
 
 export type RegisterEntityStatus = "active" | "dissolved";

@@ -79,6 +79,35 @@ test("a value the subject held with no source is taken as changed, not kept", ()
   assert.deepEqual(plan.changed, ["legalName", "address", "dic", "icDph"]);
 });
 
+test("a value the client sheet writes is the sheet's, whatever a lookup said; a value she typed stays hers", () => {
+  const plan = profileProvenance({ previous: null, next: FILLED, registerSource: "client-sheet", typed: [] });
+  assert.deepEqual(plan.sources, { legalName: "sheet", address: "sheet", dic: "sheet", icDph: "sheet" });
+
+  const typed = profileProvenance({ previous: null, next: FILLED, registerSource: "client-sheet", typed: ["address"] });
+  assert.equal(typed.sources.address, "manual");
+  assert.equal(typed.sources.legalName, "sheet");
+});
+
+test("a ticked sheet change replaces a manual value with the sheet's source; an unticked one keeps manual", () => {
+  const previous = {
+    values: FILLED,
+    sources: { legalName: "register" as const, address: "manual" as const, dic: "register" as const, icDph: "vies" as const },
+  };
+
+  const ticked = profileProvenance({
+    previous,
+    next: { ...FILLED, address: "Pod Hradom 2, Bratislava" },
+    registerSource: "client-sheet",
+    typed: [],
+  });
+  assert.equal(ticked.sources.address, "sheet");
+  assert.deepEqual(ticked.changed, ["address"]);
+
+  const unticked = profileProvenance({ previous, next: FILLED, registerSource: "client-sheet", typed: [] });
+  assert.equal(unticked.sources.address, "manual", "a value the sheet did not write keeps its source");
+  assert.deepEqual(unticked.changed, []);
+});
+
 test("an empty field has no source, so a register refresh may fill it", () => {
   const plan = profileProvenance({
     previous: null,

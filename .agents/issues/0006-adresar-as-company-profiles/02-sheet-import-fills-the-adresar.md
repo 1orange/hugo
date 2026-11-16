@@ -1,7 +1,7 @@
 # 02 — The client sheet import fills the Adresár
 
 Type: AFK
-Status: open
+Status: done
 
 ## What to build
 

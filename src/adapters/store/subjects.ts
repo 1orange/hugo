@@ -17,8 +17,8 @@ import type { ViesRecord } from "@/modules/subject-directory";
 
 export type SubjectCountry = "SK" | "CZ" | "foreign";
 export type SubjectRegisterStatus = "active" | "dissolved" | "unknown";
-/** A value the directory holds, and where it came from. */
-export type SubjectSource = "register" | "vies" | "manual";
+/** A value the directory holds, and where it came from (see the module's SubjectSource). */
+export type SubjectSource = "register" | "vies" | "manual" | "sheet";
 /** The fields a register, VIES or an accountant can set. */
 export type SubjectField =
   | "legalName"

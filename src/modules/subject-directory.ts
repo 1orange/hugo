@@ -18,7 +18,11 @@ import { coreCompanyName, normalizeCompanyName } from "./register-search";
 
 export type SubjectCountry = "SK" | "CZ" | "foreign";
 export type SubjectRegisterStatus = "active" | "dissolved" | "unknown";
-export type SubjectSource = "register" | "vies" | "manual";
+/**
+ * Where a value came from. `sheet` is the office's client sheet (0005/09): neither a
+ * register's answer nor her typing, so it is not yet confirmed by a register check.
+ */
+export type SubjectSource = "register" | "vies" | "manual" | "sheet";
 export type SubjectField =
   | "legalName"
   | "formerNames"
