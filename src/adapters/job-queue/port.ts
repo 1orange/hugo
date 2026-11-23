@@ -1,4 +1,5 @@
 import type { StageTiming } from "@/modules/extraction-timing";
+import type { ReadingTier } from "@/modules/reading-planner";
 
 /** One file for the reading lane: a receipt (eKasa first) or a document. */
 export type ExtractionJobData = {
@@ -20,6 +21,11 @@ export type ExtractionJobData = {
    * leaves the result as it was (PRD 0004).
    */
   reread?: boolean;
+  /**
+   * How soon the file was queued to be read (ADR 0020, amended 2026-11-23). Absent
+   * on jobs queued before tiers existed, which read as recent.
+   */
+  tier?: ReadingTier;
 };
 
 /**
@@ -37,6 +43,8 @@ export type ModelJobData = {
   folderSlot: string;
   /** The text layer, or OCR of the pages. */
   source: "model" | "ocr";
+  /** The tier the reading lane queued the file with; absent reads as recent. */
+  tier?: ReadingTier;
   lines: string[];
   /** When the reading lane began the document: the duration recorded is the whole of it. */
   readStartedAt: number;
@@ -58,22 +66,33 @@ export type ModelJobData = {
 };
 
 /**
- * BullMQ takes the lowest number first, and 1 is the lowest it allows, so the
- * raised band (a month the accountant has opened) sits in 1 and 2 and the normal
- * band above it. Receipts go first within each band: most are one eKasa lookup
- * (ADR 0020).
+ * BullMQ takes the lowest number first, and 1 is the lowest it allows. Six
+ * levels, lower first: the month someone has open (raised), then the recent
+ * tier (the booking month and the current one), then the backlog. Within each
+ * tier, receipts go first: most are one eKasa lookup (ADR 0020).
  */
 export const RAISED_RECEIPT_PRIORITY = 1;
 export const RAISED_DOCUMENT_PRIORITY = 2;
-export const RECEIPT_PRIORITY = 3;
-export const DOCUMENT_PRIORITY = 4;
+export const RECENT_RECEIPT_PRIORITY = 3;
+export const RECENT_DOCUMENT_PRIORITY = 4;
+export const BACKLOG_RECEIPT_PRIORITY = 5;
+export const BACKLOG_DOCUMENT_PRIORITY = 6;
 
-/** The priority a file of this kind waits with: raised when its month was opened. */
-export function priorityFor(kind: ExtractionJobData["kind"], raised: boolean): number {
-  if (raised) {
+/**
+ * The priority a file of this kind waits with in its tier. A job queued without
+ * a tier is recent, the level it had before tiers.
+ */
+export function priorityFor(
+  kind: ExtractionJobData["kind"],
+  tier: ReadingTier = "recent",
+): number {
+  if (tier === "raised") {
     return kind === "receipt" ? RAISED_RECEIPT_PRIORITY : RAISED_DOCUMENT_PRIORITY;
   }
-  return kind === "receipt" ? RECEIPT_PRIORITY : DOCUMENT_PRIORITY;
+  if (tier === "recent") {
+    return kind === "receipt" ? RECENT_RECEIPT_PRIORITY : RECENT_DOCUMENT_PRIORITY;
+  }
+  return kind === "receipt" ? BACKLOG_RECEIPT_PRIORITY : BACKLOG_DOCUMENT_PRIORITY;
 }
 
 export interface ExtractionJobQueue {

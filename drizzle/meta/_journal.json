@@ -113,6 +113,13 @@
       "when": 1795441300624,
       "tag": "0015_company_access",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795441549761,
+      "tag": "0016_reading_window_start",
+      "breakpoints": true
     }
   ]
 }

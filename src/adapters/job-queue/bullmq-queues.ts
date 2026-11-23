@@ -135,7 +135,7 @@ export class BullmqExtractionJobQueue implements ExtractionJobQueue {
     const raised = (await redis().exists(raisedMonthKey(data.companyId, data.monthKey))) === 1;
     await extractionModelQueue().add("model", data, {
       jobId,
-      priority: priorityFor(data.kind, raised),
+      priority: priorityFor(data.kind, raised ? "raised" : data.tier),
       removeOnComplete: true,
       removeOnFail: true,
     });
@@ -172,7 +172,7 @@ async function raiseWaiting<D extends ExtractionJobData | ModelJobData>(
     if (job.data.companyId !== companyId || job.data.monthKey !== monthKey) {
       continue;
     }
-    const priority = priorityFor(job.data.kind, true);
+    const priority = priorityFor(job.data.kind, "raised");
     if (job.priority !== priority) {
       await job.changePriority({ priority });
       moved += 1;

@@ -31,6 +31,26 @@ export function monthKeyAt(instant: Date, timeZone: string = OFFICE_TIME_ZONE): 
 }
 
 /**
+ * The booking month: the calendar month before the current one on the office
+ * clock. The office books last month (in November, October), so the home
+ * screen and the reading window's recent tier start from it. In January it is
+ * December of the previous year. Callers pass the instant, as with monthKeyAt.
+ */
+export function bookingMonthKey(instant: Date, timeZone: string = OFFICE_TIME_ZONE): string {
+  const [yearText, monthText] = monthKeyAt(instant, timeZone).split("_");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  return month === 1
+    ? `${year - 1}_12`
+    : `${year}_${String(month - 1).padStart(2, "0")}`;
+}
+
+/** Whether a string is a month key: `YYYY_MM` with the month 01 to 12. */
+export function isMonthKey(value: string): boolean {
+  return /^\d{4}_(0[1-9]|1[0-2])$/.test(value);
+}
+
+/**
  * A future month is one whose key is after the current calendar month. Keys
  * are zero-padded `YYYY_MM`, so they compare correctly as strings.
  */

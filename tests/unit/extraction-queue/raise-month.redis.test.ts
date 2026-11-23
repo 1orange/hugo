@@ -11,10 +11,10 @@ import {
   sweepQueue,
 } from "../../../src/adapters/job-queue/bullmq-queues.ts";
 import {
-  DOCUMENT_PRIORITY,
+  RECENT_DOCUMENT_PRIORITY,
   RAISED_DOCUMENT_PRIORITY,
   RAISED_RECEIPT_PRIORITY,
-  RECEIPT_PRIORITY,
+  RECENT_RECEIPT_PRIORITY,
   type ExtractionJobData,
   type ModelJobData,
 } from "../../../src/adapters/job-queue/port.ts";
@@ -109,13 +109,13 @@ test("raising one month makes its documents the next ones a worker takes, receip
   await clearLanes();
   const queue = new BullmqExtractionJobQueue();
   // The other month is queued first, so without the raise it would go first.
-  assert.equal(await queue.add(readJob("old-doc-1", OTHER, "document"), { priority: DOCUMENT_PRIORITY }), true);
-  assert.equal(await queue.add(readJob("old-doc-2", OTHER, "document"), { priority: DOCUMENT_PRIORITY }), true);
-  assert.equal(await queue.add(readJob("old-receipt", OTHER, "receipt"), { priority: RECEIPT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("old-doc-1", OTHER, "document"), { priority: RECENT_DOCUMENT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("old-doc-2", OTHER, "document"), { priority: RECENT_DOCUMENT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("old-receipt", OTHER, "receipt"), { priority: RECENT_RECEIPT_PRIORITY }), true);
   // The opened month's receipt is queued last, and still goes first within it.
-  assert.equal(await queue.add(readJob("new-doc-1", OPENED, "document"), { priority: DOCUMENT_PRIORITY }), true);
-  assert.equal(await queue.add(readJob("new-doc-2", OPENED, "document"), { priority: DOCUMENT_PRIORITY }), true);
-  assert.equal(await queue.add(readJob("new-receipt", OPENED, "receipt"), { priority: RECEIPT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("new-doc-1", OPENED, "document"), { priority: RECENT_DOCUMENT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("new-doc-2", OPENED, "document"), { priority: RECENT_DOCUMENT_PRIORITY }), true);
+  assert.equal(await queue.add(readJob("new-receipt", OPENED, "receipt"), { priority: RECENT_RECEIPT_PRIORITY }), true);
 
   assert.equal(await queue.raiseMonth(COMPANY, OPENED), 3);
 
@@ -147,26 +147,26 @@ test("a document of the opened month waiting in the model lane, or delayed for i
   // Delayed: waiting for the model to come back. It takes the raise when it is promoted.
   await extractionModelQueue().add("model", modelJob("delayed-model", OPENED, "document"), {
     jobId: extractionJobId("delayed-model"),
-    priority: DOCUMENT_PRIORITY,
+    priority: RECENT_DOCUMENT_PRIORITY,
     delay: 60 * 60 * 1000,
   });
 
   assert.equal(await queue.raiseMonth(COMPANY, OPENED), 2);
   assert.equal((await extractionModelQueue().getJob(extractionJobId("waiting-model")))?.priority, RAISED_DOCUMENT_PRIORITY);
   assert.equal((await extractionModelQueue().getJob(extractionJobId("delayed-model")))?.priority, RAISED_DOCUMENT_PRIORITY);
-  assert.equal((await extractionModelQueue().getJob(extractionJobId("other-model")))?.priority, DOCUMENT_PRIORITY);
+  assert.equal((await extractionModelQueue().getJob(extractionJobId("other-model")))?.priority, RECENT_DOCUMENT_PRIORITY);
 
   // Handed over after the month was opened, from the reading lane.
   assert.equal(await queue.handOff(modelJob("later-model", OPENED, "receipt")), true);
   assert.equal(await queue.handOff(modelJob("later-other", OTHER, "document")), true);
   assert.equal((await extractionModelQueue().getJob(extractionJobId("later-model")))?.priority, RAISED_RECEIPT_PRIORITY);
-  assert.equal((await extractionModelQueue().getJob(extractionJobId("later-other")))?.priority, DOCUMENT_PRIORITY);
+  assert.equal((await extractionModelQueue().getJob(extractionJobId("later-other")))?.priority, RECENT_DOCUMENT_PRIORITY);
 });
 
 test("opening the same month again moves nothing, and a month with nothing waiting is a no-op", { skip }, async () => {
   await clearLanes();
   const queue = new BullmqExtractionJobQueue();
-  await queue.add(readJob("opened-doc", OPENED, "document"), { priority: DOCUMENT_PRIORITY });
+  await queue.add(readJob("opened-doc", OPENED, "document"), { priority: RECENT_DOCUMENT_PRIORITY });
 
   assert.equal(await queue.raiseMonth(COMPANY, OPENED), 1);
   assert.equal(await queue.raiseMonth(COMPANY, OPENED), 0);

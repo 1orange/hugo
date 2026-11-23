@@ -36,6 +36,12 @@ export async function upsertMonth(
   return inserted ?? (await getMonthByKey(companyId, monthKey))!;
 }
 
+/** Every month of every company: what the background reading window plans over. */
+export async function listAllMonths(): Promise<MonthRow[]> {
+  const db = getDb();
+  return db.select().from(months);
+}
+
 export async function listMonthsForCompany(companyId: number): Promise<MonthRow[]> {
   const db = getDb();
   const rows = await db.select().from(months).where(eq(months.companyId, companyId));

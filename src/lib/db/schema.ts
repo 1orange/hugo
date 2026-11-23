@@ -54,6 +54,8 @@ export const settings = pgTable("settings", {
   driveLastChangeAt: text("drive_last_change_at"),
   // Register data older than this is refreshed on the next sighting (ADR 0022).
   subjectRefreshDays: integer("subject_refresh_days").notNull().default(30),
+  // The first month read on the background sweep (`YYYY_MM`); null is the default, January of the booking month's year (ADR 0020, amended 2026-11-23).
+  readingWindowStart: text("reading_window_start"),
   // Where the sweep last read Drive's change log, and when it last listed every file (ADR 0003).
   driveChangesToken: text("drive_changes_token"),
   driveSnapshotAt: text("drive_snapshot_at"),

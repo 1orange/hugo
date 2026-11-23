@@ -10,7 +10,7 @@ import {
   extractionQueue,
   sweepQueue,
 } from "../../../src/adapters/job-queue/bullmq-queues.ts";
-import { DOCUMENT_PRIORITY, type ExtractionJobData } from "../../../src/adapters/job-queue/port.ts";
+import { RECENT_DOCUMENT_PRIORITY, type ExtractionJobData } from "../../../src/adapters/job-queue/port.ts";
 import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
 import type { Ocr, OcrInput, OcrOutput } from "../../../src/adapters/ocr/port.ts";
 import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
@@ -184,7 +184,7 @@ test("while the model is busy on one document, an eKasa receipt and an ISDOC inv
   const reads = recordReads();
   const lanes = await startLanes({ extractor: model, ocr: new FakeOcr({ boxes: OCR_BOXES }) });
   try {
-    assert.equal(await new BullmqExtractionJobQueue().add(longDocumentJob(), { priority: DOCUMENT_PRIORITY }), true);
+    assert.equal(await new BullmqExtractionJobQueue().add(longDocumentJob(), { priority: RECENT_DOCUMENT_PRIORITY }), true);
     await eventually(() => model.asked.includes(LONG_DOCUMENT), "the model never got the long document");
 
     // Queued after it, while it holds the model.
@@ -262,7 +262,7 @@ test("OCR of one document runs while the model reads another", { skip }, async (
   const reads = recordReads();
   const lanes = await startLanes({ extractor: model, ocr });
   try {
-    await new BullmqExtractionJobQueue().add(longDocumentJob(), { priority: DOCUMENT_PRIORITY });
+    await new BullmqExtractionJobQueue().add(longDocumentJob(), { priority: RECENT_DOCUMENT_PRIORITY });
     await eventually(() => model.asked.includes(LONG_DOCUMENT), "the model never got the long document");
 
     await enqueueMonthExtraction(new BullmqExtractionJobQueue(), COMPANY, MONTH);
@@ -286,13 +286,13 @@ test("a document queued twice, from either lane, is read once", { skip }, async 
   const lanes = await startLanes({ extractor: model, ocr: new FakeOcr({ boxes: OCR_BOXES }) });
   try {
     const queue = new BullmqExtractionJobQueue();
-    assert.equal(await queue.add(longDocumentJob(), { priority: DOCUMENT_PRIORITY }), true);
+    assert.equal(await queue.add(longDocumentJob(), { priority: RECENT_DOCUMENT_PRIORITY }), true);
     // Queued again while being read: nothing new.
-    assert.equal(await queue.add(longDocumentJob(), { priority: DOCUMENT_PRIORITY }), false);
+    assert.equal(await queue.add(longDocumentJob(), { priority: RECENT_DOCUMENT_PRIORITY }), false);
     await eventually(() => model.asked.includes(LONG_DOCUMENT), "the model never got the long document");
 
     // Queued again from the reading lane while the model lane holds it.
-    assert.equal(await queue.add(longDocumentJob(), { priority: DOCUMENT_PRIORITY }), false);
+    assert.equal(await queue.add(longDocumentJob(), { priority: RECENT_DOCUMENT_PRIORITY }), false);
     assert.equal(await enqueueMonthExtraction(queue, COMPANY, MONTH), 3);
 
     model.release();
