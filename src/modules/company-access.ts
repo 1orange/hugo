@@ -2,8 +2,8 @@
  * Who may see a company, read from the sharing of its Drive folder (PRD 0007).
  *
  * Pure: a folder's grants go in, an email goes in, and the answer comes out. No
- * Drive call, no database. Issue 08 only reads and shows this; nothing is
- * restricted by it yet.
+ * Drive call, no database. The server applies it to every company screen through
+ * the visibility guard in src/lib/access/ (ADR 0023).
  *
  * Why four principal types: Drive also lists other kinds, which are dropped. A
  * `group` cannot be expanded here: that needs the Admin or Cloud Identity API,

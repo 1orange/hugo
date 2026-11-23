@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { build } from "esbuild";
 
 /**
- * The *Firmy* table with the *Moje firmy* filter, mounted without the server.
+ * The *Firmy* table with its accountant-group chips, mounted without the server.
  * localStorage only works on a real origin, so the page is served through a
  * route rather than set as content.
  */
@@ -46,8 +46,10 @@ test.beforeAll(async () => {
         ];
         const params = new URLSearchParams(window.location.search);
         const email = params.get("email") ?? "jean@example.com";
+        // oneGroup: every visible company is in one accountant's folder, so no chips.
+        const shown = params.get("oneGroup") === "1" ? rows.map((row) => ({ ...row, groupName: "Eva" })) : rows;
         createRoot(document.getElementById("root")).render(
-          <CompanyTable rows={rows} email={email} selectedMonth={null} />,
+          <CompanyTable rows={shown} email={email} selectedMonth={null} />,
         );
       `,
     },
@@ -75,15 +77,11 @@ test.beforeEach(async ({ page }) => {
 
 async function open(page: Page, email = "jean@example.com") {
   await page.goto(`${ORIGIN}/?email=${encodeURIComponent(email)}`);
-  await expect(page.getByTestId("scope-all")).toBeVisible();
+  await expect(page.getByTestId("company-summary")).toBeVisible();
 }
 
 function companyLink(page: Page, name: string) {
   return page.getByRole("link", { name, exact: true });
-}
-
-function starFor(page: Page, name: string) {
-  return page.getByRole("button", { name: `Moja firma: ${name}`, exact: true });
 }
 
 test("a client dissolved in the register is marked on its row, and the mark leads to its profile", async ({ page }) => {
@@ -96,7 +94,15 @@ test("a client dissolved in the register is marked on its row, and the mark lead
   await expect(page.getByTestId("company-register-2")).toHaveCount(0);
 });
 
-test("blocked localStorage (throwing accessor) shows every company with assignment disabled", async ({ page }) => {
+test("the table has no assignment column and no Moje firmy filter", async ({ page }) => {
+  await open(page);
+
+  await expect(page.getByRole("button", { name: "Moje firmy" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Moja firma:/ })).toHaveCount(0);
+  await expect(companyLink(page, "Beta s.r.o.")).toBeVisible();
+});
+
+test("blocked localStorage (throwing accessor) still shows every company", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
@@ -110,16 +116,12 @@ test("blocked localStorage (throwing accessor) shows every company with assignme
 
   await open(page);
 
-  await expect(page.getByTestId("assignment-unavailable")).toBeVisible();
-  await expect(page.getByTestId("scope-all")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("scope-mine")).toBeDisabled();
-  await expect(page.getByTestId("assign-company-1")).toBeDisabled();
   await expect(companyLink(page, "Epsilon s.r.o.")).toBeVisible();
   await expect(page.getByTestId("summary-awaiting")).toHaveText("3");
   expect(errors).toEqual([]);
 });
 
-test("throwing storage methods degrade the same way", async ({ page }) => {
+test("throwing storage methods degrade without an error", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
@@ -133,102 +135,9 @@ test("throwing storage methods degrade the same way", async ({ page }) => {
 
   await open(page);
 
-  await expect(page.getByTestId("assignment-unavailable")).toBeVisible();
-  await expect(page.getByTestId("assign-company-2")).toBeDisabled();
   await expect(companyLink(page, "Gamma s.r.o.")).toBeVisible();
+  await expect(page.getByTestId("group-Eva")).toBeVisible();
   expect(errors).toEqual([]);
-});
-
-test("a corrupt stored value falls back to Všetky firmy without an error", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await open(page);
-  await page.evaluate(() => {
-    window.localStorage.setItem(
-      "hugo.assignedCompanies.v1.jean@example.com",
-      "{not json",
-    );
-  });
-  await page.reload();
-
-  await expect(page.getByTestId("scope-all")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("assignment-unavailable")).toHaveCount(0);
-  await expect(companyLink(page, "Beta s.r.o.")).toBeVisible();
-  expect(errors).toEqual([]);
-});
-
-test("assigning companies persists across reloads and Moje firmy recounts the summary", async ({ page }) => {
-  await open(page);
-
-  // Office-wide: one silent client, and Beta has no profile yet.
-  await expect(page.getByTestId("summary-silent")).toHaveText("1");
-  await expect(page.getByTestId("summary-profile-missing")).toHaveText("1");
-
-  await starFor(page, "Gamma s.r.o.").click();
-  await starFor(page, "Delta s.r.o.").click();
-  await expect(starFor(page, "Gamma s.r.o.")).toHaveAttribute("aria-pressed", "true");
-  await expect(starFor(page, "Delta s.r.o.")).toHaveAttribute("aria-pressed", "true");
-
-  await page.getByTestId("scope-mine").click();
-  await expect(page.getByTestId("scope-mine")).toHaveAttribute("aria-pressed", "true");
-  await expect(companyLink(page, "Beta s.r.o.")).toHaveCount(0);
-  await expect(companyLink(page, "Epsilon s.r.o.")).toHaveCount(0);
-  await expect(companyLink(page, "Gamma s.r.o.")).toBeVisible();
-  await expect(companyLink(page, "Delta s.r.o.")).toBeVisible();
-  await expect(page.getByTestId("hidden-count")).toContainText("Skryté: 2 firmy");
-
-  await expect(page.getByTestId("summary-silent")).toHaveText("0");
-  await expect(page.getByTestId("summary-profile-missing")).toHaveText("0");
-  await expect(page.getByTestId("summary-ready-to-close")).toHaveText("1");
-  await expect(page.getByTestId("summary-structure-deviations")).toHaveText("1");
-  await expect(page.getByTestId("summary-awaiting")).toHaveText("3");
-
-  // Survives a reload: the same mode, the same assignments.
-  await page.reload();
-  await expect(page.getByTestId("scope-mine")).toHaveAttribute("aria-pressed", "true");
-  await expect(companyLink(page, "Beta s.r.o.")).toHaveCount(0);
-  await expect(page.getByTestId("hidden-count")).toContainText("Skryté: 2 firmy");
-
-  // Unmarking drops the company out of the filter again.
-  await starFor(page, "Delta s.r.o.").click();
-  await expect(companyLink(page, "Delta s.r.o.")).toHaveCount(0);
-  await expect(page.getByTestId("hidden-count")).toContainText("Skryté: 3 firmy");
-
-  await page.getByTestId("scope-all").click();
-  await expect(companyLink(page, "Beta s.r.o.")).toBeVisible();
-  await expect(page.getByTestId("hidden-count")).toHaveCount(0);
-  await expect(page.getByTestId("summary-silent")).toHaveText("1");
-});
-
-test("an empty Moje firmy shows a hint instead of an empty table", async ({ page }) => {
-  await open(page);
-  await page.getByTestId("scope-mine").click();
-
-  await expect(page.getByTestId("assigned-empty-hint")).toContainText(
-    "Zatiaľ nemáš priradené žiadne firmy. Označ svoje firmy hviezdičkou v zozname Všetky firmy.",
-  );
-  await expect(page.getByRole("table")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Zobraziť všetky firmy" }).click();
-  await expect(page.getByRole("table")).toBeVisible();
-});
-
-test("two accountants in one browser keep separate lists", async ({ page }) => {
-  await open(page, "jean@example.com");
-  await starFor(page, "Beta s.r.o.").click();
-  await page.getByTestId("scope-mine").click();
-  await expect(companyLink(page, "Beta s.r.o.")).toBeVisible();
-  await expect(companyLink(page, "Gamma s.r.o.")).toHaveCount(0);
-
-  await open(page, "Colleague@Example.com");
-  await expect(page.getByTestId("scope-all")).toHaveAttribute("aria-pressed", "true");
-  await expect(starFor(page, "Beta s.r.o.")).toHaveAttribute("aria-pressed", "false");
-  await page.getByTestId("scope-mine").click();
-  await expect(page.getByTestId("assigned-empty-hint")).toBeVisible();
-
-  await open(page, "jean@example.com");
-  await expect(page.getByTestId("scope-mine")).toHaveAttribute("aria-pressed", "true");
-  await expect(companyLink(page, "Beta s.r.o.")).toBeVisible();
 });
 
 test("the companies narrow to one accountant's group, and the choice is kept", async ({ page }) => {
@@ -248,4 +157,11 @@ test("the companies narrow to one accountant's group, and the choice is kept", a
   await page.getByTestId("group-all").click();
   await expect(page.getByTestId("company-2")).toBeVisible();
   await expect(page.getByTestId("company-4")).toBeVisible();
+});
+
+test("group chips appear only when the visible companies span more than one group", async ({ page }) => {
+  await page.goto(`${ORIGIN}/?email=jean%40example.com&oneGroup=1`);
+  await expect(page.getByTestId("company-summary")).toBeVisible();
+  await expect(page.getByTestId("company-1")).toBeVisible();
+  await expect(page.getByTestId("company-groups")).toHaveCount(0);
 });

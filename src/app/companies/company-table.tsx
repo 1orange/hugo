@@ -2,21 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, Star } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { CompanyListItem } from "@/lib/sweep/views";
-import {
-  assignedCompaniesKey,
-  defaultAssignedCompanies,
-  filterCompanies,
-  hiddenCount,
-  isAssigned,
-  parseAssignedCompanies,
-  serializeAssignedCompanies,
-  setMode,
-  toggleCompany,
-  type AssignedCompanies,
-  type AssignmentMode,
-} from "@/modules/assigned-companies";
 import { companyGroupKey, companyGroupsOf, filterByGroup, parseCompanyGroup } from "@/modules/company-groups";
 import {
   chaseActionLabel,
@@ -120,36 +107,27 @@ function SummaryToken({
   );
 }
 
-type StorageStatus = "loading" | "ready" | "blocked";
-
-/** Reads are wrapped because a blocked or throwing storage must not break the page. */
-function readStorage(key: string): { ok: true; raw: string | null } | { ok: false } {
+/**
+ * The accountant group choice is kept in this browser. Reads are wrapped because
+ * blocked or throwing storage must not break the page: the choice then holds
+ * until the page is left.
+ */
+function readStorage(key: string): string | null {
   try {
-    return { ok: true, raw: window.localStorage.getItem(key) };
+    return window.localStorage.getItem(key);
   } catch {
-    return { ok: false };
-  }
-}
-
-function writeStorage(key: string, value: string): boolean {
-  try {
-    window.localStorage.setItem(key, value);
-    return true;
-  } catch {
-    return false;
+    return null;
   }
 }
 
 function ScopeButton({
   label,
   pressed,
-  disabled,
   testId,
   onClick,
 }: {
   label: string;
   pressed: boolean;
-  disabled: boolean;
   testId: string;
   onClick: () => void;
 }) {
@@ -157,7 +135,6 @@ function ScopeButton({
     <button
       type="button"
       aria-pressed={pressed}
-      disabled={disabled}
       data-testid={testId}
       onClick={onClick}
       className="segment"
@@ -168,61 +145,36 @@ function ScopeButton({
 }
 
 type CompanyTableProps = {
-  /** Every company the server found, already in chase order. */
+  /** The companies the person may see, already in chase order (ADR 0023). */
   rows: CompanyListItem[];
-  /** The signed-in email; the assignment is kept under a key for it. */
+  /** The signed-in email; the group choice is kept under a key for it. */
   email: string;
   selectedMonth: string | null;
-  /** The month picker, shown beside the scope controls. */
+  /** The month picker, shown beside the group chips. */
   monthControl?: ReactNode;
 };
 
 /**
- * The *Firmy* summary strip and table. Server work has already happened; this
- * only decides which rows are shown. Figures are recounted over the visible
- * rows, so with *Moje firmy* on they describe the accountant's own clients.
- *
- * Before the stored value is read (and whenever storage is blocked) the page is
- * *Všetky firmy* with assignment disabled, so the server-rendered markup and the
- * first client render agree.
+ * The *Firmy* summary strip and table. Server work has already happened: `rows`
+ * are only the companies this person may see, so the figures count theirs and
+ * nothing else. This decides only the accountant-group narrowing.
  */
 export function CompanyTable({ rows, email, selectedMonth, monthControl }: CompanyTableProps) {
-  const storageKey = useMemo(() => assignedCompaniesKey(email), [email]);
-  const [assignments, setAssignments] = useState<AssignedCompanies>(defaultAssignedCompanies);
-  const [storage, setStorage] = useState<StorageStatus>("loading");
-
-  useEffect(() => {
-    const stored = readStorage(storageKey);
-    if (stored.ok) {
-      setAssignments(parseAssignedCompanies(stored.raw));
-      setStorage("ready");
-    } else {
-      setAssignments(defaultAssignedCompanies());
-      setStorage("blocked");
-    }
-  }, [storageKey]);
-
-  const editable = storage === "ready";
-
-  function commit(next: AssignedCompanies) {
-    setAssignments(next);
-    if (!writeStorage(storageKey, serializeAssignedCompanies(next))) {
-      setStorage("blocked");
-      setAssignments(defaultAssignedCompanies());
-    }
-  }
-
   // The accountant's group ("Eva", "Katarína"), when the drive keeps clients per accountant.
   const groups = useMemo(() => companyGroupsOf(rows), [rows]);
   const groupKey = useMemo(() => companyGroupKey(email), [email]);
-  const [group, setGroup] = useState<string | null>(null);
+  const [storedGroup, setStoredGroup] = useState<string | null>(null);
   useEffect(() => {
-    const stored = readStorage(groupKey);
-    setGroup(stored.ok ? parseCompanyGroup(stored.raw, groups) : null);
+    setStoredGroup(parseCompanyGroup(readStorage(groupKey), groups));
   }, [groupKey, groups]);
 
+  // The chips show only when the visible companies span more than one group. Then a
+  // stored choice cannot narrow the table with no chip left to undo it.
+  const showGroups = groups.length > 1;
+  const group = showGroups ? storedGroup : null;
+
   function chooseGroup(next: string | null) {
-    setGroup(next);
+    setStoredGroup(next);
     try {
       if (next === null) {
         window.localStorage.removeItem(groupKey);
@@ -234,11 +186,7 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
     }
   }
 
-  const scoped = useMemo(
-    () => filterByGroup(filterCompanies(rows, assignments), group),
-    [rows, assignments, group],
-  );
-  const hidden = hiddenCount(rows, assignments);
+  const scoped = useMemo(() => filterByGroup(rows, group), [rows, group]);
   const summary = useMemo(() => summariseChaseList(scoped), [scoped]);
   // A figure she clicked narrows the table; the figures keep counting everything shown.
   const [filter, setFilter] = useState<ChaseFilter | null>(null);
@@ -257,12 +205,6 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
       ].sort(),
     [scoped],
   );
-  const mode: AssignmentMode = assignments.mode;
-  const showingEmptyMine = mode === "mine" && scoped.length === 0;
-
-  function chooseMode(next: AssignmentMode) {
-    commit(setMode(assignments, next));
-  }
 
   const tokens: Array<{ filter: ChaseFilter; count: number; label: string; tone: "accent" | "bad" | "warn" | "good"; testId: string }> = [
     {
@@ -296,12 +238,11 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
 
         <div className="flex flex-wrap items-center gap-2.5" data-testid="company-scope">
           {monthControl}
-          {groups.length > 0 ? (
+          {showGroups ? (
             <div role="group" aria-label="Účtovníčka" className="segmented" data-testid="company-groups">
               <ScopeButton
                 label="Všetky skupiny"
                 pressed={group === null}
-                disabled={false}
                 testId="group-all"
                 onClick={() => chooseGroup(null)}
               />
@@ -310,55 +251,14 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
                   key={name}
                   label={name}
                   pressed={group === name}
-                  disabled={false}
                   testId={`group-${name}`}
                   onClick={() => chooseGroup(name)}
                 />
               ))}
             </div>
           ) : null}
-          <div role="group" aria-label="Zobrazenie firiem" className="segmented">
-            <ScopeButton
-              label="Moje firmy"
-              pressed={mode === "mine"}
-              disabled={!editable}
-              testId="scope-mine"
-              onClick={() => chooseMode("mine")}
-            />
-            <ScopeButton
-              label="Všetky firmy"
-              pressed={mode === "all"}
-              disabled={!editable}
-              testId="scope-all"
-              onClick={() => chooseMode("all")}
-            />
-          </div>
         </div>
       </div>
-
-      {(mode === "mine" && hidden > 0) || storage === "blocked" ? (
-        <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1">
-          {mode === "mine" && hidden > 0 ? (
-            <p data-testid="hidden-count" className="text-[13px] text-ink-3">
-              Skryté: {hidden} {pluralSk(hidden, ["firma", "firmy", "firiem"])} —{" "}
-              <button
-                type="button"
-                onClick={() => chooseMode("all")}
-                disabled={!editable}
-                className="font-medium text-accent hover:underline disabled:opacity-50"
-              >
-                zobraz všetky
-              </button>
-            </p>
-          ) : null}
-          {storage === "blocked" ? (
-            <p data-testid="assignment-unavailable" className="text-[13px] text-warn">
-              Prehliadač neumožňuje ukladať údaje, preto sa zobrazujú všetky firmy a priradenie firiem nie je
-              dostupné.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
 
       <section aria-label="Súhrn" data-testid="company-summary" className="mb-5 flex flex-wrap items-center gap-2">
         {tokens.map((token) => (
@@ -383,184 +283,149 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
         ) : null}
       </section>
 
-      {showingEmptyMine ? (
-        <div className="inset-group max-w-md p-5">
-          <p data-testid="assigned-empty-hint" className="text-[14px] text-ink-2">
-            Zatiaľ nemáš priradené žiadne firmy. Označ svoje firmy hviezdičkou v zozname Všetky firmy.
-          </p>
-          <button
-            type="button"
-            onClick={() => chooseMode("all")}
-            className="press mt-3 rounded-lg bg-fill px-3 py-1.5 text-[13.5px] font-medium text-accent"
-          >
-            Zobraziť všetky firmy
-          </button>
-        </div>
-      ) : (
-        <div className="inset-group overflow-x-auto">
-          <table className="w-full min-w-[980px] border-collapse text-[14px]">
-            <caption className="sr-only">Firmy s prehľadom doručených dokladov za otvorený mesiac</caption>
-            <thead>
-              <tr className="text-[12px] font-medium text-ink-3">
-                <th scope="col" className="w-11 border-b border-line py-2.5 pl-3">
-                  <span className="sr-only">Moja firma</span>
-                </th>
-                <th scope="col" className="border-b border-line px-2 py-2.5 text-left font-medium">Firma</th>
-                <th scope="col" className="border-b border-line px-3 py-2.5 text-left font-medium">Bankový výpis</th>
-                <th scope="col" className="border-b border-line px-3 py-2.5 text-right font-medium">Doručené</th>
-                <th scope="col" className="border-b border-line px-3 py-2.5 text-right font-medium">Čaká</th>
-                <th scope="col" className="border-b border-line px-3 py-2.5 pl-6 text-left font-medium">Posledné nahratie</th>
-                <th scope="col" className="border-b border-line px-3 py-2.5 text-left font-medium">Ďalší krok</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((company) => {
-                const severity = chaseSeverity(company.chaseState);
-                const href = company.monthKey
-                  ? `/companies/${company.id}/${company.monthKey}`
-                  : company.openMonth
-                    ? `/companies/${company.id}/${company.openMonth}`
-                    : `/companies/${company.id}/activity`;
-                const quiet = chaseIsQuiet(company.chaseState);
-                const assigned = isAssigned(assignments, company.driveFolderId);
+      <div className="inset-group overflow-x-auto">
+        <table className="w-full min-w-[980px] border-collapse text-[14px]">
+          <caption className="sr-only">Firmy s prehľadom doručených dokladov za otvorený mesiac</caption>
+          <thead>
+            <tr className="text-[12px] font-medium text-ink-3">
+              <th scope="col" className="border-b border-line px-2 py-2.5 text-left font-medium">Firma</th>
+              <th scope="col" className="border-b border-line px-3 py-2.5 text-left font-medium">Bankový výpis</th>
+              <th scope="col" className="border-b border-line px-3 py-2.5 text-right font-medium">Doručené</th>
+              <th scope="col" className="border-b border-line px-3 py-2.5 text-right font-medium">Čaká</th>
+              <th scope="col" className="border-b border-line px-3 py-2.5 pl-6 text-left font-medium">Posledné nahratie</th>
+              <th scope="col" className="border-b border-line px-3 py-2.5 text-left font-medium">Ďalší krok</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((company) => {
+              const severity = chaseSeverity(company.chaseState);
+              const href = company.monthKey
+                ? `/companies/${company.id}/${company.monthKey}`
+                : company.openMonth
+                  ? `/companies/${company.id}/${company.openMonth}`
+                  : `/companies/${company.id}/activity`;
+              const quiet = chaseIsQuiet(company.chaseState);
 
-                return (
-                  <tr key={company.id} className="group transition-colors duration-100 hover:bg-surface-2">
-                    <td className="border-b border-line py-2 pl-3 align-middle">
-                      <button
-                        type="button"
-                        data-testid={`assign-company-${company.id}`}
-                        aria-pressed={assigned}
-                        aria-label={`Moja firma: ${company.name}`}
-                        title={assigned ? "Odobrať z mojich firiem" : "Pridať do mojich firiem"}
-                        disabled={!editable}
-                        onClick={() => commit(toggleCompany(assignments, company.driveFolderId))}
-                        className={`press grid size-8 place-items-center rounded-lg disabled:opacity-40 ${
-                          assigned ? "text-[#e0a400]" : "text-ink-4 hover:text-ink-3"
-                        }`}
-                      >
-                        <Star aria-hidden className="size-[17px]" fill={assigned ? "#f2b400" : "none"} strokeWidth={1.8} />
-                      </button>
-                    </td>
-                    <td className="border-b border-line px-2 py-2.5 align-middle">
-                      <Link
-                        href={href}
-                        data-testid={`company-${company.id}`}
-                        className={`text-[15px] font-semibold tracking-[-0.01em] hover:text-accent ${quiet ? "text-ink-3" : "text-ink"}`}
-                      >
-                        {company.name}
-                      </Link>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] text-ink-3">
-                        {company.groupName && group === null ? (
-                          <span data-testid={`company-group-${company.id}`}>{company.groupName}</span>
-                        ) : null}
-                        {company.profileMissing ? (
-                          <Link
-                            href={`/companies/${company.id}/profile`}
-                            data-testid={`company-profile-missing-${company.id}`}
-                            className="inline-flex items-center gap-1.5 text-warn hover:underline"
-                          >
-                            <Dot className="size-1.5 bg-warn-dot" />
-                            {profileMissingLabel()}
-                          </Link>
-                        ) : null}
-                        {company.structureDeviations > 0 ? (
-                          <Link
-                            href={`/companies/${company.id}/structure`}
-                            data-testid={`company-structure-${company.id}`}
-                            className="inline-flex items-center gap-1.5 text-warn hover:underline"
-                          >
-                            <Dot className="size-1.5 bg-warn-dot" />
-                            {structureBadgeLabel(company.structureDeviations)}
-                          </Link>
-                        ) : null}
-                        {company.registerStanding ? (
-                          <Link
-                            href={`/companies/${company.id}/profile`}
-                            data-testid={`company-register-${company.id}`}
-                            className="inline-flex items-center gap-1.5 text-ink-3 hover:text-ink-2"
-                          >
-                            <Dot className="size-1.5 bg-bad-dot" />
-                            Klient {registerStatusLabelOf(company.registerStanding)} v registri
-                          </Link>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="border-b border-line px-3 py-2.5 align-middle">
-                      {company.monthKey && !company.monthClosed ? (
-                        <StatementCell arrivedAt={company.statementArrivedAt} />
-                      ) : company.monthKey ? (
-                        <span className="text-[13px] text-ink-3">
-                          {company.statementArrivedAt ? "Doručený" : "Žiadny výpis"}
-                        </span>
-                      ) : (
-                        <span className="text-[13px] text-ink-4">—</span>
-                      )}
-                    </td>
-                    <td className="border-b border-line px-3 py-2.5 text-right align-middle">
-                      <Figure value={company.monthKey ? company.proofsArrived : null} />
-                    </td>
-                    <td className="border-b border-line px-3 py-2.5 text-right align-middle">
-                      <span data-testid={`company-awaiting-${company.id}`}>
-                        <Figure value={company.awaitingCount} />
-                      </span>
-                    </td>
-                    <td className="border-b border-line px-3 py-2.5 pl-6 align-middle text-[13px]">
-                      {company.monthKey && !company.monthClosed && !company.lastUploadAt ? (
-                        <span className="text-bad">Tento mesiac nič</span>
-                      ) : (
-                        <span className="tabular text-ink-3">
-                          {company.monthKey ? formatUploadMoment(company.lastUploadAt) : "—"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="border-b border-line px-3 py-2.5 align-middle">
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <span
-                            data-testid={`company-stage-${company.id}`}
-                            className={`text-[13.5px] whitespace-nowrap ${quiet ? "text-ink-3" : NEXT_STEP_INK[severity]} ${
-                              company.chaseState === "ready-to-close" ? "font-semibold" : ""
-                            }`}
-                          >
-                            {chaseActionLabel(company.chaseState, company.awaitingCount)}
-                          </span>
-                          <div className="flex flex-wrap gap-x-2 text-[12px] text-ink-3">
-                            {company.profileMissing ? (
-                              <Link
-                                href={`/companies/${company.id}/profile`}
-                                data-testid={`company-profile-setup-${company.id}`}
-                                className="font-medium text-accent hover:underline"
-                              >
-                                {profileSetupActionLabel()}
-                              </Link>
-                            ) : null}
-                            {company.monthKey ? <span>{monthLabel(company.monthKey)}</span> : null}
-                          </div>
-                        </div>
-                        <Link href={href} aria-hidden tabIndex={-1} className="text-ink-4 group-hover:text-ink-3">
-                          <ChevronRight className="size-4 transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none" />
+              return (
+                <tr key={company.id} className="group transition-colors duration-100 hover:bg-surface-2">
+                  <td className="border-b border-line px-2 py-2.5 align-middle">
+                    <Link
+                      href={href}
+                      data-testid={`company-${company.id}`}
+                      className={`text-[15px] font-semibold tracking-[-0.01em] hover:text-accent ${quiet ? "text-ink-3" : "text-ink"}`}
+                    >
+                      {company.name}
+                    </Link>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] text-ink-3">
+                      {company.groupName && group === null ? (
+                        <span data-testid={`company-group-${company.id}`}>{company.groupName}</span>
+                      ) : null}
+                      {company.profileMissing ? (
+                        <Link
+                          href={`/companies/${company.id}/profile`}
+                          data-testid={`company-profile-missing-${company.id}`}
+                          className="inline-flex items-center gap-1.5 text-warn hover:underline"
+                        >
+                          <Dot className="size-1.5 bg-warn-dot" />
+                          {profileMissingLabel()}
                         </Link>
+                      ) : null}
+                      {company.structureDeviations > 0 ? (
+                        <Link
+                          href={`/companies/${company.id}/structure`}
+                          data-testid={`company-structure-${company.id}`}
+                          className="inline-flex items-center gap-1.5 text-warn hover:underline"
+                        >
+                          <Dot className="size-1.5 bg-warn-dot" />
+                          {structureBadgeLabel(company.structureDeviations)}
+                        </Link>
+                      ) : null}
+                      {company.registerStanding ? (
+                        <Link
+                          href={`/companies/${company.id}/profile`}
+                          data-testid={`company-register-${company.id}`}
+                          className="inline-flex items-center gap-1.5 text-ink-3 hover:text-ink-2"
+                        >
+                          <Dot className="size-1.5 bg-bad-dot" />
+                          Klient {registerStatusLabelOf(company.registerStanding)} v registri
+                        </Link>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="border-b border-line px-3 py-2.5 align-middle">
+                    {company.monthKey && !company.monthClosed ? (
+                      <StatementCell arrivedAt={company.statementArrivedAt} />
+                    ) : company.monthKey ? (
+                      <span className="text-[13px] text-ink-3">
+                        {company.statementArrivedAt ? "Doručený" : "Žiadny výpis"}
+                      </span>
+                    ) : (
+                      <span className="text-[13px] text-ink-4">—</span>
+                    )}
+                  </td>
+                  <td className="border-b border-line px-3 py-2.5 text-right align-middle">
+                    <Figure value={company.monthKey ? company.proofsArrived : null} />
+                  </td>
+                  <td className="border-b border-line px-3 py-2.5 text-right align-middle">
+                    <span data-testid={`company-awaiting-${company.id}`}>
+                      <Figure value={company.awaitingCount} />
+                    </span>
+                  </td>
+                  <td className="border-b border-line px-3 py-2.5 pl-6 align-middle text-[13px]">
+                    {company.monthKey && !company.monthClosed && !company.lastUploadAt ? (
+                      <span className="text-bad">Tento mesiac nič</span>
+                    ) : (
+                      <span className="tabular text-ink-3">
+                        {company.monthKey ? formatUploadMoment(company.lastUploadAt) : "—"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="border-b border-line px-3 py-2.5 align-middle">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <span
+                          data-testid={`company-stage-${company.id}`}
+                          className={`text-[13.5px] whitespace-nowrap ${quiet ? "text-ink-3" : NEXT_STEP_INK[severity]} ${
+                            company.chaseState === "ready-to-close" ? "font-semibold" : ""
+                          }`}
+                        >
+                          {chaseActionLabel(company.chaseState, company.awaitingCount)}
+                        </span>
+                        <div className="flex flex-wrap gap-x-2 text-[12px] text-ink-3">
+                          {company.profileMissing ? (
+                            <Link
+                              href={`/companies/${company.id}/profile`}
+                              data-testid={`company-profile-setup-${company.id}`}
+                              className="font-medium text-accent hover:underline"
+                            >
+                              {profileSetupActionLabel()}
+                            </Link>
+                          ) : null}
+                          {company.monthKey ? <span>{monthLabel(company.monthKey)}</span> : null}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {visible.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <p className="text-[15px] font-semibold">Nič tu nečaká</p>
-              <p className="mt-1 text-ink-3">
-                Tomuto filtru nezodpovedá žiadna firma.{" "}
-                <button type="button" onClick={() => setFilter(null)} className="font-medium text-accent hover:underline">
-                  Zobraziť všetky
-                </button>
-              </p>
-            </div>
-          ) : null}
-        </div>
-      )}
+                      <Link href={href} aria-hidden tabIndex={-1} className="text-ink-4 group-hover:text-ink-3">
+                        <ChevronRight className="size-4 transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {visible.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-[15px] font-semibold">Nič tu nečaká</p>
+            <p className="mt-1 text-ink-3">
+              Tomuto filtru nezodpovedá žiadna firma.{" "}
+              <button type="button" onClick={() => setFilter(null)} className="font-medium text-accent hover:underline">
+                Zobraziť všetky
+              </button>
+            </p>
+          </div>
+        ) : null}
+      </div>
 
       <p className="mx-1 mt-3.5 text-[12.5px] text-ink-3">
         Zobrazuje sa len to, čo naozaj prišlo — žiadne očakávané počty a žiadne automatické upomienky. Klientov

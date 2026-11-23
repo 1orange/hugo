@@ -29,8 +29,8 @@ function roleLabel(role: string): string {
 
 /**
  * *Prístup z Drive*: per company, which allowlisted users the sharing lets see it, and
- * the group grants Hugo cannot expand. Shown so the office can check before anything
- * is restricted by it.
+ * the group grants Hugo cannot expand. This is what decides who sees each company
+ * (ADR 0023), so the office can check it before and after a share changes.
  */
 export function DriveAccessSection({ rows }: { rows: DriveAccessRow[] }) {
   return (

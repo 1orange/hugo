@@ -78,7 +78,7 @@ export const driveItems = pgTable("drive_items", {
 /**
  * Who a company's Drive folder is shared with, as of the last successful read of
  * its sharing (PRD 0007). Replaced wholesale per company on each read; a failed
- * read keeps the rows it had. Nothing is restricted by it yet.
+ * read keeps the rows it had. Who sees a company is decided from these rows (ADR 0023).
  */
 export const companyPrincipals = pgTable("company_principals", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

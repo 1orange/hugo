@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getCompanyById } from "@/adapters/store/companies";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { getMonthFolder } from "@/adapters/store/month-folders";
 import { listActiveRenamesForCompany } from "@/adapters/store/drive-mutations";
 import { listStructureDeviationsForCompany } from "@/adapters/store/structure-deviations";
@@ -54,6 +55,11 @@ export default async function CompanyStructurePage({ params }: StructurePageProp
   const { companyId } = await params;
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
+    notFound();
+  }
+
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyIdNum))) {
     notFound();
   }
 

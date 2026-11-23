@@ -50,8 +50,12 @@ export function OmegaExportPanel({ companyId, monthKey, integrityProblems }: Ome
     setError(null);
     startTransition(async () => {
       try {
-        const next = await previewOmegaExportAction({ companyId, monthKey });
-        setPreview(next);
+        const result = await previewOmegaExportAction({ companyId, monthKey });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
+        setPreview(result.preview);
         setOpen(false);
         sheetRef.current?.showModal();
       } catch (loadError) {
@@ -77,7 +81,10 @@ export function OmegaExportPanel({ companyId, monthKey, integrityProblems }: Ome
       anchor.click();
       URL.revokeObjectURL(url);
       if (sheetRef.current?.open) {
-        setPreview(await previewOmegaExportAction({ companyId, monthKey }));
+        const again = await previewOmegaExportAction({ companyId, monthKey });
+        if (again.ok) {
+          setPreview(again.preview);
+        }
       }
     });
   }
