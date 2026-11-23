@@ -252,6 +252,8 @@ test("the waiting section says when the queue will be empty, in Slovak", async (
 });
 
 test("with nothing waiting, the waiting section says so and gives no estimate", async ({ page }) => {
+  // Wait for the panel to subscribe to the feed; an event sent before that is lost.
+  await expect(page.getByTestId("queue-waiting-month")).toHaveCount(3);
   await sendQueue(page, { ...view, waitingMonths: [], estimate: { kind: "empty" } });
   await expect(page.getByTestId("queue-waiting-empty")).toHaveText("Nič nečaká na prečítanie.");
   await expect(page.getByTestId("queue-waiting-month")).toHaveCount(0);
