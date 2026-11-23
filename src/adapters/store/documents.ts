@@ -9,7 +9,7 @@ import {
   type EkasaExtractedPayload,
   type ExtractedPayload,
 } from "@/modules/document-payload";
-import { isProcessedFolderSlot } from "@/modules/document-state";
+import { isProcessedFolderSlot, PROCESSED_FOLDER_SLOTS } from "@/modules/document-state";
 import { isSystemFile } from "@/modules/system-files";
 import {
   EXTRACTION_PIPELINE_VERSION,
@@ -132,27 +132,68 @@ export async function ensureDocumentsForMonth(
         ),
       )
   ).filter((file) => isProcessedFolderSlot(file.folderSlot));
-  if (eligible.length === 0) {
+  return placeDocumentsForFiles(
+    eligible.map((file) => ({
+      driveFileId: file.driveFileId,
+      companyId,
+      monthKey,
+      folderSlot: file.folderSlot!,
+    })),
+    createdAt,
+  );
+}
+
+/** Rows per lookup: well under Postgres's bound-parameter limit. */
+const PLACE_CHUNK = 500;
+
+/**
+ * Gives each file's document its place. A file with no document gets one,
+ * pending; a document whose file was filed elsewhere moves with it, to another
+ * folder or another month (a late arrival moved into the open month, ADR 0006).
+ * Takes files of any months, so the background reading window places a sweep's
+ * files in one call; ensureDocumentsForMonth is the one month's files. Returns
+ * how many documents were created.
+ */
+export async function placeDocumentsForFiles(
+  filesToPlace: ReadonlyArray<{
+    driveFileId: string;
+    companyId: number;
+    monthKey: string;
+    folderSlot: string;
+  }>,
+  createdAt: string,
+): Promise<number> {
+  if (filesToPlace.length === 0) {
     return 0;
   }
-
-  const existingPlaces = new Map(
-    (
-      await db
-        .select({
-          id: documents.id,
-          companyId: documents.companyId,
-          monthKey: documents.monthKey,
-          folderSlot: documents.folderSlot,
-        })
-        .from(documents)
-        .where(inArray(documents.id, eligible.map((file) => file.driveFileId)))
-    ).map((row) => [row.id, row]),
-  );
+  const db = getDb();
+  const existingPlaces = new Map<
+    string,
+    { id: string; companyId: number; monthKey: string; folderSlot: string }
+  >();
+  for (let index = 0; index < filesToPlace.length; index += PLACE_CHUNK) {
+    const rows = await db
+      .select({
+        id: documents.id,
+        companyId: documents.companyId,
+        monthKey: documents.monthKey,
+        folderSlot: documents.folderSlot,
+      })
+      .from(documents)
+      .where(
+        inArray(
+          documents.id,
+          filesToPlace.slice(index, index + PLACE_CHUNK).map((file) => file.driveFileId),
+        ),
+      );
+    for (const row of rows) {
+      existingPlaces.set(row.id, row);
+    }
+  }
 
   let created = 0;
-  for (const file of eligible) {
-    const folderSlot = file.folderSlot!;
+  for (const file of filesToPlace) {
+    const { companyId, monthKey, folderSlot } = file;
     const existing = existingPlaces.get(file.driveFileId);
     if (existing !== undefined) {
       if (existing.folderSlot !== folderSlot || existing.monthKey !== monthKey || existing.companyId !== companyId) {
@@ -184,6 +225,92 @@ export async function ensureDocumentsForMonth(
     created += inserted.length;
   }
   return created;
+}
+
+/**
+ * A file in a processed folder with its document, as the background reading
+ * window needs them. `document` is null while the file has none yet.
+ */
+export type ProcessedFileWithDocument = {
+  driveFileId: string;
+  companyId: number;
+  monthKey: string;
+  folderSlot: string | null;
+  name: string;
+  mimeType: string;
+  document: {
+    companyId: number;
+    monthKey: string;
+    folderSlot: string;
+    extractionStatus: string;
+    extractionPipelineVersion: number | null;
+    decision: string | null;
+    exportedAt: string | null;
+    replacementPending: boolean;
+  } | null;
+};
+
+/**
+ * The files of processed folders in the given months, not deleted, each with
+ * its document: the reading window's whole input in one query, where the
+ * per-month path asked once per company and month. Statements, and any folder
+ * the pipeline does not read, are not in it.
+ */
+export async function listProcessedFilesWithDocuments(
+  monthKeys: readonly string[],
+): Promise<ProcessedFileWithDocument[]> {
+  if (monthKeys.length === 0) {
+    return [];
+  }
+  const db = getDb();
+  const rows = await db
+    .select({
+      driveFileId: files.driveFileId,
+      companyId: files.companyId,
+      monthKey: files.monthKey,
+      folderSlot: files.folderSlot,
+      name: files.name,
+      mimeType: files.mimeType,
+      documentId: documents.id,
+      documentCompanyId: documents.companyId,
+      documentMonthKey: documents.monthKey,
+      documentFolderSlot: documents.folderSlot,
+      documentStatus: documents.extractionStatus,
+      documentPipelineVersion: documents.extractionPipelineVersion,
+      documentDecision: documents.decision,
+      documentExportedAt: documents.exportedAt,
+      documentReplacementPending: documents.replacementPending,
+    })
+    .from(files)
+    .leftJoin(documents, eq(documents.id, files.driveFileId))
+    .where(
+      and(
+        eq(files.deleted, false),
+        inArray(files.monthKey, [...monthKeys]),
+        inArray(files.folderSlot, [...PROCESSED_FOLDER_SLOTS]),
+      ),
+    );
+  return rows.map((row) => ({
+    driveFileId: row.driveFileId,
+    companyId: row.companyId,
+    monthKey: row.monthKey,
+    folderSlot: row.folderSlot,
+    name: row.name,
+    mimeType: row.mimeType,
+    document:
+      row.documentId === null
+        ? null
+        : {
+            companyId: row.documentCompanyId!,
+            monthKey: row.documentMonthKey!,
+            folderSlot: row.documentFolderSlot!,
+            extractionStatus: row.documentStatus!,
+            extractionPipelineVersion: row.documentPipelineVersion,
+            decision: row.documentDecision,
+            exportedAt: row.documentExportedAt,
+            replacementPending: row.documentReplacementPending ?? false,
+          },
+  }));
 }
 
 export async function setDocumentDecision(

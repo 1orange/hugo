@@ -99,6 +99,13 @@
       "when": 1794839785636,
       "tag": "0013_office_clients",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795441079899,
+      "tag": "0014_reading_window_start",
+      "breakpoints": true
     }
   ]
 }

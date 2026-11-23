@@ -43,6 +43,7 @@ export default async function SettingsPage() {
           initialCanonicalFolderNames={settings.canonicalFolderNames}
           initialMovableFolderNames={settings.movableFolderNames}
           initialAutoAdvanceAfterDecision={settings.autoAdvanceAfterDecision}
+          initialReadingWindowStart={settings.effectiveReadingWindowStart}
           lastSweepLabel={formatSweepAge(settings.lastSweepAt)}
         />
       </main>

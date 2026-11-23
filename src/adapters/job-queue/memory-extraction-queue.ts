@@ -22,7 +22,7 @@ export class MemoryExtractionJobQueue implements ExtractionJobQueue {
     }
     this.modelJobs.set(data.driveFileId, {
       data,
-      priority: priorityFor(data.kind, this.raisedMonths.has(monthId(data))),
+      priority: priorityFor(data.kind, this.raisedMonths.has(monthId(data)) ? "raised" : data.tier),
     });
     return true;
   }
@@ -36,7 +36,7 @@ export class MemoryExtractionJobQueue implements ExtractionJobQueue {
       if (monthId(data) !== id) {
         continue;
       }
-      const priority = priorityFor(data.kind, true);
+      const priority = priorityFor(data.kind, "raised");
       if (entry.priority !== priority) {
         entry.priority = priority;
         moved += 1;

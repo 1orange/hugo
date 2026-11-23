@@ -1,6 +1,5 @@
 import {
-  DOCUMENT_PRIORITY,
-  RECEIPT_PRIORITY,
+  priorityFor,
   type ExtractionJobQueue,
 } from "@/adapters/job-queue/port";
 import { getCompanyById } from "@/adapters/store/companies";
@@ -14,6 +13,7 @@ import { announce } from "@/lib/events/bus";
 import { listModelExtractionCandidates } from "@/lib/model-extraction/discover-model-extraction";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { needsExtraction, needsPipelineReread } from "@/modules/extraction-pipeline";
+import type { ReadingTier } from "@/modules/reading-planner";
 
 /**
  * Queues the month's documents that still need reading; returns how many this
@@ -26,6 +26,7 @@ export async function enqueueMonthExtraction(
   companyId: number,
   monthKey: string,
   now: () => string = () => new Date().toISOString(),
+  tier: ReadingTier = "recent",
 ): Promise<number> {
   if (await assertMonthEditable(companyId, monthKey)) {
     return 0;
@@ -59,9 +60,10 @@ export async function enqueueMonthExtraction(
         folderSlot: file.folderSlot,
         mimeType: file.mimeType,
         enqueuedAt: now(),
+        tier,
         ...(reread ? { reread: true } : {}),
       },
-      { priority: file.kind === "receipt" ? RECEIPT_PRIORITY : DOCUMENT_PRIORITY },
+      { priority: priorityFor(file.kind, tier) },
     );
     if (queued) {
       if (!reread) {

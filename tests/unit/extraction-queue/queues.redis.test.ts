@@ -11,7 +11,7 @@ import {
   extractionQueue,
   sweepQueue,
 } from "../../../src/adapters/job-queue/bullmq-queues.ts";
-import { DOCUMENT_PRIORITY, type ExtractionJobData } from "../../../src/adapters/job-queue/port.ts";
+import { RECENT_DOCUMENT_PRIORITY, type ExtractionJobData } from "../../../src/adapters/job-queue/port.ts";
 import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
 import type { PdfAccess } from "../../../src/adapters/pdf/port.ts";
 import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
@@ -73,8 +73,8 @@ function job(driveFileId: string): ExtractionJobData {
 
 test("a file queued twice, as two replicas would, is one job", { skip }, async () => {
   const queue = new BullmqExtractionJobQueue();
-  assert.equal(await queue.add(job("dup-file"), { priority: DOCUMENT_PRIORITY }), true);
-  assert.equal(await queue.add(job("dup-file"), { priority: DOCUMENT_PRIORITY }), false);
+  assert.equal(await queue.add(job("dup-file"), { priority: RECENT_DOCUMENT_PRIORITY }), true);
+  assert.equal(await queue.add(job("dup-file"), { priority: RECENT_DOCUMENT_PRIORITY }), false);
   const counts = await extractionQueue().getJobCounts("waiting", "prioritized");
   assert.equal(counts.waiting + counts.prioritized, 1);
   await extractionQueue().obliterate({ force: true });

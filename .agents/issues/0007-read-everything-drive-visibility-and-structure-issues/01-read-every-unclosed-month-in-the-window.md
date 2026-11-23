@@ -1,7 +1,7 @@
 # 01 — Every unclosed month in the reading window is read after each sweep, in priority order
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -42,14 +42,14 @@ unclosed month in the reading window**, in a useful order.
 
 ## Acceptance criteria
 
-- [ ] Read planner unit tests (table-driven): window bounds; closed and future months excluded; booking month across the year boundary; tier order; the raised month first; window start setting honoured.
-- [ ] A file discovered in `2026_10` while the open month is `2026_11` is queued by the next sweep without the month being opened (PGlite + queue integration test).
-- [ ] A file in a closed month, or in a month before the window start, is not queued in the background; opening such an unclosed month still queues and raises it.
-- [ ] A file queued by a notification, the poll and a page is one job.
-- [ ] Priority order is observable: with jobs in all tiers waiting, raised ones are taken first, then recent, then backlog; receipts before documents in each tier (Redis test).
-- [ ] The background pass runs one query, not one per company and month. A test asserts it finds the same documents the per-month path would.
-- [ ] *Čítať doklady od* is editable in Settings, validated as `YYYY_MM`, and defaults as specified.
-- [ ] ADR 0020 amended.
+- [x] Read planner unit tests (table-driven): window bounds; closed and future months excluded; booking month across the year boundary; tier order; the raised month first; window start setting honoured.
+- [x] A file discovered in `2026_10` while the open month is `2026_11` is queued by the next sweep without the month being opened (PGlite + queue integration test).
+- [x] A file in a closed month, or in a month before the window start, is not queued in the background; opening such an unclosed month still queues and raises it.
+- [x] A file queued by a notification, the poll and a page is one job.
+- [x] Priority order is observable: with jobs in all tiers waiting, raised ones are taken first, then recent, then backlog; receipts before documents in each tier (Redis test).
+- [x] The background pass runs one query, not one per company and month. A test asserts it finds the same documents the per-month path would.
+- [x] *Čítať doklady od* is editable in Settings, validated as `YYYY_MM`, and defaults as specified.
+- [x] ADR 0020 amended.
 
 ## Blocked by
 

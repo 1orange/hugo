@@ -78,6 +78,7 @@ async function readExtractionJob(
                 fileName: data.fileName,
                 folderSlot: data.folderSlot,
                 source: text.source ?? "model",
+                tier: data.tier,
                 lines: text.lines,
                 readStartedAt: reporter.current.startedAt,
                 stages: reporter.stages,

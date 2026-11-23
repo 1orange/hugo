@@ -82,3 +82,39 @@ Redis for the queue page.
 `-np` is now the one setting. `EXTRACTOR_CONCURRENCY` is only the fallback: it, or 1, holds the
 lane while the server does not answer or does not say its slots (Ollama answers 404 on `/props`).
 A model that comes back is asked again, so a fallback is corrected without restarting a worker.
+
+## Amendment (2026-11-23): the reading window
+
+A sweep no longer queues each company's open month. It queues the **reading window**: every unread
+document of every unclosed month from the window start up to the current month, on the office clock
+(`Europe/Bratislava`). The sweep is what it was, a Drive notification, the 15-minute poll or a page's
+`after()`, so a document a client files in last month's folder is read within a minute of Drive
+reporting it, without anyone opening that month. In November that is October's folder, which the open
+month rule never reached.
+
+- **The window.** A month is read in the background when its key is at or after the window start, at
+  or before the current month, and not closed. Closed months are never read by a sweep. The window
+  start is the setting *Čítať doklady od* (`YYYY_MM`). Left at the default it is January of the booking
+  month's year, computed each time, so it moves with the year; the form stores none for the default.
+  The booking month is the calendar month before the current one (`bookingMonthKey`). A month before
+  the window start is read when someone opens it, as before.
+- **Tiers.** The read planner orders the months. *Raised*: the month a page opened, read whatever its
+  date, if it is not closed. *Recent*: the booking month, then the current month. *Backlog*: the other
+  months of the window, newest first. Within each tier, receipts come before documents.
+- **Priorities.** Six BullMQ levels, lower first: raised receipt 1, raised document 2, recent receipt 3,
+  recent document 4, backlog receipt 5, backlog document 6. A document handed to the model lane keeps
+  the tier its file was read with, and goes raised if its month is raised by then. `raiseMonth` is
+  unchanged.
+- **One query.** The window's files and their documents come from one store query
+  (`listProcessedFilesWithDocuments`), not one enqueue per company and month. A file with no document
+  yet, or whose document sits in another month or folder, has its document placed first. One job per
+  file still deduplicates across notifications, the poll and pages.
+- **The first run.** No special mode. The first sweep on a clean database queues the window in tier
+  order, and what is read stays read, so later sweeps find only new or changed files. A pipeline version
+  bump re-reads the undecided results in the window's unclosed months, as the sweeps queue them.
+- **Opened months.** A month page passes its month as the raised one. Opening a month before the window
+  start still queues and raises it; opening a closed month reads nothing. The per-month enqueue remains
+  for the re-extraction action, which asks for one document's month.
+
+Known limit: a file that arrives in a month a page raised earlier is queued at its tier, not raised,
+until that month is opened again. It still goes ahead of the backlog.

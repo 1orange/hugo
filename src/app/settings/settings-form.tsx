@@ -13,6 +13,8 @@ type SettingsFormProps = {
   initialCanonicalFolderNames: string[];
   initialMovableFolderNames: string[];
   initialAutoAdvanceAfterDecision: boolean;
+  /** The window start in force (`YYYY_MM`): the stored one, or the default. */
+  initialReadingWindowStart: string;
   /** "pred 20 s" — when Drive was last read. */
   lastSweepLabel: string;
 };
@@ -24,6 +26,7 @@ type Snapshot = {
   driveParentFolderId: string;
   types: DocumentType[];
   autoAdvance: boolean;
+  readingWindowStart: string;
 };
 
 const PROCESSED = new Set<string>(PROCESSED_FOLDER_SLOTS);
@@ -110,12 +113,14 @@ export function SettingsForm({
   initialCanonicalFolderNames,
   initialMovableFolderNames,
   initialAutoAdvanceAfterDecision,
+  initialReadingWindowStart,
   lastSweepLabel,
 }: SettingsFormProps) {
   const [saved, setSaved] = useState<Snapshot>(() => ({
     driveParentFolderId: initialDriveParentFolderId,
     types: typesOf(initialCanonicalFolderNames, initialMovableFolderNames),
     autoAdvance: initialAutoAdvanceAfterDecision,
+    readingWindowStart: initialReadingWindowStart,
   }));
   const [current, setCurrent] = useState<Snapshot>(saved);
   const [draftName, setDraftName] = useState("");
@@ -196,6 +201,7 @@ export function SettingsForm({
         canonicalFolderNames: proposedNames,
         movableFolderNames: current.types.filter((type) => type.movable).map((type) => type.name),
         autoAdvanceAfterDecision: current.autoAdvance,
+        readingWindowStart: current.readingWindowStart,
       });
       if (!result.ok) {
         setSaveError(result.message);
@@ -206,6 +212,7 @@ export function SettingsForm({
         driveParentFolderId: stored.effectiveDriveParentFolderId ?? current.driveParentFolderId,
         types: typesOf(stored.canonicalFolderNames, stored.movableFolderNames),
         autoAdvance: stored.autoAdvanceAfterDecision,
+        readingWindowStart: stored.effectiveReadingWindowStart,
       };
       setSaved(next);
       setCurrent(next);
@@ -216,6 +223,7 @@ export function SettingsForm({
 
   const changes =
     Number(current.autoAdvance !== saved.autoAdvance) +
+    Number(current.readingWindowStart !== saved.readingWindowStart) +
     Number(current.driveParentFolderId !== saved.driveParentFolderId) +
     Number(JSON.stringify(current.types) !== JSON.stringify(saved.types));
 
@@ -235,10 +243,22 @@ export function SettingsForm({
               testId="auto-advance-toggle"
             />
           </div>
+          <label className="flex items-center gap-3 border-t border-line px-4 py-3">
+            <span className="shrink-0 text-[14px]">Čítať doklady od</span>
+            <input
+              className="min-w-0 flex-1 bg-transparent text-right font-mono text-[13px] outline-none focus:text-accent"
+              value={current.readingWindowStart}
+              onChange={(event) => update({ readingWindowStart: event.target.value })}
+              placeholder="RRRR_MM"
+              spellCheck={false}
+              data-testid="reading-window-start"
+            />
+          </label>
         </div>
         <Footnote>
           Po potvrdení alebo označení za nerelevantný sa vyberie ďalší doklad, ktorý ešte čaká. Vypnuté zostávaš na tom
-          istom doklade.
+          istom doklade. Neuzavreté mesiace od tohto mesiaca dozadu sa čítajú automaticky, aj keď ich nikto neotvorí.
+          Staršie mesiace sa čítajú, až keď ich otvoríš. Formát RRRR_MM, napríklad 2026_01.
         </Footnote>
       </section>
 

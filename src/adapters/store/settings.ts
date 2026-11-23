@@ -26,6 +26,8 @@ export type SettingsRow = {
   omegaT00DocumentTypeCode: string;
   omegaT00ForeignDocumentTypeCode: string;
   subjectRefreshDays: number;
+  /** The first month read in the background (`YYYY_MM`); null means the default (see reading-planner). */
+  readingWindowStart: string | null;
 };
 
 function defaultMovableFolderNames(): string[] {
@@ -78,6 +80,7 @@ export async function getSettings(): Promise<SettingsRow> {
     omegaT00DocumentTypeCode: row.omegaT00DocumentTypeCode ?? "180",
     omegaT00ForeignDocumentTypeCode: row.omegaT00ForeignDocumentTypeCode ?? "380",
     subjectRefreshDays: row.subjectRefreshDays ?? DEFAULT_SUBJECT_REFRESH_DAYS,
+    readingWindowStart: row.readingWindowStart ?? null,
   };
 }
 
@@ -118,6 +121,14 @@ export async function setSubjectRefreshDays(days: number): Promise<void> {
     throw new Error("Obnovenie údajov subjektov musí byť 1 až 365 dní.");
   }
   await updateSettings({ subjectRefreshDays: days });
+}
+
+/**
+ * *Čítať doklady od*: null keeps the default, which moves with the booking
+ * year, so the caller stores null when the office chose the default.
+ */
+export async function setReadingWindowStart(monthKey: string | null): Promise<void> {
+  await updateSettings({ readingWindowStart: monthKey });
 }
 
 export async function setAutoAdvanceAfterDecision(enabled: boolean): Promise<void> {

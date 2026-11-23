@@ -7,7 +7,7 @@ import type { Extractor } from "../../../src/adapters/extractor/port.ts";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import { FakeEkasaLookup } from "../../../src/adapters/ekasa-lookup/fake-ekasa-lookup.ts";
 import { MemoryExtractionJobQueue } from "../../../src/adapters/job-queue/memory-extraction-queue.ts";
-import { DOCUMENT_PRIORITY } from "../../../src/adapters/job-queue/port.ts";
+import { RECENT_DOCUMENT_PRIORITY } from "../../../src/adapters/job-queue/port.ts";
 import { FakeOcr } from "../../../src/adapters/ocr/fake-ocr.ts";
 import type { PdfAccess } from "../../../src/adapters/pdf/port.ts";
 import { emptyQrReader } from "../../../src/adapters/qr-reader/fake-qr-reader.ts";
@@ -105,7 +105,7 @@ test("queuing a month again while its documents are queued adds nothing", async 
 
   assert.deepEqual([...queue.jobs.keys()].sort(), INVOICES);
   const job = queue.jobs.get("doc-invoice-a")!;
-  assert.equal(job.priority, DOCUMENT_PRIORITY);
+  assert.equal(job.priority, RECENT_DOCUMENT_PRIORITY);
   assert.equal(job.data.companyName, "Delta s.r.o.");
   assert.equal(job.data.fileName, "doc-invoice-a.pdf");
   assert.equal(await extractionStatus("doc-invoice-a"), "pending");

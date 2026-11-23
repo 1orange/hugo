@@ -1,9 +1,8 @@
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
 import { getSettings, resolveDriveParentFolderId, setDriveParentFolderId } from "@/adapters/store/settings";
-import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
+import { queueReadingWindowForExtraction } from "@/lib/extraction-queue/reading-window";
 import { isSweepStale } from "@/lib/sweep/stale";
 import { runSweep, sweepUnlessRunning } from "@/lib/sweep/run-sweep";
-import { listCompanySummaries } from "@/lib/sweep/views";
 
 export function isDriveConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.DRIVE_CLIENT === "fake" || Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -39,14 +38,14 @@ export async function sweepDrive(
 
 /**
  * What a page asks for after it has answered (`after()`): a sweep if the last
- * one is stale, then the open months' unread documents queued. A page never
+ * one is stale, then the reading window's unread documents queued. A page never
  * waits for Drive; the screens re-render when the sweep announces a change.
  * Never throws: it runs after the response, where nothing would catch it.
  */
 export async function refreshAfterRender(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   try {
     await ensureFreshSweep(env);
-    await queueOpenMonthsForExtraction();
+    await queueReadingWindowForExtraction();
   } catch (error) {
     console.warn("[sweep] the background refresh failed", error);
   }
@@ -58,17 +57,12 @@ export async function ensureFreshSweep(
   await sweepDrive(env, { onlyIfStale: true });
 }
 
-/** Queues every open month's unread documents for the workers. */
-export async function queueOpenMonthsForExtraction(): Promise<void> {
-  for (const company of await listCompanySummaries(null)) {
-    if (company.openMonth && !company.monthClosed) {
-      await scheduleDocumentExtractionForMonth(company.id, company.openMonth);
-    }
-  }
-}
-
-/** Sweeps Drive and queues what arrived: a notification's and the poll's work. */
+/**
+ * Sweeps Drive and queues what arrived: a notification's and the poll's work.
+ * The reading window is queued after every sweep, so a document a client put
+ * in last month's folder is read without anyone opening that month (ADR 0020).
+ */
 export async function syncDriveAndQueueExtraction(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   await sweepDrive(env, { onlyIfStale: false });
-  await queueOpenMonthsForExtraction();
+  await queueReadingWindowForExtraction();
 }

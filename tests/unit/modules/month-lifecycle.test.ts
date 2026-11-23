@@ -1,13 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  bookingMonthKey,
   describeMissingSlots,
   deriveCompanyStage,
   isFutureMonth,
+  isMonthKey,
   monthKeyAt,
   selectOpenMonthKey,
 } from "../../../src/modules/month-lifecycle.ts";
 import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts";
+
+test("the booking month is the calendar month before the office's current one", () => {
+  assert.equal(bookingMonthKey(new Date("2026-11-23T11:00:00.000Z")), "2026_10");
+  // January books the previous year's December.
+  assert.equal(bookingMonthKey(new Date("2027-01-05T09:00:00.000Z")), "2026_12");
+  // The office clock, not UTC: 30 November 23:30 UTC is 1 December in Bratislava.
+  assert.equal(bookingMonthKey(new Date("2026-11-30T23:30:00.000Z")), "2026_11");
+  assert.equal(bookingMonthKey(new Date("2026-11-30T22:30:00.000Z")), "2026_10");
+});
+
+test("a month key is YYYY_MM with the month 01 to 12", () => {
+  for (const valid of ["2026_01", "2026_12", "1999_07"]) {
+    assert.equal(isMonthKey(valid), true, valid);
+  }
+  for (const invalid of ["2026_00", "2026_13", "2026-01", "2026_1", "26_01", "2026_01_01", " 2026_01", ""]) {
+    assert.equal(isMonthKey(invalid), false, JSON.stringify(invalid));
+  }
+});
 
 test("describeMissingSlots explains a slot blocked by a deliberate folder", () => {
   const missing = describeMissingSlots(
