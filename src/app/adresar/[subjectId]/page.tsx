@@ -62,7 +62,7 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
     notFound();
   }
 
-  // The subject is office-wide; the documents and companies that reference it are shown only where she may see them (ADR 0023).
+  // The subject is office-wide; the companies it belongs to and the documents that reference it are shown only where she may see them (ADR 0023).
   const detail = await loadSubjectDetail(id, (await visibleCompanies(session.user.email)).ids);
   if (!detail) {
     notFound();

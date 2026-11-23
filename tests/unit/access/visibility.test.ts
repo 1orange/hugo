@@ -68,32 +68,68 @@ test("a database with no companies has activeCount zero", () => {
   assert.equal(visibilityOf("eva@kancelaria.sk", []).activeCount, 0);
 });
 
-test("the queue keeps only the jobs and finished records of visible companies, and leaves the counts alone", () => {
-  const job = (companyId: number) => ({ companyId, driveFileId: `f${companyId}` });
-  const view = {
+/** A queue with two companies' work in every list: company 1 (Alfa) and company 2 (Beta). */
+function queueOfTwo() {
+  const job = (companyId: number) => ({ companyId, driveFileId: `f${companyId}`, fileName: `doklad-${companyId}.pdf` });
+  const month = (companyId: number, monthKey: string) => ({ companyId, companyName: `Firma ${companyId}`, monthKey, tier: "recent", reading: 2, model: 1 });
+  return {
     concurrency: { read: 2, model: 1 },
+    modelSource: null,
     running: [job(1), job(2)],
     waiting: [job(2)],
-    delayed: [job(3)],
-    recent: [job(1), job(2), job(3)],
+    delayed: [job(2)],
+    recent: [job(1), job(2)],
+    waitingMonths: [month(1, "2026_01"), month(2, "2026_02")],
   };
+}
 
-  const kept = restrictQueueToCompanies(view, new Set([1]));
+test("the queue keeps only the jobs, finished records and waiting months of visible companies", () => {
+  const kept = restrictQueueToCompanies(queueOfTwo(), new Set([1]));
 
   assert.deepEqual(kept.running.map((entry) => entry.companyId), [1]);
   assert.deepEqual(kept.waiting, []);
   assert.deepEqual(kept.delayed, []);
   assert.deepEqual(kept.recent.map((entry) => entry.companyId), [1]);
-  assert.deepEqual(kept.concurrency, { read: 2, model: 1 });
+  assert.deepEqual(kept.waitingMonths.map((entry) => entry.monthKey), ["2026_01"]);
+  assert.deepEqual(kept.concurrency, { read: 2, model: 1 }, "the lane concurrency is global");
+});
+
+test("two people with different companies each get only their own queue, and nothing of the other's", () => {
+  const eva = restrictQueueToCompanies(queueOfTwo(), new Set([1]));
+  const jana = restrictQueueToCompanies(queueOfTwo(), new Set([2]));
+  const nobody = restrictQueueToCompanies(queueOfTwo(), new Set());
+
+  assert.deepEqual(eva.waitingMonths.map((entry) => entry.companyId), [1]);
+  assert.deepEqual(jana.waitingMonths.map((entry) => entry.companyId), [2]);
+  assert.deepEqual(nobody.waitingMonths, []);
+
+  for (const [view, other] of [[eva, "Firma 2"], [jana, "Firma 1"]] as const) {
+    const text = JSON.stringify(view);
+    assert.ok(!text.includes(other), `${other} is not sent to the other person`);
+    assert.ok(!text.includes(other === "Firma 2" ? "doklad-2.pdf" : "doklad-1.pdf"), "nor is its file name");
+  }
+  assert.deepEqual(nobody.running, []);
+  assert.deepEqual(nobody.recent, []);
 });
 
 test("a live event reaches a person only for their companies", () => {
   const ids = new Set([1]);
   const read = { type: "document-read", companyId: 2, monthKey: "2026_01", driveFileId: "x", outcome: "complete" } as const;
   const own = { type: "document-read", companyId: 1, monthKey: "2026_01", driveFileId: "y", outcome: "failed" } as const;
+  const checked = { type: "document-checked", companyId: 2, monthKey: "2026_01", driveFileId: "z" } as const;
 
   assert.equal(restrictEventToCompanies(read, ids), null);
   assert.deepEqual(restrictEventToCompanies(own, ids), own);
+  assert.equal(restrictEventToCompanies(checked, ids), null, "a verdict of another company's document is not sent either");
+  assert.deepEqual(restrictEventToCompanies({ ...checked, companyId: 1 }, ids), { ...checked, companyId: 1 });
+});
+
+test("a live event for one person's company never reaches another person's stream", () => {
+  const event = { type: "document-read", companyId: 2, monthKey: "2026_01", driveFileId: "x", outcome: "complete" } as const;
+
+  assert.deepEqual(restrictEventToCompanies(event, new Set([2])), event, "the company's own person gets it");
+  assert.equal(restrictEventToCompanies(event, new Set([1])), null, "the other person does not");
+  assert.equal(restrictEventToCompanies(event, new Set()), null, "before the first read, nothing is sent");
 });
 
 test("a sweep's change log names several companies; only the visible months are kept", () => {

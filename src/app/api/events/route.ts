@@ -2,11 +2,7 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { subscribeAppEvents } from "@/lib/events/bus";
 import { loadExtractionQueueView } from "@/lib/extraction-queue/view";
-import {
-  restrictEventToCompanies,
-  restrictQueueToCompanies,
-  visibleCompanies,
-} from "@/lib/access/visibility";
+import { restrictEventToCompanies, visibleCompanies } from "@/lib/access/visibility";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,11 +61,12 @@ export async function GET(request: Request): Promise<Response> {
             visible = new Set();
           },
         );
+      // The queue is built for this person's companies, so nothing of another company is read into it.
       const sendQueue = () => {
         refreshVisible()
-          .then(() => loadExtractionQueueView())
+          .then(() => loadExtractionQueueView(visible))
           .then(
-            (view) => send("queue", restrictQueueToCompanies(view, visible)),
+            (view) => send("queue", view),
             (error: unknown) => console.warn("[events] could not load the queue", error),
           );
       };

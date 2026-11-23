@@ -108,6 +108,8 @@ export type StoredActivityEvent = {
 export type ActivityEntry = {
   id: number;
   timestamp: string;
+  /** The company the event belongs to; null for an office-wide event. */
+  companyId: number | null;
   actorLabel: string;
   type: string;
   typeLabel: string;
@@ -371,6 +373,7 @@ export function formatActivityEntry(event: StoredActivityEvent): ActivityEntry {
   return {
     id: event.id,
     timestamp: event.timestamp,
+    companyId: event.companyId,
     actorLabel: formatActor(event.actor),
     type: event.type,
     typeLabel: eventTypeLabel(event.type),
