@@ -36,6 +36,7 @@ import {
   partyIdentityOf,
 } from "@/lib/subject-directory/verify-document";
 import {
+  deriveVariableSymbol,
   parseConfirmedFieldsFromInput,
   mergeDocumentFields,
   type DocumentFieldFormInput,
@@ -59,6 +60,7 @@ export type DocumentActionResult =
   | { ok: false; message: string };
 
 const DERIVED_DEPENDENCIES: Record<string, string[]> = {
+  variableSymbol: ["documentNumber"],
   recapBaseLiteral: ["vatRecap"],
   recapVatLiteral: ["vatRecap"],
   vatRecap: [
@@ -104,7 +106,11 @@ function dependencyValuesFor(
             : dependency === "profileCountry"
               ? profileCountry
             : merged.fields[
-                dependency as "amountLiteral" | "recapBaseLiteral" | "recapVatLiteral"
+                dependency as
+                  | "amountLiteral"
+                  | "recapBaseLiteral"
+                  | "recapVatLiteral"
+                  | "documentNumber"
               ];
   }
   return values;
@@ -128,11 +134,20 @@ function derivedFieldChanged(
   if (key === "vatRecap") {
     return !equalJson(next.vatRecap ?? [], before.vatRecap);
   }
+  if (key === "variableSymbol") {
+    // The panel follows the number as she types it, so a symbol that is still the digits of the number
+    // being saved is not hers. Anything else she wrote is.
+    const typed = String(next.variableSymbol ?? "");
+    const followed = deriveVariableSymbol(String(next.documentNumber ?? "")) ?? "";
+    return typed !== before.variableSymbol && typed !== followed;
+  }
   return false;
 }
 
 function clearDerivedField(payload: ConfirmedPayload, key: string): void {
-  if (key === "recapBaseLiteral") {
+  if (key === "variableSymbol") {
+    payload.variableSymbol = null;
+  } else if (key === "recapBaseLiteral") {
     payload.recapBaseLiteral = null;
     payload.recapBaseCents = null;
   } else if (key === "recapVatLiteral") {
@@ -148,7 +163,9 @@ function copyDerivedEffectiveValue(
   key: string,
   merged: ReturnType<typeof mergeDocumentFields>,
 ): void {
-  if (key === "recapBaseLiteral") {
+  if (key === "variableSymbol") {
+    payload.variableSymbol = merged.fields.variableSymbol || null;
+  } else if (key === "recapBaseLiteral") {
     payload.recapBaseLiteral = merged.fields.recapBaseLiteral || null;
     payload.recapBaseCents = merged.fields.recapBaseCents;
   } else if (key === "recapVatLiteral") {
@@ -613,6 +630,7 @@ async function writeDocumentFields(input: {
     ),
   ]);
   const dependencyChanged = {
+    documentNumber: input.fields.documentNumber !== previousMerged.fields.documentNumber,
     amountLiteral: input.fields.amountLiteral !== previousMerged.fields.amountLiteral,
     recapBaseLiteral: input.fields.recapBaseLiteral !== previousMerged.fields.recapBaseLiteral,
     supplierIcDph: input.fields.icDph !== previousMerged.fields.icDph,
@@ -651,15 +669,17 @@ async function writeDocumentFields(input: {
     const dependencies =
       nextPayload.derived?.[key]?.dependencies ?? dependenciesFor(key, previousMerged);
     const stale = dependencies.some((dependency) =>
-      dependency === "amountLiteral"
-        ? dependencyChanged.amountLiteral
-        : dependency === "recapBaseLiteral"
-          ? dependencyChanged.recapBaseLiteral
-          : dependency === "vatRecap"
-            ? dependencyChanged.vatRecap
-            : dependency === "supplierIcDph"
-              ? dependencyChanged.supplierIcDph
-            : false,
+      dependency === "documentNumber"
+        ? dependencyChanged.documentNumber
+        : dependency === "amountLiteral"
+          ? dependencyChanged.amountLiteral
+          : dependency === "recapBaseLiteral"
+            ? dependencyChanged.recapBaseLiteral
+            : dependency === "vatRecap"
+              ? dependencyChanged.vatRecap
+              : dependency === "supplierIcDph"
+                ? dependencyChanged.supplierIcDph
+                : false,
     );
     if (stale) {
       clearDerivedField(nextPayload, key);

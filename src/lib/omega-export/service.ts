@@ -15,7 +15,11 @@ import { getSettings, type SettingsRow } from "@/adapters/store/settings";
 import { appendUserEvent } from "@/adapters/store/events";
 import type { CompanyCountry } from "@/modules/company-profile";
 import { homeCurrencyForCountry } from "@/modules/company-profile";
-import { mergeDocumentFields, type FieldProvenance } from "@/modules/document-fields";
+import {
+  deriveVariableSymbol,
+  mergeDocumentFields,
+  type FieldProvenance,
+} from "@/modules/document-fields";
 import {
   mergeDocumentFieldsWithDirectory,
   type DirectoryFactsCache,
@@ -205,8 +209,11 @@ function buildInvoiceDraft(input: {
   counterparty: OmegaPartnerRecord;
   merged: ReturnType<typeof mergeDocumentFields>;
 }): OmegaInvoiceDraft | { heldBack: true; reason: string } {
+  // The fallback is the number's digits, never the raw number, so `SK-26001` is not written as a symbol.
   const variableSymbol =
-    input.merged.fields.variableSymbol.trim() || input.merged.fields.documentNumber.trim();
+    input.merged.fields.variableSymbol.trim() ||
+    deriveVariableSymbol(input.merged.fields.documentNumber) ||
+    "";
   if (variableSymbol.length === 0) {
     return { heldBack: true, reason: "Chýba VS alebo číslo dokladu." };
   }

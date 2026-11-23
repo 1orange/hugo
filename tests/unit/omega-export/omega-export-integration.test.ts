@@ -372,6 +372,69 @@ test("month export places ekasa, receipt and misfiled invoice in correct section
   assert.equal(t00Headers.length, 2);
 });
 
+test("an invoice without a variable symbol exports its number's digits, and is held back when it has none", async () => {
+  await freshTestDb();
+  const db = getDb();
+  const companyId = (
+    await db.insert(companies).values({ driveFolderId: "vs-company", name: "Acme", active: true }).returning({ id: companies.id })
+  )[0]!.id;
+  await db.insert(months).values({
+    companyId,
+    monthKey: "2026_05",
+    driveFolderId: "month-vs",
+    closedAt: null,
+    openedAt: "2026-05-01T00:00:00.000Z",
+  });
+  await seedFile(db, {
+    driveFileId: "vs-digits",
+    companyId,
+    monthKey: "2026_05",
+    folderSlot: "01 Vystavené faktúry",
+    name: "digits.pdf",
+  });
+  await seedFile(db, {
+    driveFileId: "vs-none",
+    companyId,
+    monthKey: "2026_05",
+    folderSlot: "01 Vystavené faktúry",
+    name: "none.pdf",
+  });
+
+  for (const [documentId, documentNumber] of [
+    ["vs-digits", "SK-26001"],
+    ["vs-none", "ABC"],
+  ] as const) {
+    await saveDocumentFields({
+      companyId,
+      monthKey: "2026_05",
+      documentId,
+      fields: fieldInput({
+        documentNumber,
+        customerName: "Beta s.r.o.",
+        customerIco: "31333532",
+        customerDic: "2020311335",
+        issueDateRaw: "10.05.2026",
+        dueDateRaw: "20.05.2026",
+        taxableSupplyDateRaw: "10.05.2026",
+        amountLiteral: "123",
+        vatRecap: [{ rateLiteral: "23", baseLiteral: "100", vatLiteral: "23" }],
+      }),
+    });
+    await confirmDocument({ companyId, monthKey: "2026_05", documentId, confirmed: true });
+  }
+
+  const result = await buildMonthOmegaExport({
+    companyId,
+    monthKey: "2026_05",
+    register: new FakeCompanyRegister(),
+    persist: false,
+  });
+  assert.deepEqual(result.preview.included.map((item) => item.label), ["26001"]);
+  assert.equal(result.preview.heldBack[0]?.documentId, "vs-none");
+  assert.equal(result.preview.heldBack[0]?.reason, "Chýba VS alebo číslo dokladu.");
+  assert.doesNotMatch(iconv.decode(result.bytes, "win1250"), /SK-26001/);
+});
+
 test("export preserves old-pipeline VAT gating instead of re-merging a fresh projection", async () => {
   await freshTestDb();
   const db = getDb();
