@@ -285,7 +285,7 @@ export function CompanyTable({ rows, email, selectedMonth, monthControl }: Compa
 
       <div className="inset-group overflow-x-auto">
         <table className="w-full min-w-[980px] border-collapse text-[14px]">
-          <caption className="sr-only">Firmy s prehľadom doručených dokladov za otvorený mesiac</caption>
+          <caption className="sr-only">Firmy s prehľadom doručených dokladov za zobrazený mesiac</caption>
           <thead>
             <tr className="text-[12px] font-medium text-ink-3">
               <th scope="col" className="border-b border-line px-2 py-2.5 text-left font-medium">Firma</th>

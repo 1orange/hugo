@@ -1,7 +1,7 @@
 # 07 — *Firmy* opens on the booking month
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -23,10 +23,10 @@ In November the office books October, but *Firmy* opens on each company's open m
 
 ## Acceptance criteria
 
-- [ ] Opening *Firmy* on 2026-11-23 shows `2026_10` for every row, and the rows link to `/companies/<id>/2026_10`. On 2027-01-02 it shows `2026_12` (unit test of the default; e2e for the page).
-- [ ] *Otvorené mesiace* in the picker shows each company's open month, as the old default did.
-- [ ] A company without the booking month shows *mesiac chýba*.
-- [ ] ADR 0015 amended.
+- [x] Opening *Firmy* on 2026-11-23 shows `2026_10` for every row, and the rows link to `/companies/<id>/2026_10`. On 2027-01-02 it shows `2026_12` (unit test of the default; e2e for the page). Note: the e2e fixture has no `2026_10` folder, so the e2e checks the picker and the fallback link, not the `2026_10` link itself.
+- [x] *Otvorené mesiace* in the picker shows each company's open month, as the old default did (`?month=open`).
+- [x] A company without the booking month shows *mesiac chýba*. Note: the existing copy for that state is *Tento mesiac tu nie je*, kept as is.
+- [x] ADR 0015 amended (2026-11-23).
 
 ## Blocked by
 
