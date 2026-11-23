@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { build } from "esbuild";
 
 let bundle: string;
@@ -75,6 +75,13 @@ const view = {
       startedAt: null,
     }),
   ],
+  // The panel keeps the order the queue gives (tier first, raised before recent), not name order.
+  waitingMonths: [
+    { companyId: 3, companyName: "Gamma s.r.o.", monthKey: "2026_10", tier: "raised", reading: 2, model: 0 },
+    { companyId: 1, companyName: "Delta s.r.o.", monthKey: "2026_09", tier: "recent", reading: 1, model: 1 },
+    { companyId: 2, companyName: "Alfa a.s.", monthKey: "2026_01", tier: "backlog", reading: 0, model: 3 },
+  ],
+  estimate: { kind: "known", ms: 12_020_000 },
   recent: [
     // Pipeline order is not the order the record lists them in: the panel sorts them.
     finished({
@@ -143,10 +150,12 @@ test.beforeAll(async () => {
   });
   // Some modules the panel imports read process.env at load; the browser has none.
   // The live feed (/api/events) does not exist on a blank test page: the panel
-  // shows the view it was given, so the feed is a silent stub.
+  // shows the view it was given until a test pushes a `queue` event through the
+  // feed it opened (window.__queueFeeds), as the server would.
   bundle = [
     "window.process = { env: {} };",
-    "window.EventSource = class { addEventListener() {} close() {} };",
+    "window.__queueFeeds = [];",
+    "window.EventSource = class { constructor() { this.listeners = {}; window.__queueFeeds.push(this); } addEventListener(type, listener) { (this.listeners[type] = this.listeners[type] || []).push(listener); } close() {} };",
     result.outputFiles[0]!.text,
   ].join("\n");
 });
@@ -210,4 +219,57 @@ test("a document written before stages were kept shows its total, with no breakd
   const old = page.getByTestId("queue-recent-job").filter({ hasText: "stary-c.pdf" });
   await expect(old).toContainText("0:50");
   await expect(old.getByTestId("queue-recent-stages")).toHaveCount(0);
+});
+
+/** Sends a queue snapshot down the page's feed, as /api/events does when the queue moves. */
+async function sendQueue(page: Page, queue: object): Promise<void> {
+  await page.evaluate((next) => {
+    const feeds = (window as unknown as { __queueFeeds: Array<{ listeners: Record<string, Array<(message: { data: string }) => void>> }> }).__queueFeeds;
+    const feed = feeds[feeds.length - 1];
+    for (const listener of feed?.listeners.queue ?? []) {
+      listener({ data: JSON.stringify(next) });
+    }
+  }, queue);
+}
+
+test("the waiting section lists each company's month in queue order, with the count per lane", async ({ page }) => {
+  const section = page.getByTestId("queue-waiting-month");
+  await expect(section).toHaveCount(3);
+  await expect(section.nth(0)).toContainText("Gamma");
+  await expect(section.nth(0)).toContainText("Otvorený mesiac");
+  await expect(section.nth(0)).toContainText("Čítanie 2 · Model 0");
+  await expect(section.nth(1)).toContainText("Delta");
+  await expect(section.nth(1)).toContainText("Minulý a tento mesiac");
+  await expect(section.nth(1)).toContainText("Čítanie 1 · Model 1");
+  await expect(section.nth(2)).toContainText("Alfa");
+  await expect(section.nth(2)).toContainText("Staršie mesiace");
+  await expect(section.nth(2)).toContainText("Čítanie 0 · Model 3");
+});
+
+test("the waiting section says when the queue will be empty, in Slovak", async ({ page }) => {
+  // 12 020 000 ms: 200 min 20 s, which reads as 3 h 20 min.
+  await expect(page.getByTestId("queue-estimate")).toHaveText("približne 3 h 20 min");
+});
+
+test("with nothing waiting, the waiting section says so and gives no estimate", async ({ page }) => {
+  await sendQueue(page, { ...view, waitingMonths: [], estimate: { kind: "empty" } });
+  await expect(page.getByTestId("queue-waiting-empty")).toHaveText("Nič nečaká na prečítanie.");
+  await expect(page.getByTestId("queue-waiting-month")).toHaveCount(0);
+  await expect(page.getByTestId("queue-estimate")).toHaveCount(0);
+});
+
+test("a queue update changes the waiting section, and an estimate with too few records reads Neznámy", async ({ page }) => {
+  await expect(page.getByTestId("queue-waiting-month")).toHaveCount(3);
+
+  await sendQueue(page, {
+    ...view,
+    waitingMonths: [{ companyId: 2, companyName: "Alfa a.s.", monthKey: "2026_01", tier: "backlog", reading: 0, model: 2 }],
+    estimate: { kind: "unknown" },
+  });
+  const months = page.getByTestId("queue-waiting-month");
+  await expect(months).toHaveCount(1);
+  await expect(months.first()).toContainText("Alfa");
+  await expect(months.first()).toContainText("Čítanie 0 · Model 2");
+  await expect(page.getByTestId("queue-estimate")).toHaveText("Neznámy");
+  await expect(page.getByText("Odhad potrebuje aspoň 5 nedávnych dokladov s rozpisom fáz.")).toBeVisible();
 });
