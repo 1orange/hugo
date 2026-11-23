@@ -17,6 +17,9 @@ const idle = {
   waiting: [],
   delayed: [],
   recent: [],
+  // The view's waiting months and estimate are required: without them the queue page does not render.
+  waitingMonths: [],
+  estimate: { kind: "empty" },
 };
 
 const pushOn = {
