@@ -6,6 +6,7 @@ import { useExtractionQueue } from "@/components/app/use-extraction-queue";
 import type { FinishedJobView, ModelLimitSource, QueueJobView, QueueLane } from "@/lib/extraction-queue/types";
 import type { ServiceHealth, ServiceState } from "@/lib/extraction-queue/service-health";
 import type { ExtractionQueueView } from "@/lib/extraction-queue/view";
+import type { DriveSyncPanel } from "@/modules/drive-sync";
 import { companyDisplayName } from "@/modules/company-display-name";
 import { extractionFailureMessage } from "@/modules/extraction-failure";
 import { formatElapsed } from "@/modules/extraction-progress";
@@ -63,6 +64,52 @@ function ServiceCard({ title, health, subtitle }: { title: string; health: Servi
       {health.detail ? <p className="mt-2 text-[13px] text-ink-2">{health.detail}</p> : null}
       {hint ? <p className="mt-2 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn-strong">{hint}</p> : null}
     </div>
+  );
+}
+
+function DriveRow({ label, value, testId }: { label: string; value: string; testId: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-t border-line px-4 py-2.5 first:border-t-0">
+      <span className="text-[14px] text-ink-3">{label}</span>
+      <span className="text-right text-[14px]" data-testid={testId}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * How documents reach Hugo from Drive (0007/03): push when its webhook is set
+ * and a channel exists, otherwise the poll alone. A silent webhook is said so.
+ */
+function DrivePanelSection({ drive }: { drive: DriveSyncPanel }) {
+  const pushOn = drive.mode === "push";
+  return (
+    <section data-testid="queue-drive">
+      <header className="px-1 pb-2">
+        <h2 className="text-[20px] font-bold tracking-[-0.015em]">Google Drive</h2>
+      </header>
+      <div className="inset-group">
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <span aria-hidden className={`size-2 shrink-0 rounded-full ${pushOn ? "bg-good-dot" : "bg-warn-dot"}`} />
+          <span className={`text-[14px] font-medium ${pushOn ? "text-good" : "text-warn"}`} data-testid="queue-drive-mode">
+            {drive.modeLabel}
+          </span>
+        </div>
+        {drive.channelExpiryLabel ? (
+          <DriveRow label="Kanál platí do" value={drive.channelExpiryLabel} testId="queue-drive-expiry" />
+        ) : null}
+        <DriveRow label="Posledné oznámenie od Drive" value={drive.lastNotificationLabel} testId="queue-drive-notification" />
+        <DriveRow label="Posledná kontrola" value={drive.lastSweepLabel} testId="queue-drive-sweep" />
+        <DriveRow label="Pravidelná kontrola" value={drive.pollLabel} testId="queue-drive-poll" />
+        {drive.silent ? (
+          <p className="mx-4 mb-3.5 mt-1 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn-strong" data-testid="queue-drive-silent" role="alert">
+            Push je zapnutý, no viac ako 24 hodín neprišlo žiadne oznámenie, hoci kontrola od vtedy našla zmeny v Drive.
+            Oznámenia pravdepodobne nedorážajú do Hugo.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -269,6 +316,8 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
         />
         <ServiceCard title="OCR" health={ocr} subtitle={ocr.url} />
       </div>
+
+      <DrivePanelSection drive={view.drive} />
 
       {!view.workerAlive ? (
         <p

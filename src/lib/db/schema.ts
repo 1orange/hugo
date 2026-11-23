@@ -44,6 +44,10 @@ export const settings = pgTable("settings", {
   driveWatchResourceId: text("drive_watch_resource_id"),
   driveWatchToken: text("drive_watch_token"),
   driveWatchExpiresAt: text("drive_watch_expires_at"),
+  // When Drive's webhook last accepted a notification (sync pings and rejects do not count), and
+  // when a sweep last wrote changed files. The queue screen's Drive panel shows both (0007/03).
+  driveLastNotificationAt: text("drive_last_notification_at"),
+  driveLastChangeAt: text("drive_last_change_at"),
   // Register data older than this is refreshed on the next sighting (ADR 0022).
   subjectRefreshDays: integer("subject_refresh_days").notNull().default(30),
   // Where the sweep last read Drive's change log, and when it last listed every file (ADR 0003).
