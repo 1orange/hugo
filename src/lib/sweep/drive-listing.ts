@@ -4,7 +4,12 @@ import { getDriveSnapshotState, saveDriveSnapshotState } from "@/adapters/store/
 import { needsFullListing, snapshotWritesFor } from "@/modules/drive-changes";
 import type { DriveFileRecord } from "@/modules/drive-tree";
 
-export type DriveListing = { files: DriveFileRecord[]; mode: "full" | "changes" };
+export type DriveListing = {
+  files: DriveFileRecord[];
+  mode: "full" | "changes";
+  /** The files the change log named since the last sweep; empty after a full listing. */
+  changedFileIds: string[];
+};
 
 /**
  * Every file the sweep diffs (ADR 0003). With a change log, the snapshot plus
@@ -13,7 +18,7 @@ export type DriveListing = { files: DriveFileRecord[]; mode: "full" | "changes" 
  */
 export async function listDriveForSweep(client: DriveClient, now: Date = new Date()): Promise<DriveListing> {
   if (!hasChangesFeed(client)) {
-    return { files: await client.list(), mode: "full" };
+    return { files: await client.list(), mode: "full", changedFileIds: [] };
   }
   const state = await getDriveSnapshotState();
   if (!needsFullListing(state, now.getTime())) {
@@ -21,7 +26,11 @@ export async function listDriveForSweep(client: DriveClient, now: Date = new Dat
     if (result) {
       await applyDriveItemChanges(snapshotWritesFor(result.changes));
       await saveDriveSnapshotState({ changesToken: result.newStartPageToken, snapshotAt: state.snapshotAt });
-      return { files: await listDriveItems(), mode: "changes" };
+      return {
+        files: await listDriveItems(),
+        mode: "changes",
+        changedFileIds: result.changes.map((change) => change.fileId),
+      };
     }
   }
   // The token first: a change made during the listing is read again next time.
@@ -29,5 +38,5 @@ export async function listDriveForSweep(client: DriveClient, now: Date = new Dat
   const files = await client.list();
   await replaceDriveItems(files);
   await saveDriveSnapshotState({ changesToken, snapshotAt: now.toISOString() });
-  return { files, mode: "full" };
+  return { files, mode: "full", changedFileIds: [] };
 }

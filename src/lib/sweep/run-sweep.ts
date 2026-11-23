@@ -24,8 +24,10 @@ import { syncLateArrivals } from "@/lib/late-arrivals/sync";
 import { announce } from "@/lib/events/bus";
 import { buildDriveTree, fileStateKey, type DomainEvent } from "@/modules/drive-tree";
 import { listDriveForSweep } from "./drive-listing";
+import { refreshCompanyAccess } from "@/lib/access/refresh-company-access";
 import { checkCompanyStructure } from "@/modules/drive-structure";
 import { observedFolderName, type FolderClassification } from "@/modules/folder-taxonomy";
+import { companiesForAccessRefresh } from "@/modules/company-access";
 import { monthKeyAt } from "@/modules/month-lifecycle";
 
 /** Held while a sweep diffs Drive against the database (ADR 0021). */
@@ -37,21 +39,29 @@ export type SweepResult = {
   companyCount: number;
 };
 
+export type SweepOptions = {
+  /**
+   * Read every company's sharing, not only those the change log names. The poll
+   * and *Obnoviť* ask for it; a notification sweep reads what changed.
+   */
+  allAccess?: boolean;
+};
+
 /**
  * Brings the database in line with Drive and records what changed. One sweep
  * at a time across replicas: two at once both saw a new file as new. Drive is
  * listed inside the lock too, so a later sweep never writes an older listing.
  */
-export async function runSweep(driveClient: DriveClient): Promise<SweepResult> {
-  return withAdvisoryLock(SWEEP_LOCK_KEY, () => sweep(driveClient));
+export async function runSweep(driveClient: DriveClient, options: SweepOptions = {}): Promise<SweepResult> {
+  return withAdvisoryLock(SWEEP_LOCK_KEY, () => sweep(driveClient, options));
 }
 
 /** A sweep unless one is already running, which brings the database up to date anyway: null then. */
-export async function sweepUnlessRunning(driveClient: DriveClient): Promise<SweepResult | null> {
-  return withAdvisoryLockIfFree(SWEEP_LOCK_KEY, () => sweep(driveClient));
+export async function sweepUnlessRunning(driveClient: DriveClient, options: SweepOptions = {}): Promise<SweepResult | null> {
+  return withAdvisoryLockIfFree(SWEEP_LOCK_KEY, () => sweep(driveClient, options));
 }
 
-async function sweep(driveClient: DriveClient): Promise<SweepResult> {
+async function sweep(driveClient: DriveClient, options: SweepOptions): Promise<SweepResult> {
   const settings = await getSettings();
   const driveParentFolderId = await resolveDriveParentFolderId();
   if (!driveParentFolderId) {
@@ -59,7 +69,10 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   }
 
   const sweepAt = new Date().toISOString();
-  const { files: driveFiles } = await listDriveForSweep(driveClient, new Date(sweepAt));
+  const { files: driveFiles, mode, changedFileIds: logChangedFileIds } = await listDriveForSweep(
+    driveClient,
+    new Date(sweepAt),
+  );
   const storedFiles = await listStoredFilesForSweep();
   // Taken before the diff, which updates the stored rows it is given.
   const storedKeys = new Map(storedFiles.map((file) => [file.driveFileId, fileStateKey(file)]));
@@ -169,6 +182,19 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   }
   // Every sweep, not only one that changed a month: the Drive panel shows when the last one ran.
   announce({ type: "queue-changed" });
+  // After the files are written: a failed read of sharing is recorded per company and never stops a sweep.
+  const parentIdByFileId = new Map(driveFiles.map((file) => [file.id, file.parents[0] ?? null]));
+  const accessTargets = companiesForAccessRefresh({
+    companies: [...companyIdByDriveFolderId].map(([driveFolderId, companyId]) => ({
+      companyId,
+      driveFolderId,
+      parentId: parentIdByFileId.get(driveFolderId) ?? null,
+    })),
+    driveParentFolderId,
+    changedFileIds: logChangedFileIds,
+    all: options.allAccess === true || mode === "full",
+  });
+  await refreshCompanyAccess(driveClient, accessTargets);
   announceChangedMonths(events, storedFiles, persistedFiles, companyIdByDriveFolderId);
 
   return {

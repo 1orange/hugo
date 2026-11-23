@@ -1,11 +1,36 @@
 import type { DriveFileRecord } from "@/modules/drive-tree";
-import type { DriveChange, DriveChangesFeed, DriveClient } from "./port";
+import type { DrivePermission } from "@/modules/company-access";
+import type { DriveChange, DriveChangesFeed, DriveClient, DrivePermissions } from "./port";
 
-export class FakeDriveClient implements DriveClient {
+export class FakeDriveClient implements DriveClient, DrivePermissions {
+  private readonly grants = new Map<string, DrivePermission[]>();
+  /** Every folder whose sharing was asked for, in order: a test asserts which companies a refresh read. */
+  readonly permissionCalls: string[] = [];
+  /** Folders whose sharing Drive refuses to list, as it refuses one the service account cannot see. */
+  readonly failingPermissionFolders = new Set<string>();
+
   constructor(
     protected readonly files: DriveFileRecord[],
     private readonly fileContents: Record<string, Uint8Array> = {},
-  ) {}
+    permissions: Record<string, DrivePermission[]> = {},
+  ) {
+    for (const [folderId, folderGrants] of Object.entries(permissions)) {
+      this.setPermissions(folderId, folderGrants);
+    }
+  }
+
+  /** Sets who a folder is shared with; a folder never set has no grants. */
+  setPermissions(folderId: string, folderGrants: DrivePermission[]): void {
+    this.grants.set(folderId, folderGrants.map((grant) => ({ ...grant })));
+  }
+
+  async listPermissions(folderId: string): Promise<DrivePermission[]> {
+    this.permissionCalls.push(folderId);
+    if (this.failingPermissionFolders.has(folderId)) {
+      throw new Error("Drive permissions.list failed with status 403");
+    }
+    return (this.grants.get(folderId) ?? []).map((grant) => ({ ...grant }));
+  }
 
   async list(): Promise<DriveFileRecord[]> {
     return this.files.map((file) => ({

@@ -40,6 +40,7 @@ export async function freshTestDb(): Promise<Db> {
       schema.structureDeviations,
       schema.lateArrivals,
       schema.driveItems,
+      schema.companyPrincipals,
       schema.documents,
       schema.subjectAliasSightings,
       schema.subjectAliases,

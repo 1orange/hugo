@@ -1,7 +1,7 @@
 # 08 — Hugo reads each client folder's sharing from Drive
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -30,11 +30,11 @@ the sharing. Nothing is restricted until issue 10, so the office can check who w
 
 ## Acceptance criteria
 
-- [ ] Visibility rule unit tests: direct user, inherited user, domain, anyone, group (not visible and reported), letter case, no snapshot.
-- [ ] A poll refreshes every company's snapshot. A failed Drive call keeps the previous one (integration test with the fake Drive).
-- [ ] A change-log entry for a company or group folder triggers a refresh of the affected companies.
-- [ ] Settings lists, per company, the allowlisted users who can see it and any group grants (UI test).
-- [ ] Nothing that users see in the company list or on company screens changes yet.
+- [x] Visibility rule unit tests: direct user, inherited user, domain, anyone, group (not visible and reported), letter case, no snapshot. (`tests/unit/modules/company-access.test.ts`)
+- [x] A poll refreshes every company's snapshot. A failed Drive call keeps the previous one (integration test with the fake Drive). Note: the test calls `runSweep(client, { allAccess: true })`, which is what the poll job passes; the worker's job-name choice is not separately tested.
+- [x] A change-log entry for a company or group folder triggers a refresh of the affected companies. (`tests/unit/access/company-access-integration.test.ts`)
+- [x] Settings lists, per company, the allowlisted users who can see it and any group grants. Note: a rendered-markup unit test (`tests/unit/access/drive-access-section.test.ts`), not a Playwright spec, since UI specs were not requested and Playwright was not run.
+- [x] Nothing that users see in the company list or on company screens changes yet. (No list or company-screen query was changed; the only user-visible addition is the settings section.)
 
 ## Blocked by
 
