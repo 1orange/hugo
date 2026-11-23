@@ -35,6 +35,10 @@ async function openDocument(
     // then again for its page images.
     data: pdfBytes.slice(),
     password,
+    // Every read, not only drawing: a scanner's JBIG2 (and JPEG 2000) images are
+    // decoded by pdf.js's wasm, and without it extractPageImages silently skipped
+    // them, so OCR got no page at all ("JBig2 failed to initialize").
+    wasmUrl: pdfJsDataDirectory("wasm"),
     ...(options.forDrawing
       ? {
           // No system fonts in a container: a font the PDF does not embed is
@@ -43,7 +47,6 @@ async function openDocument(
           standardFontDataUrl: pdfJsDataDirectory("standard_fonts"),
           cMapUrl: pdfJsDataDirectory("cmaps"),
           cMapPacked: true,
-          wasmUrl: pdfJsDataDirectory("wasm"),
         }
       : { useSystemFonts: true }),
   }).promise;
@@ -112,9 +115,31 @@ type RawPdfImage = {
   bitmap?: { data: Uint8ClampedArray; width: number; height: number };
 };
 
-function pdfImageToPageImage(
+/**
+ * A 1-bit image (a scanner's JBIG2 or CCITT page) arrives packed, eight pixels a
+ * byte, each row padded to a whole byte; a set bit is white, as pdf.js draws it.
+ */
+function unpackOneBitImage(data: Uint8ClampedArray | Uint8Array, width: number, height: number): Uint8ClampedArray {
+  const rowBytes = Math.ceil(width / 8);
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const set = (data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1;
+      const value = set ? 255 : 0;
+      const offset = (y * width + x) * 4;
+      rgba[offset] = value;
+      rgba[offset + 1] = value;
+      rgba[offset + 2] = value;
+      rgba[offset + 3] = 255;
+    }
+  }
+  return rgba;
+}
+
+export function pdfImageToPageImage(
   raw: RawPdfImage,
   rgbKind: number,
+  oneBitKind?: number,
 ): PdfPageImage | null {
   if (raw.bitmap?.data && raw.bitmap.width && raw.bitmap.height) {
     return {
@@ -131,6 +156,10 @@ function pdfImageToPageImage(
 
   if (!raw.data || !raw.width || !raw.height) {
     return null;
+  }
+
+  if (oneBitKind !== undefined && raw.kind === oneBitKind) {
+    return { kind: "rgba", data: unpackOneBitImage(raw.data, raw.width, raw.height), width: raw.width, height: raw.height };
   }
 
   if (raw.kind === rgbKind) {
@@ -150,6 +179,37 @@ function pdfImageToPageImage(
       ? raw.data
       : new Uint8ClampedArray(raw.data);
   return { kind: "rgba", data: rgba, width: raw.width, height: raw.height };
+}
+
+/** How long a page's image may take to decode before the page goes on without it. */
+const IMAGE_RESOLVE_TIMEOUT_MS = 30_000;
+
+/**
+ * A page's image, once pdf.js has decoded it. The operator list can arrive
+ * before a large image is ready ("Requesting object that isn't resolved yet"):
+ * reading it at once silently dropped every big scan, so it is awaited, within
+ * a bound, and a page whose image never comes goes on without it.
+ */
+async function resolvedImage(page: PdfPageProxy, objectId: string): Promise<RawPdfImage | null> {
+  const objects = page.objs as unknown as {
+    has(id: string): boolean;
+    get(id: string, callback?: (value: unknown) => void): unknown;
+  };
+  if (objects.has(objectId)) {
+    return objects.get(objectId) as RawPdfImage;
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), IMAGE_RESOLVE_TIMEOUT_MS);
+    try {
+      objects.get(objectId, (value) => {
+        clearTimeout(timer);
+        resolve((value as RawPdfImage | null) ?? null);
+      });
+    } catch {
+      clearTimeout(timer);
+      resolve(null);
+    }
+  });
 }
 
 async function extractImagesFromPage(
@@ -176,15 +236,10 @@ async function extractImagesFromPage(
     if (fn === OPS.paintInlineImageXObject) {
       raw = args[0] as RawPdfImage;
     } else {
-      const objectId = args[0] as string;
-      try {
-        raw = page.objs.get(objectId) as RawPdfImage;
-      } catch {
-        raw = null;
-      }
+      raw = await resolvedImage(page, args[0] as string);
     }
 
-    const converted = raw ? pdfImageToPageImage(raw, ImageKind.RGB_24BPP) : null;
+    const converted = raw ? pdfImageToPageImage(raw, ImageKind.RGB_24BPP, ImageKind.GRAYSCALE_1BPP) : null;
     if (converted) {
       images.push(converted);
     }
