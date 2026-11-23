@@ -1,6 +1,7 @@
 import { appendUserEvent } from "@/adapters/store/events";
 import { getDocument, listDocumentsForFile, markForReextraction } from "@/adapters/store/documents";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
+import { isStatementFolderSlot } from "@/modules/document-state";
 import type { DocumentActionResult } from "./service";
 
 /**
@@ -28,6 +29,10 @@ export async function requestDocumentReextraction(input: {
   const document = await getDocument(input.documentId);
   if (!document || document.companyId !== input.companyId || document.monthKey !== input.monthKey) {
     return { ok: false, message: "Doklad sa v tomto mesiaci nenašiel." };
+  }
+  // A statement is never sent to a reader (ADR 0013): asking again would queue it.
+  if (isStatementFolderSlot(document.folderSlot)) {
+    return { ok: false, message: "Bankový výpis sa nečíta — znova načítať nedá." };
   }
   const ofFile = await listDocumentsForFile(document.driveFileId);
   if (ofFile.some((entry) => entry.exportedAt !== null)) {

@@ -171,12 +171,14 @@ async function seedMonth(): Promise<void> {
   await ensureDocumentsForMonth(1, "2026_01", "2026-01-12T10:00:00.000Z");
 }
 
-test("ensureDocumentsForMonth creates rows only for processed folders", async () => {
+test("ensureDocumentsForMonth creates rows for processed folders and for statements, which are not read", async () => {
   await seedMonth();
   const db = getDb();
   const rows = await db.select().from(documents);
-  assert.equal(rows.length, 3);
-  assert.equal(rows.some((row) => row.driveFileId === "statement-only"), false);
+  assert.equal(rows.length, 4);
+  const statement = rows.find((row) => row.driveFileId === "statement-only");
+  assert.equal(statement?.extractionStatus, "not-read");
+  assert.equal(rows.filter((row) => row.driveFileId !== "statement-only").every((row) => row.extractionStatus === "pending"), true);
 });
 
 test("discovery creates ekasa payload without touching confirmed payload", async () => {
@@ -259,11 +261,12 @@ test("discovery creates ekasa payload without touching confirmed payload", async
   assert.equal(row.confirmedPayloadJson, JSON.stringify({ amountLiteral: "manual" }));
 });
 
-test("two confirmed and one dismissed drives awaiting count to zero", async () => {
+test("two confirmed, one dismissed and one statement confirmed drive awaiting count to zero", async () => {
   await seedMonth();
   const now = "2026-01-13T12:00:00.000Z";
 
-  assert.equal(await countAwaitingDecision(1, "2026_01"), 3);
+  // The statement is one of the four, and it waits for her decision like the rest (ADR 0013, amended).
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 4);
 
   assert.equal(
     (await confirmDocument({
@@ -295,17 +298,29 @@ test("two confirmed and one dismissed drives awaiting count to zero", async () =
     })).ok,
     true,
   );
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 1);
+
+  assert.equal(
+    (await confirmDocument({
+      companyId: 1,
+      monthKey: "2026_01",
+      documentId: "statement-only",
+      confirmed: true,
+      now,
+    })).ok,
+    true,
+  );
 
   assert.equal(await countAwaitingDecision(1, "2026_01"), 0);
 });
 
 test("a document whose file left Drive is not counted as awaiting", async () => {
   await seedMonth();
-  assert.equal(await countAwaitingDecision(1, "2026_01"), 3);
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 4);
 
   await getDb().update(files).set({ deleted: true }).where(eq(files.driveFileId, INVOICE_B));
 
-  assert.equal(await countAwaitingDecision(1, "2026_01"), 2);
+  assert.equal(await countAwaitingDecision(1, "2026_01"), 3);
 });
 
 test("confirming emits Confirmed with driveFileId", async () => {

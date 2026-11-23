@@ -117,3 +117,23 @@ keep stays her decision: she marks the other not relevant (ADR 0010).
 
 Only eKasa receipts are split, because only they carry an identifier per receipt. A scan of several
 non-eKasa receipts is still one document.
+
+## Amendment, 2026-11-23: bank statements are listed and decided, still not read
+
+"Bank statements are presence-only. The app reports that a statement arrived and when, and never
+opens one" held until the office asked to see statements in the month's document list, next to the
+other documents. The statement is still never read; it is now listed and decided like any document.
+
+- **Listed.** Files in the `03 Bankové výpisy` slot get document rows, in every layout, and the month's
+  document list shows them in their own group after the other types. Each row has the file's name,
+  a preview (PDF and images rendered, XML as text) and the decision bar. There are no fields to fill.
+- **Not read.** A statement's extraction status is a terminal *nečíta sa* (`not-read`). No reading
+  lane takes it, and no OCR or model call is made on it. The queue skips statement folders by name as
+  well, so no candidate query can queue one by forgetting that rule. A file moved out of the statement
+  folder is read afresh, and one moved into it is not.
+- **Decided.** Confirmed and not relevant apply. An undecided statement counts in the month's to-do
+  and in *Firmy*'s waiting count, until she decides it.
+- **Not exported.** The Omega export leaves statements out, confirmed or not, until statement import
+  is designed (PRD 0007). Importing or parsing them is still out of scope (ADR 0009 stays withdrawn).
+- **Chase list.** Statement presence is unchanged: *bez bankového výpisu* still reads the file
+  records, not the documents.

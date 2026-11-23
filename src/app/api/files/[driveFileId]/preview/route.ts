@@ -8,6 +8,7 @@ import {
   driveFileViewUrl,
   isHeicMimeType,
   previewKindForMimeType,
+  xmlPreviewCharset,
 } from "@/modules/file-preview";
 
 type RouteContext = {
@@ -31,7 +32,7 @@ export async function GET(_request: Request, context: RouteContext) {
   // Only the kinds we render are streamed from this origin; anything else could be
   // active content (svg, html) running against her session.
   const kind = previewKindForMimeType(file.mimeType);
-  if (kind !== "pdf" && kind !== "image") {
+  if (kind !== "pdf" && kind !== "image" && kind !== "text") {
     return NextResponse.json(
       {
         kind,
@@ -53,7 +54,15 @@ export async function GET(_request: Request, context: RouteContext) {
           body: await heicToJpeg(downloaded),
           contentType: "image/jpeg",
         }
-      : { body: new Uint8Array(downloaded), contentType: file.mimeType };
+      : kind === "text"
+        ? {
+            body: new Uint8Array(downloaded),
+            // Served as plain text, never as XML: see PreviewKind.
+            contentType: `text/plain; charset=${xmlPreviewCharset(
+              Buffer.from(downloaded).subarray(0, 256).toString("latin1"),
+            )}`,
+          }
+        : { body: new Uint8Array(downloaded), contentType: file.mimeType };
 
     return new NextResponse(body, {
       headers: {

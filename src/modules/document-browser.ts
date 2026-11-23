@@ -1,4 +1,5 @@
 import type { DocumentListItem } from "@/lib/documents/view";
+import { isStatementFolderSlot } from "@/modules/document-state";
 
 export const DOCUMENT_SORT_KEYS = [
   "issueDate",
@@ -227,6 +228,11 @@ function compareStableTieBreakers(left: DocumentListItem, right: DocumentListIte
   return filename || collator.compare(left.id, right.id);
 }
 
+/** 0 for the documents, 1 for the statements: the rail's group order. */
+export function statementGroupRank(document: Pick<DocumentListItem, "folderSlot">): number {
+  return isStatementFolderSlot(document.folderSlot) ? 1 : 0;
+}
+
 export function compareDocuments(
   left: DocumentListItem,
   right: DocumentListItem,
@@ -234,6 +240,12 @@ export function compareDocuments(
   direction: DocumentSortDirection = DEFAULT_DOCUMENT_SORT.direction,
   homeCurrency = "EUR",
 ): number {
+  // Bank statements form their own group after every other type, whichever way
+  // the list is sorted: a statement is never a value to sort the documents by.
+  const group = statementGroupRank(left) - statementGroupRank(right);
+  if (group !== 0) {
+    return group;
+  }
   let result = 0;
   if (key === "issueDate") {
     result = compareNullable(dateValue(left), dateValue(right), (a, b) => a - b, direction);
