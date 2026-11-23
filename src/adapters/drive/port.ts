@@ -1,8 +1,9 @@
 import type { DriveCapabilities } from "@/modules/drive-mutation";
 import type { DriveChangeEntry } from "@/modules/drive-changes";
 import type { DriveFileRecord } from "@/modules/drive-tree";
+import type { DrivePermission } from "@/modules/company-access";
 
-export type { DriveCapabilities, DriveFileRecord };
+export type { DriveCapabilities, DriveFileRecord, DrivePermission };
 
 export interface DriveClient {
   list(): Promise<DriveFileRecord[]>;
@@ -29,6 +30,20 @@ export interface DriveChangesWatch {
 export function canWatchChanges(client: DriveClient): client is DriveClient & DriveChangesWatch {
   const candidate = client as Partial<DriveChangesWatch>;
   return typeof candidate.watchChanges === "function" && typeof candidate.stopChannel === "function";
+}
+
+/**
+ * Who a folder is shared with, as Drive lists it: direct grants, grants inherited
+ * from parent folders, and shared-drive members. Optional, like the change log:
+ * a client without it has no sharing to read, and every company stays as it was.
+ */
+export interface DrivePermissions {
+  /** Every grant on the folder, all pages. Read-only: nothing is changed in Drive. */
+  listPermissions(folderId: string): Promise<DrivePermission[]>;
+}
+
+export function canListPermissions(client: DriveClient): client is DriveClient & DrivePermissions {
+  return typeof (client as Partial<DrivePermissions>).listPermissions === "function";
 }
 
 /** One entry of Drive's change log: a file added, changed, trashed, or gone (deleted or access lost). */

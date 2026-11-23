@@ -20,7 +20,7 @@ export function startSweepWorker(env: NodeJS.ProcessEnv = process.env): { worker
             console.warn("[worker] could not watch Drive changes", error),
           );
         }
-        await syncDriveAndQueueExtraction(env);
+        await syncDriveAndQueueExtraction(env, { allAccess: (job.name as SweepJobName) === "poll" });
       } finally {
         sweeping = false;
       }

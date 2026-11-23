@@ -1,7 +1,7 @@
 import { FakeDriveClient } from "@/adapters/drive/fake-drive-client";
 import { loadGoogleDriveClientFromEnv } from "@/adapters/drive/google-drive-client";
 import type { DriveClient } from "@/adapters/drive/port";
-import { e2eDriveFileContents, e2eDriveFixture } from "@/adapters/drive/e2e-fixture";
+import { e2eDriveFileContents, e2eDriveFixture, e2eDrivePermissions } from "@/adapters/drive/e2e-fixture";
 import type { DriveFileRecord } from "@/modules/drive-tree";
 
 export function createDriveClient(
@@ -35,7 +35,7 @@ const E2E_DRIVE = Symbol.for("hugo.e2eFakeDrive");
 
 function e2eFakeDrive(): FakeDriveClient {
   const holder = globalThis as unknown as Record<symbol, FakeDriveClient | undefined>;
-  holder[E2E_DRIVE] ??= new FakeDriveClient(e2eDriveFixture(), e2eDriveFileContents());
+  holder[E2E_DRIVE] ??= new FakeDriveClient(e2eDriveFixture(), e2eDriveFileContents(), e2eDrivePermissions());
   return holder[E2E_DRIVE];
 }
 

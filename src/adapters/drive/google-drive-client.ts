@@ -1,6 +1,7 @@
 import { createSign } from "node:crypto";
 import type { DriveFileRecord } from "@/modules/drive-tree";
-import type { DriveChange, DriveChangesFeed, DriveChangesWatch, DriveClient } from "./port";
+import type { DrivePermission } from "@/modules/company-access";
+import type { DriveChange, DriveChangesFeed, DriveChangesWatch, DriveClient, DrivePermissions } from "./port";
 
 type GoogleCredentials = {
   client_email: string;
@@ -56,11 +57,27 @@ function toRecord(file: ApiFile): DriveFileRecord | null {
   };
 }
 
+type ApiPermission = {
+  type?: string | null;
+  role?: string | null;
+  emailAddress?: string | null;
+  domain?: string | null;
+  permissionDetails?: Array<{ inherited?: boolean | null }> | null;
+};
+
+type PermissionsResponse = {
+  permissions?: ApiPermission[];
+  nextPageToken?: string | null;
+};
+
+const PERMISSION_FIELDS =
+  "nextPageToken,permissions(type,role,emailAddress,domain,permissionDetails(inherited,permissionType,role))";
+
 const LIST_FIELDS = `nextPageToken,files(${FILE_FIELDS})`;
 const PAGE_SIZE = 1000;
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
-export class GoogleDriveClient implements DriveClient, DriveChangesWatch, DriveChangesFeed {
+export class GoogleDriveClient implements DriveClient, DriveChangesWatch, DriveChangesFeed, DrivePermissions {
   private readonly getAccessToken: () => Promise<string>;
 
   constructor(
@@ -142,6 +159,45 @@ export class GoogleDriveClient implements DriveClient, DriveChangesWatch, DriveC
     if (!response.ok) {
       throw new Error(`Drive files.update (move) failed with status ${response.status}`);
     }
+  }
+
+  async listPermissions(folderId: string): Promise<DrivePermission[]> {
+    const permissions: DrivePermission[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const accessToken = await this.getAccessToken();
+      const url = new URL(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}/permissions`,
+      );
+      url.searchParams.set("supportsAllDrives", "true");
+      url.searchParams.set("fields", PERMISSION_FIELDS);
+      if (pageToken) {
+        url.searchParams.set("pageToken", pageToken);
+      }
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        throw new Error(`Drive permissions.list failed with status ${response.status}`);
+      }
+      const page = (await response.json()) as PermissionsResponse;
+      for (const permission of page.permissions ?? []) {
+        if (!permission.type) {
+          continue;
+        }
+        const details = permission.permissionDetails ?? [];
+        permissions.push({
+          type: permission.type,
+          role: permission.role ?? "",
+          emailAddress: permission.emailAddress ?? null,
+          domain: permission.domain ?? null,
+          // A grant with a direct detail is direct; only one made entirely on a parent folder is inherited.
+          inherited: details.length > 0 && details.every((detail) => detail.inherited === true),
+        });
+      }
+      pageToken = page.nextPageToken ?? undefined;
+    } while (pageToken);
+
+    return permissions;
   }
 
   async startPageToken(): Promise<string> {

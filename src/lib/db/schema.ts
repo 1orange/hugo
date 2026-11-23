@@ -10,6 +10,10 @@ export const companies = pgTable("companies", {
   groupName: text("group_name"),
   /** In the archive group: a former client that gets no new months. */
   archived: boolean("archived").notNull().default(false),
+  /** When the company folder's sharing was last read from Drive; null before the first read (PRD 0007). */
+  accessRefreshedAt: text("access_refreshed_at"),
+  /** What the last read of the sharing failed with. The principals kept are the ones before it. */
+  accessError: text("access_error"),
 });
 
 export const settings = pgTable("settings", {
@@ -64,6 +68,26 @@ export const driveItems = pgTable("drive_items", {
   canRename: boolean("can_rename"),
   canMove: boolean("can_move"),
 });
+
+/**
+ * Who a company's Drive folder is shared with, as of the last successful read of
+ * its sharing (PRD 0007). Replaced wholesale per company on each read; a failed
+ * read keeps the rows it had. Nothing is restricted by it yet.
+ */
+export const companyPrincipals = pgTable("company_principals", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  /** user | group | domain | anyone. */
+  type: text("type").notNull(),
+  /** Lower-cased; null for a domain or anyone grant. */
+  email: text("email"),
+  /** Lower-cased; null for a user, group or anyone grant. */
+  domain: text("domain"),
+  role: text("role").notNull(),
+  inherited: boolean("inherited").notNull(),
+}, (table) => [index("company_principals_company").on(table.companyId)]);
 
 export const months = pgTable("months", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

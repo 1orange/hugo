@@ -16,7 +16,7 @@ export function isDriveConfigured(env: NodeJS.ProcessEnv = process.env): boolean
  */
 export async function sweepDrive(
   env: NodeJS.ProcessEnv,
-  options: { onlyIfStale: boolean },
+  options: { onlyIfStale: boolean; allAccess?: boolean },
 ): Promise<void> {
   const parentFolderId = await resolveDriveParentFolderId(env);
   if (!parentFolderId || !isDriveConfigured(env)) {
@@ -30,7 +30,7 @@ export async function sweepDrive(
 
   const driveClient = createDriveClient(env);
   if (!options.onlyIfStale) {
-    await runSweep(driveClient);
+    await runSweep(driveClient, { allAccess: options.allAccess });
   } else if (isSweepStale(settings.lastSweepAt, Date.now())) {
     // Another sweep running brings the database up to date: not worth waiting for.
     await sweepUnlessRunning(driveClient);
@@ -67,8 +67,14 @@ export async function queueOpenMonthsForExtraction(): Promise<void> {
   }
 }
 
-/** Sweeps Drive and queues what arrived: a notification's and the poll's work. */
-export async function syncDriveAndQueueExtraction(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  await sweepDrive(env, { onlyIfStale: false });
+/**
+ * Sweeps Drive and queues what arrived: a notification's and the poll's work.
+ * `allAccess` is the poll's: it reads every company's sharing, not only the changed ones.
+ */
+export async function syncDriveAndQueueExtraction(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { allAccess?: boolean } = {},
+): Promise<void> {
+  await sweepDrive(env, { onlyIfStale: false, allAccess: options.allAccess });
   await queueOpenMonthsForExtraction();
 }

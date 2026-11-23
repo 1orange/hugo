@@ -1,3 +1,4 @@
+import type { DrivePermission } from "@/modules/company-access";
 import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
 
 const PARENT_ID = "e2e-parent";
@@ -155,6 +156,17 @@ export function e2eDriveFixture(): DriveFileRecord[] {
 }
 
 export const E2E_DRIVE_PARENT_FOLDER_ID = PARENT_ID;
+
+/**
+ * Who the e2e Drive shares each company folder with. Beta is shared with the one
+ * allowlisted e2e user; Gamma only with a group, which Hugo reports but cannot expand.
+ */
+export function e2eDrivePermissions(): Record<string, DrivePermission[]> {
+  return {
+    [COMPANY_ID]: [{ type: "user", role: "writer", emailAddress: "allowed@example.com", inherited: false }],
+    [COMPANY_CZ_ID]: [{ type: "group", role: "reader", emailAddress: "ucto@example.com", inherited: false }],
+  };
+}
 
 /**
  * What the fixture's files contain. The e2e server must be able to download

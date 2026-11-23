@@ -46,7 +46,8 @@ export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
     await setDriveParentFolderId(parentFolderId);
   }
 
-  const result = await runSweep(createDriveClient());
+  // *Obnoviť* reads every company's sharing too: the person asked for a fresh picture.
+  const result = await runSweep(createDriveClient(), { allAccess: true });
   revalidatePath("/companies");
   return { sweepAt: result.sweepAt };
 }
