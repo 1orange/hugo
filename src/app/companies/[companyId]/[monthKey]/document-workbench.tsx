@@ -13,6 +13,7 @@ import {
   saveDocumentNoteAction,
   setAdvanceSettlementAction,
   swapDocumentPartiesAction,
+  takePartyFromProfileAction,
   takePartyFromRegisterAction,
 } from "../../actions";
 import { DecisionBar } from "./decision-bar";
@@ -360,6 +361,24 @@ export function DocumentWorkbench({
     );
   }
 
+  function takeFromProfile(side: "supplier" | "customer") {
+    if (!selectedDocument) {
+      return;
+    }
+    // A refused take reloads the document, as the register take does.
+    runAction(
+      () =>
+        takePartyFromProfileAction({
+          companyId,
+          monthKey,
+          documentId: selectedDocument.id,
+          side,
+        }),
+      undefined,
+      () => router.refresh(),
+    );
+  }
+
   function setAdvanceSettlement(settled: boolean) {
     if (!selectedDocument) {
       return;
@@ -524,6 +543,7 @@ export function DocumentWorkbench({
             onSave={saveFields}
             onSwapParties={swapParties}
             onTakeFromRegister={takeFromRegister}
+            onTakeFromProfile={takeFromProfile}
             onSetAdvanceSettlement={setAdvanceSettlement}
             note={note}
             onNoteChange={setNote}

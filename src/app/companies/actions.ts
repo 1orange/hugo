@@ -24,6 +24,7 @@ import {
   saveDocumentNote,
   setAdvanceSettlement,
   swapDocumentParties,
+  takePartyFromProfile,
   takePartyFromRegister,
 } from "@/lib/documents/service";
 import { lookupEkasaUidForDocument } from "@/lib/documents/lookup-ekasa-uid";
@@ -290,6 +291,20 @@ export async function takePartyFromRegisterAction(input: {
   side: "supplier" | "customer";
 }): Promise<MutationActionResult> {
   const result = await takePartyFromRegister(input);
+  if (result.ok) {
+    revalidateMonth(input.companyId, input.monthKey);
+  }
+  return result;
+}
+
+/** *Prevziať z profilu* for one party that disagrees with her company profile (PRD 0007, issue 14). */
+export async function takePartyFromProfileAction(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+  side: "supplier" | "customer";
+}): Promise<MutationActionResult> {
+  const result = await takePartyFromProfile(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
   }

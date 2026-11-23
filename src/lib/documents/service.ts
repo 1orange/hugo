@@ -48,6 +48,7 @@ import type { PartyIdentity } from "@/modules/party-roles";
 import type { PartyValueProvenance } from "@/modules/party-enrichment";
 import {
   clientIdentityOf,
+  offersProfileTakeover,
   offersRegisterTakeover,
   parsePartyIntegrityRecord,
   partyIdentityKey,
@@ -497,8 +498,9 @@ export async function setAdvanceSettlement(input: {
  * Party badges after a write. A swap records its own provenance. An ordinary
  * edit keeps the recorded badge of every party value it left as it was; the
  * edited ones become hers, as every confirmed value does. A value taken from
- * the register carries `register`. A value the directory filled and she did
- * not touch is not stored at all (see writeDocumentFields), so it has no badge here.
+ * the register carries `register`, one taken from the profile `profile`. A value
+ * the directory filled and she did not touch is not stored at all (see
+ * writeDocumentFields), so it has no badge here.
  */
 function nextPartyProvenance(input: {
   swapped: PartySwapProvenance | null;
@@ -506,6 +508,7 @@ function nextPartyProvenance(input: {
   previousShown: MergedDocumentFields;
   payload: ConfirmedPayload;
   taken: readonly PartySwapField[];
+  takenAs: "register" | "profile";
   dropped: ReadonlySet<PartySwapField>;
 }): ConfirmedPayload["partyProvenance"] {
   const next: NonNullable<ConfirmedPayload["partyProvenance"]> = {};
@@ -520,7 +523,7 @@ function nextPartyProvenance(input: {
     }
   }
   for (const field of input.taken) {
-    next[field] = "register";
+    next[field] = input.takenAs;
   }
   for (const field of input.dropped) {
     delete next[field];
@@ -571,8 +574,10 @@ async function writeDocumentFields(input: {
   fields: DocumentFieldFormInput;
   document: DocumentRow;
   partyProvenance: PartySwapProvenance | null;
-  /** The party values taken from the register by her action; they carry `register`. */
+  /** The party values taken from the register or the profile by her action. */
   taken?: readonly PartySwapField[];
+  /** Their badge: `register` for a take from the register (the default), `profile` for one from her profile. */
+  takenAs?: "register" | "profile";
 }): Promise<DocumentActionResult> {
   const { document } = input;
   const taken = input.taken ?? [];
@@ -618,6 +623,7 @@ async function writeDocumentFields(input: {
     previousShown,
     payload: nextPayload,
     taken,
+    takenAs: input.takenAs ?? "register",
     dropped,
   });
   if (partyProvenance) {
@@ -823,6 +829,78 @@ export async function takePartyFromRegister(input: {
   }
 
   await appendUserEvent(input.now ?? new Date().toISOString(), input.companyId, "PartyTakenFromRegister", {
+    monthKey: input.monthKey,
+    driveFileId: document.driveFileId,
+    documentId: document.id,
+    side: input.side,
+  });
+  return { ok: true };
+}
+
+/**
+ * *Prevziať z profilu* (PRD 0007, issue 14): her own party, checked against her
+ * company profile, takes the profile's legal name, IČO, DIČ and IČ DPH, with
+ * provenance `profile`. Only what the profile holds is written. Unlike the
+ * register takeover it writes the IČO too: the profile is her own record, and
+ * its IČO is what the party is judged by. Refused on the same terms as the
+ * register takeover: the stored verdict must offer it for the current values,
+ * the document must not be exported and the month must be open.
+ */
+export async function takePartyFromProfile(input: {
+  companyId: number;
+  monthKey: string;
+  documentId: string;
+  side: "supplier" | "customer";
+  now?: string;
+}): Promise<DocumentActionResult> {
+  const loaded = await loadEditableDocument(input);
+  if (!loaded.ok) {
+    return loaded;
+  }
+  const { document } = loaded;
+  if (document.exportedAt !== null) {
+    return { ok: false, message: "Doklad je už exportovaný do Omegy, údaje z profilu sa nedajú prevziať." };
+  }
+
+  const profile = await getCompanyProfile(input.companyId);
+  const fields = await mergedPartyFieldsOf(document, profile);
+  const record = parsePartyIntegrityRecord(document.partyIntegrityJson);
+  const verdict = record && record.identity === partyIdentityKey(fields, clientIdentityOf(profile))
+    ? record[input.side]
+    : null;
+  if (!profile || !verdict || !offersProfileTakeover(verdict)) {
+    return { ok: false, message: "Pri tejto strane nie je nič, čo by sa dalo prevziať z profilu." };
+  }
+
+  const columns = sideFieldsOf(input.side);
+  const profileValues: Array<[PartySwapField, string]> = [
+    [columns.name, profile.legalName.trim()],
+    [columns.ico, profile.ico.trim()],
+    [columns.dic, profile.dic.trim()],
+    [columns.icDph, profile.icDph.trim()],
+  ];
+  const present = profileValues.filter(([, value]) => value.length > 0);
+  if (present.length === 0) {
+    return { ok: false, message: "Profil nemá údaje, ktoré by sa dali prevziať." };
+  }
+
+  const taken = present.map(([field]) => field);
+  const overrides = Object.fromEntries(present) as Partial<PartySwapValues>;
+  const written = await writeDocumentFields({
+    companyId: input.companyId,
+    monthKey: input.monthKey,
+    documentId: input.documentId,
+    fields: documentFormOf(fields, overrides, readExportSectionOverride(parseConfirmedPayload(document.confirmedPayloadJson))),
+    document,
+    partyProvenance: null,
+    taken,
+    takenAs: "profile",
+  });
+  if (!written.ok) {
+    return written;
+  }
+
+  await appendUserEvent(input.now ?? new Date().toISOString(), input.companyId, "PartyTakenFromProfile", {
     monthKey: input.monthKey,
     driveFileId: document.driveFileId,
     documentId: document.id,
