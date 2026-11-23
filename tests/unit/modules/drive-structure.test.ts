@@ -160,35 +160,28 @@ const mutationCases: MutationCase[] = [
     },
   },
   {
-    name: "a folder the client created on purpose is folder-unrecognised, not a repair",
+    name: "a folder the client created with a type's number fills that type, and no rename is proposed",
     change: (children) =>
       children.map((child) =>
         child.name.normalize("NFC") === "04 Platby hotovosťou" ? { ...child, name: "04 Pokladňa" } : child,
       ),
-    // The card folder still holds the receipts type, so nothing is missing.
-    expected: [
-      {
-        kind: "folder-unrecognised",
-        severity: "attention",
-        path: `Konto A/${MONTH}/04 Pokladňa`,
-        monthKey: MONTH,
-      },
-    ],
+    // From the number: `04 Pokladňa` is the receipts type, so the slot is filled and nothing is missing.
+    expected: [],
   },
   {
     name: "an extra subfolder added to a month is folder-unrecognised",
-    change: (children) => [...children, { driveFolderId: "f-extra", name: "08 Ostatné" }],
+    change: (children) => [...children, { driveFolderId: "f-extra", name: "Poznámky" }],
     expected: [
       {
         kind: "folder-unrecognised",
         severity: "attention",
-        path: `Konto A/${MONTH}/08 Ostatné`,
+        path: `Konto A/${MONTH}/Poznámky`,
         monthKey: MONTH,
       },
     ],
     details: (deviation) => {
       assert.equal(deviation.folderId, "f-extra");
-      assert.equal(deviation.observedName, "08 Ostatné");
+      assert.equal(deviation.observedName, "Poznámky");
       assert.equal(deviation.repair, null);
     },
   },

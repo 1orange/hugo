@@ -413,9 +413,10 @@ export function SettingsForm({
         {namesChanged && previewPending ? <p className="mx-4 mt-2 text-[13px] text-ink-3">Počítam dopad…</p> : null}
 
         <Footnote>
-          Od januára 2027 sa typ priečinka číta podľa čísla 01–08, nech je za ním čokoľvek; staršie mesiace podľa názvu,
-          aj starých pomenovaní. „Presúvať neskoré“: doklad, ktorý príde do uzavretého mesiaca, smie Hugo navrhnúť na
-          presun do otvoreného.
+          Typ priečinka sa určuje v každom mesiaci rovnako: presným názvom, potom starým názvom (len mesiace pred januárom
+          2027), potom číslom 01–08 na začiatku názvu, nech je za ním čokoľvek, a napokon blízkym názvom, ktorý Hugo navrhne
+          opraviť (len mesiace pred januárom 2027). Od januára 2027 sa typ číta len podľa čísla. „Presúvať neskoré“: doklad,
+          ktorý príde do uzavretého mesiaca, smie Hugo navrhnúť na presun do otvoreného.
         </Footnote>
       </section>
 

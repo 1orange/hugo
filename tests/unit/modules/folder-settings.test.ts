@@ -196,24 +196,25 @@ test("previewCanonicalListImpact reports no impact when only adding names", () =
 });
 
 test("previewCanonicalListImpact reports folders that would become recognised", () => {
+  // A coded name is already read by its code, so the adoption example is a name with no type number.
   const folders = [
     ...existingFolders,
     {
       companyId: 2,
       companyName: "Beta s.r.o.",
       monthKey: "2026_03",
-      folderName: "04 Pokladňa",
+      folderName: "09 Pokladňa",
     },
   ];
   const impact = previewCanonicalListImpact({
     currentCanonicalNames: [...CANONICAL_FOLDER_NAMES],
-    proposedCanonicalNames: [...CANONICAL_FOLDER_NAMES, "04 Pokladňa"],
+    proposedCanonicalNames: [...CANONICAL_FOLDER_NAMES, "09 Pokladňa"],
     existingFolders: folders,
   });
 
   assert.equal(impact.totalAffected, 0);
   assert.equal(impact.newlyRecognisedFolders.length, 1);
-  assert.equal(impact.newlyRecognisedFolders[0]!.folderName, "04 Pokladňa");
+  assert.equal(impact.newlyRecognisedFolders[0]!.folderName, "09 Pokladňa");
   assert.equal(impact.newlyRecognisedFolders[0]!.companyName, "Beta s.r.o.");
 });
 
@@ -223,14 +224,14 @@ test("previewCanonicalListImpact matches an NFD folder name against an NFC addit
       companyId: 3,
       companyName: "Gamma s.r.o.",
       monthKey: "2026_04",
-      folderName: "07 Pokladničné doklady".normalize("NFD"),
+      folderName: "09 Pokladničné doklady".normalize("NFD"),
     },
   ];
   const impact = previewCanonicalListImpact({
     currentCanonicalNames: [...CANONICAL_FOLDER_NAMES],
     proposedCanonicalNames: [
       ...CANONICAL_FOLDER_NAMES,
-      "07 Pokladničné doklady",
+      "09 Pokladničné doklady",
     ],
     existingFolders: folders,
   });
@@ -263,11 +264,8 @@ test("previewCanonicalListImpact: folders still carrying the 2026-08 names stay 
   // The older names are accepted as the office's slots (2026-11-12): no folder loses its slot.
   assert.equal(impact.totalAffected, 0);
   assert.deepEqual(impact.affectedFolders, []);
-  // The office's own name is what the change adds: the preview confirms it too.
-  assert.deepEqual(
-    impact.newlyRecognisedFolders.map((folder) => folder.folderName),
-    ["04 Platby hotovosťou"],
-  );
+  // `04 Platby hotovosťou` is already read by its code, as the receipts slot of the older list: nothing new.
+  assert.deepEqual(impact.newlyRecognisedFolders, []);
 });
 
 test("the new default movable list is a subset of the new canonical list", () => {
