@@ -26,7 +26,7 @@ Show the state of Drive sync on the queue screen.
 ## Acceptance criteria
 
 - [x] An accepted notification records its time. A `sync` ping or a rejected one does not (unit test, extending the drive-watch tests).
-- [x] The panel shows poll-only mode when no webhook URL is set, and push mode with expiry when it is (UI test with both configurations). Note: `tests/ui/drive-sync-panel.spec.ts` is written and typechecks, but was not run (Playwright not run in this session).
+- [x] The panel shows poll-only mode when no webhook URL is set, and push mode with expiry when it is (UI test with both configurations). Verified: `tests/ui/drive-sync-panel.spec.ts` ran in the UI run and passes (its fixture was stale; fixed to carry the view's waiting months and estimate).
 - [x] The 24-hour warning is a pure rule, unit-tested: push on, last notification older than 24 h, and a sweep since then that changed files.
 - [x] The panel updates with the existing live events after a sweep. Note: a sweep announces `queue-changed` (unit-tested); the SSE route turns it into a fresh `queue` view that carries the panel. The browser refresh itself is not exercised by a test.
 

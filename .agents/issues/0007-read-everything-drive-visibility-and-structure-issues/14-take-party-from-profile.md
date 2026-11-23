@@ -31,7 +31,7 @@ to copy it by hand. Add a one-click fix next to *Prevziať z registra*.
 - [x] Offer rule unit tests: each profile code offers it; register-only findings don't; a finding without an expected value doesn't.
 - [x] The service writes the profile's values with provenance `profile`, IČO included. It refuses on an exported document, a closed month, and a stale verdict (integration tests, mirroring the register takeover's).
 - [x] After taking, the party's verdict no longer reports the profile mismatch.
-- [ ] The button appears only when offered, beside *Prevziať z registra* when both apply. Clicking it updates the fields (UI / e2e test). Unmet in this run: the offer logic and the "both show" case are covered by `tests/ui/fields-panel-profile.spec.ts`, which is written but not run (Playwright was not run, per the brief).
+- [x] The button appears only when offered, beside *Prevziať z registra* when both apply. Clicking it updates the fields (UI / e2e test). Verified: `tests/ui/fields-panel-profile.spec.ts` passes in the UI run (the offer, the "both show" case, and "taking from the profile fills her party's values…").
 
 ## Blocked by
 
