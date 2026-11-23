@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FakeDriveClient } from "../../../src/adapters/drive/fake-drive-client.ts";
 import type { DriveChangesWatch } from "../../../src/adapters/drive/port.ts";
-import { getDriveWatchChannel, saveDriveWatchChannel } from "../../../src/adapters/store/settings.ts";
+import { getDriveWatchChannel, getSettings, saveDriveWatchChannel } from "../../../src/adapters/store/settings.ts";
 import {
   acceptDriveNotification,
   drivePollEnabled,
   ensureDriveWatchChannel,
   pollIntervalMs,
 } from "../../../src/lib/drive-watch/drive-watch.ts";
+import { loadDriveSyncPanel } from "../../../src/lib/drive-watch/drive-sync-status.ts";
 import { freshTestDb } from "../support/test-db.ts";
 
 class WatchingDrive extends FakeDriveClient implements DriveChangesWatch {
@@ -96,4 +97,59 @@ test("the poll runs every 15 minutes unless set, and never in tests or without D
   assert.equal(drivePollEnabled(env({ NODE_ENV: "production" })), false);
   assert.equal(drivePollEnabled(env({ NODE_ENV: "production", GOOGLE_SERVICE_ACCOUNT_JSON: "{}", DRIVE_POLL_INTERVAL_MS: "0" })), false);
   assert.equal(drivePollEnabled(env({ NODE_ENV: "production", GOOGLE_SERVICE_ACCOUNT_JSON: "{}" })), true);
+});
+
+test("an accepted notification records its time; a sync ping or a rejected one does not", async () => {
+  await freshTestDb();
+  await saveDriveWatchChannel({ id: "channel-1", resourceId: "r", token: "secret-token", expiresAt: "2026-09-08T00:00:00Z" });
+  const noSync = async () => {};
+  const accepted = new Date("2026-09-03T10:00:00.000Z");
+
+  assert.equal(
+    await acceptDriveNotification({ channelId: "channel-1", token: "secret-token", resourceState: "sync" }, noSync, accepted),
+    "ignored",
+  );
+  assert.equal((await getSettings()).driveLastNotificationAt, null, "the sync ping is not a notification");
+
+  assert.equal(
+    await acceptDriveNotification({ channelId: "other", token: "secret-token", resourceState: "change" }, noSync, accepted),
+    "rejected",
+  );
+  assert.equal((await getSettings()).driveLastNotificationAt, null, "a rejected one is not stamped");
+
+  assert.equal(
+    await acceptDriveNotification({ channelId: "channel-1", token: "secret-token", resourceState: "change" }, noSync, accepted),
+    "accepted",
+  );
+  assert.equal((await getSettings()).driveLastNotificationAt, accepted.toISOString());
+
+  const later = new Date("2026-09-03T10:05:00.000Z");
+  await acceptDriveNotification({ channelId: "channel-1", token: "secret-token", resourceState: "change" }, noSync, later);
+  assert.equal((await getSettings()).driveLastNotificationAt, later.toISOString(), "the newest accepted one wins");
+});
+
+test("the Drive panel is push with its channel's expiry when the webhook is set, and poll only otherwise", async () => {
+  await freshTestDb();
+  const now = new Date("2026-09-03T10:00:00.000Z");
+  const pollOn = { NODE_ENV: "production", GOOGLE_SERVICE_ACCOUNT_JSON: "{}" };
+  const webhook = "https://hugo.example.eu/api/drive/notifications";
+
+  // No channel yet: poll only, even with the webhook URL set.
+  const beforeChannel = await loadDriveSyncPanel(env({ ...pollOn, DRIVE_WEBHOOK_URL: webhook }), now);
+  assert.equal(beforeChannel.mode, "poll");
+
+  await saveDriveWatchChannel({ id: "channel-1", resourceId: "r", token: "t", expiresAt: "2026-09-08T10:00:00.000Z" });
+  const push = await loadDriveSyncPanel(env({ ...pollOn, DRIVE_WEBHOOK_URL: webhook }), now);
+  assert.equal(push.mode, "push");
+  assert.equal(push.modeLabel, "Push zapnutý");
+  assert.notEqual(push.channelExpiryLabel, null);
+  assert.equal(push.lastNotificationLabel, "zatiaľ žiadna");
+
+  const pollOnly = await loadDriveSyncPanel(env(pollOn), now);
+  assert.equal(pollOnly.mode, "poll");
+  assert.equal(pollOnly.modeLabel, "Iba pravidelná kontrola každých 15 min");
+  assert.equal(pollOnly.channelExpiryLabel, null);
+
+  const pollOff = await loadDriveSyncPanel(env({ ...pollOn, DRIVE_POLL_INTERVAL_MS: "0" }), now);
+  assert.equal(pollOff.pollLabel, "vypnutá");
 });

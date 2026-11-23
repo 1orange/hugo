@@ -30,6 +30,15 @@ const view = {
   workerAlive: true,
   workers: 1,
   checkedAt: "2026-01-12T10:00:05.000Z",
+  drive: {
+    mode: "push",
+    modeLabel: "Push zapnutý",
+    channelExpiryLabel: "30. 11. 2026 12:00",
+    pollLabel: "každých 15 min",
+    lastNotificationLabel: "pred 4 min",
+    lastSweepLabel: "Drive načítaný pred 4 minútami",
+    silent: false,
+  },
   concurrency: { read: 3, model: 1 },
   modelSource: "server",
   running: [

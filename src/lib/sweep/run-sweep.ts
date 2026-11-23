@@ -13,7 +13,12 @@ import {
   replaceStructureDeviations,
   type StructureDeviationInsert,
 } from "@/adapters/store/structure-deviations";
-import { getSettings, resolveDriveParentFolderId, updateLastSweepAt } from "@/adapters/store/settings";
+import {
+  getSettings,
+  resolveDriveParentFolderId,
+  saveDriveLastChangeAt,
+  updateLastSweepAt,
+} from "@/adapters/store/settings";
 import { withAdvisoryLock, withAdvisoryLockIfFree } from "@/lib/db/client";
 import { syncLateArrivals } from "@/lib/late-arrivals/sync";
 import { announce } from "@/lib/events/bus";
@@ -159,6 +164,11 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   });
 
   await updateLastSweepAt(sweepAt);
+  if (changedFileIds.size > 0) {
+    await saveDriveLastChangeAt(sweepAt);
+  }
+  // Every sweep, not only one that changed a month: the Drive panel shows when the last one ran.
+  announce({ type: "queue-changed" });
   announceChangedMonths(events, storedFiles, persistedFiles, companyIdByDriveFolderId);
 
   return {

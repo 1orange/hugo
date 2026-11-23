@@ -16,6 +16,10 @@ export type SettingsRow = {
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   lastSweepAt: string | null;
+  /** The last Drive notification the webhook accepted (ADR 0020); null before the first. */
+  driveLastNotificationAt: string | null;
+  /** The last sweep that wrote changed files; null before the first such sweep. */
+  driveLastChangeAt: string | null;
   autoAdvanceAfterDecision: boolean;
   omegaT01EvidenceCode: string;
   omegaT01SeriesCode: string;
@@ -68,6 +72,8 @@ export async function getSettings(): Promise<SettingsRow> {
     canonicalFolderNames: JSON.parse(row.canonicalFolderNamesJson) as string[],
     movableFolderNames: parseMovableFolderNames(row.movableFolderNamesJson),
     lastSweepAt: row.lastSweepAt,
+    driveLastNotificationAt: row.driveLastNotificationAt,
+    driveLastChangeAt: row.driveLastChangeAt,
     autoAdvanceAfterDecision: row.autoAdvanceAfterDecision,
     omegaT01EvidenceCode: row.omegaT01EvidenceCode ?? "OF",
     omegaT01SeriesCode: row.omegaT01SeriesCode ?? "OF",
@@ -143,6 +149,16 @@ export async function requireDriveParentFolderId(
 
 export async function updateLastSweepAt(timestamp: string): Promise<void> {
   await updateSettings({ lastSweepAt: timestamp });
+}
+
+/** Stamped when the webhook accepts a notification; see acceptDriveNotification. */
+export async function saveDriveLastNotificationAt(timestamp: string): Promise<void> {
+  await updateSettings({ driveLastNotificationAt: timestamp });
+}
+
+/** Stamped by a sweep that wrote changed files, so the Drive panel can tell silence from no change. */
+export async function saveDriveLastChangeAt(timestamp: string): Promise<void> {
+  await updateSettings({ driveLastChangeAt: timestamp });
 }
 
 export async function setDriveParentFolderId(driveParentFolderId: string): Promise<void> {
