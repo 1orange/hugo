@@ -189,6 +189,8 @@ test("the X key swaps the parties, and does nothing while typing or when locked"
   await expect(page.getByTestId("field-supplier-name")).toHaveValue("Delta s.r.o.");
   expect(await swapCount(page)).toBe(1);
 
+  // The fixture's number "FA-7" derives the symbol "7" (issue 13); clear it so the typed x is the whole value.
+  await page.getByTestId("field-variable-symbol").fill("");
   await page.getByTestId("field-variable-symbol").click();
   await page.keyboard.press("x");
   await expect(page.getByTestId("field-variable-symbol")).toHaveValue("x");
