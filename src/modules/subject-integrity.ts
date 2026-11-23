@@ -694,6 +694,22 @@ export function offersRegisterTakeover(check: SubjectCheck): boolean {
   );
 }
 
+/** The mismatches the profile states with the value it holds, which "Prevziať z profilu" takes (PRD 0007, issue 14). */
+const PROFILE_TAKEOVER_CODES: readonly IntegrityCode[] = ["profile-name", "profile-ico", "profile-dic", "profile-icdph"];
+
+/**
+ * Whether a verdict holds a profile mismatch the accountant may take the profile's value for. Only her own
+ * party is judged against the profile, so only her party's verdict can offer it.
+ */
+export function offersProfileTakeover(check: SubjectCheck): boolean {
+  return check.findings.some(
+    (item) =>
+      item.severity === "mismatch" &&
+      item.expected !== undefined &&
+      PROFILE_TAKEOVER_CODES.includes(item.code),
+  );
+}
+
 const VERDICT_LABELS: Record<IntegrityVerdict, string> = {
   verified: "Overené",
   valid: "Formálne v poriadku",

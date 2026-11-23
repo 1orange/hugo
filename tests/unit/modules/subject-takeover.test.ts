@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   checkSubject,
+  offersProfileTakeover,
   offersRegisterTakeover,
   type IntegrityFinding,
   type SubjectCheck,
@@ -59,6 +60,52 @@ test("a verdict without such a mismatch offers nothing", () => {
     offersRegisterTakeover(check([{ ...NAME_MISMATCH, code: "profile-name" }])),
     false,
   );
+});
+
+test("each profile mismatch with the value the profile holds offers *Prevziať z profilu*", () => {
+  for (const code of ["profile-name", "profile-ico", "profile-dic", "profile-icdph"] as const) {
+    const finding: IntegrityFinding = {
+      field: "name",
+      code,
+      severity: "mismatch",
+      printed: "Delta Trade s.r.o.",
+      expected: "Delta s.r.o.",
+    };
+    assert.equal(offersProfileTakeover(check([finding])), true, code);
+  }
+});
+
+test("register-only findings, a profile finding with no value to take, and a notice offer no profile takeover", () => {
+  assert.equal(offersProfileTakeover(check([NAME_MISMATCH])), false);
+  assert.equal(offersProfileTakeover(check([DIC_MISMATCH])), false);
+  assert.equal(offersProfileTakeover(check([VIES_HOLDER])), false);
+  assert.equal(
+    offersProfileTakeover(check([{ field: "name", code: "profile-name", severity: "mismatch", printed: "Delta" }])),
+    false,
+  );
+  assert.equal(
+    offersProfileTakeover(check([{ field: "icDph", code: "profile-country", severity: "mismatch", printed: "CZ1", expected: "SK" }])),
+    false,
+    "the country is the profile's to be right about, not a value to take",
+  );
+  assert.equal(
+    offersProfileTakeover(check([{ field: "name", code: "profile-name", severity: "notice", printed: "Delta", expected: "Delta s.r.o." }])),
+    false,
+  );
+  assert.equal(offersProfileTakeover(check([])), false);
+});
+
+test("a client's party that disagrees with her profile is a verdict that offers the profile takeover, not the register's", () => {
+  const verdict = checkSubject({
+    party: { name: "Delta Trade s.r.o.", ico: "31333532", dic: "2020311337", icDph: "SK2020311337" },
+    isClientParty: true,
+    profile: { country: "SK", legalName: "Delta s.r.o.", ico: "31333532", dic: "2020311337", icDph: "SK2020311337" },
+  });
+
+  assert.equal(verdict.verdict, "mismatch");
+  assert.ok(verdict.findings.some((item) => item.code === "profile-name" && item.expected === "Delta s.r.o."));
+  assert.equal(offersProfileTakeover(verdict), true);
+  assert.equal(offersRegisterTakeover(verdict), false);
 });
 
 test("a mismatch the register states makes the verdict one that can be taken from", () => {

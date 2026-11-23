@@ -92,7 +92,8 @@ test.beforeAll(async () => {
                 "const never = async () => ({ ok: false, message: 'not in the harness' });",
                 "export const confirmDocumentAction = never, dismissDocumentAction = never, saveDocumentFieldsAction = never,",
                 "  lookupEkasaUidAction = never, reextractDocumentAction = never, saveDocumentNoteAction = never,",
-                "  setAdvanceSettlementAction = never, swapDocumentPartiesAction = never, takePartyFromRegisterAction = never;",
+                "  setAdvanceSettlementAction = never, swapDocumentPartiesAction = never, takePartyFromRegisterAction = never,",
+                "  takePartyFromProfileAction = never;",
               ].join("\n"),
               events: "export function subscribeServerEvents() { return () => {}; } export function latestQueueView() { return null; }",
               // The address is the source of truth: each render reads it, as the router's search params do.
