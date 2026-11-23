@@ -8,6 +8,8 @@ import { LiveRefresh } from "@/components/app/live-refresh";
 import { refreshAfterRender } from "@/lib/sweep/ensure-fresh-sweep";
 import { listAllMonthKeys, listCompanySummaries } from "@/lib/sweep/views";
 import { getSettings } from "@/adapters/store/settings";
+import { resolveCompaniesMonth } from "@/modules/companies-month";
+import { bookingMonthKey } from "@/modules/month-lifecycle";
 import { ChaseMonthPicker } from "./chase-month-picker";
 import { CompanyTable } from "./company-table";
 
@@ -32,8 +34,10 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
   }
 
   const { month } = await searchParams;
-  const monthKeys = await listAllMonthKeys();
-  const selectedMonth = month && monthKeys.includes(month) ? month : null;
+  const now = new Date();
+  // The booking month is always pickable, even before any company has its folder.
+  const monthKeys = [...new Set([...(await listAllMonthKeys()), bookingMonthKey(now)])];
+  const selectedMonth = resolveCompaniesMonth(month, monthKeys, now);
 
   const companies = await listCompanySummaries(selectedMonth);
   const settings = await getSettings();
