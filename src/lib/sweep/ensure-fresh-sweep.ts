@@ -1,4 +1,7 @@
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
+import type { DriveClient } from "@/adapters/drive/port";
+import { listCompaniesWithoutAccess } from "@/adapters/store/company-access";
+import { refreshCompanyAccess } from "@/lib/access/refresh-company-access";
 import { getSettings, resolveDriveParentFolderId, setDriveParentFolderId } from "@/adapters/store/settings";
 import { queueReadingWindowForExtraction } from "@/lib/extraction-queue/reading-window";
 import { isSweepStale } from "@/lib/sweep/stale";
@@ -44,11 +47,39 @@ export async function sweepDrive(
  */
 export async function refreshAfterRender(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   try {
+    await ensureAccessKnown(env);
     await ensureFreshSweep(env);
     await queueReadingWindowForExtraction();
   } catch (error) {
     console.warn("[sweep] the background refresh failed", error);
   }
+}
+
+let accessBootstrap: Promise<void> | null = null;
+
+/**
+ * Reads the sharing of every company that has none yet (ADR 0023). Without it,
+ * a fresh database or a newly found client stayed invisible to everyone — the
+ * list said *Načítavam prístupy z Drive…* — until the next poll or *Obnoviť*,
+ * and the poll's sweep can take a minute. One Drive call per company, a few
+ * seconds; pages loading at once share the one read in this process.
+ */
+export async function ensureAccessKnown(
+  env: NodeJS.ProcessEnv = process.env,
+  driveClient: DriveClient | null = null,
+): Promise<void> {
+  if (!isDriveConfigured(env)) {
+    return;
+  }
+  accessBootstrap ??= (async () => {
+    const unread = await listCompaniesWithoutAccess();
+    if (unread.length > 0) {
+      await refreshCompanyAccess(driveClient ?? createDriveClient(env), unread);
+    }
+  })().finally(() => {
+    accessBootstrap = null;
+  });
+  await accessBootstrap;
 }
 
 export async function ensureFreshSweep(

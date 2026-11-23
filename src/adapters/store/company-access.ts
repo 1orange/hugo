@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { companies, companyPrincipals } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
 import type { AccessPrincipal, PrincipalType } from "@/modules/company-access";
@@ -134,4 +134,13 @@ export async function listCompanyAccessRows(companyId?: number): Promise<Company
     accessRefreshedAt: row.accessRefreshedAt,
     principal: row.principal ? toPrincipal(row.principal) : null,
   }));
+}
+
+/** Active companies whose sharing was never read successfully: the ones nobody can see yet. */
+export async function listCompaniesWithoutAccess(): Promise<Array<{ companyId: number; driveFolderId: string }>> {
+  const db = getDb();
+  return db
+    .select({ companyId: companies.id, driveFolderId: companies.driveFolderId })
+    .from(companies)
+    .where(and(eq(companies.active, true), isNull(companies.accessRefreshedAt)));
 }

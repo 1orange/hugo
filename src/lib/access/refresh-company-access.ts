@@ -1,5 +1,6 @@
 import { canListPermissions, type DriveClient } from "@/adapters/drive/port";
 import { recordCompanyAccessError, replaceCompanyPrincipals } from "@/adapters/store/company-access";
+import { announce } from "@/lib/events/bus";
 import { principalsFromPermissions } from "@/modules/company-access";
 
 /**
@@ -47,5 +48,9 @@ export async function refreshCompanyAccess(
   };
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
+  if (refreshed > 0) {
+    // Open screens render again with the companies their person now sees.
+    announce({ type: "access-changed" });
+  }
   return { supported: true, refreshed, failed };
 }

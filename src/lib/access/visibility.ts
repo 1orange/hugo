@@ -107,6 +107,7 @@ export function restrictEventToCompanies(event: AppEvent, ids: ReadonlySet<numbe
     }
     case "queue-changed":
     case "services-changed":
+    case "access-changed":
       return event;
   }
 }

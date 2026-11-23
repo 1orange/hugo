@@ -79,6 +79,11 @@ export async function GET(request: Request): Promise<Response> {
           }, QUEUE_DEBOUNCE_MS);
           return;
         }
+        if (event.type === "access-changed") {
+          // This connection's companies first, so the page it re-renders and the next events agree.
+          void refreshVisible().then(() => send(event.type, event));
+          return;
+        }
         const own = restrictEventToCompanies(event, visible);
         if (own) {
           send(own.type, own);

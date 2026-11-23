@@ -27,7 +27,12 @@ export type AppEvent =
   /** A sweep found files added, moved, renamed or gone in these months. */
   | { type: "files-changed"; months: Array<{ companyId: number; monthKey: string }> }
   /** The model's or OCR's state, as the worker sees it, changed. */
-  | { type: "services-changed" };
+  | { type: "services-changed" }
+  /**
+   * Drive sharing was read again (ADR 0023): which companies a person sees may
+   * have changed. It names no company, so every connection gets it.
+   */
+  | { type: "access-changed" };
 
 export type AppEventListener = (event: AppEvent) => void;
 

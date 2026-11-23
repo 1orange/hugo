@@ -8,6 +8,10 @@ import { setDriveParentFolderId } from "../../../src/adapters/store/settings.ts"
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import { canSee, type DrivePermission } from "../../../src/modules/company-access.ts";
 import { FOLDER_MIME, type DriveFileRecord } from "../../../src/modules/drive-tree.ts";
+import { eq } from "drizzle-orm";
+import { getDb } from "../../../src/lib/db/client.ts";
+import { companies, companyPrincipals } from "../../../src/lib/db/schema.ts";
+import { ensureAccessKnown } from "../../../src/lib/sweep/ensure-fresh-sweep.ts";
 import { freshTestDb } from "../support/test-db.ts";
 
 const PARENT_ID = "access-parent";
@@ -135,4 +139,27 @@ test("a client without the sharing capability still sweeps; no company gets a sn
   const access = await listCompaniesAccess();
   assert.equal(access.length, 3);
   assert.ok(access.every((company) => company.refreshedAt === null && company.principals.length === 0));
+});
+
+test("a page reads the sharing of companies never read, without waiting for the poll", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  const client = drive();
+  client.setPermissions(ALFA, [userGrant("eva@kancelaria.sk")]);
+  client.setPermissions(BETA, [userGrant("eva@kancelaria.sk")]);
+  client.setPermissions(GAMA, [userGrant("jana@kancelaria.sk")]);
+  await runSweep(client); // the first sweep reads every company
+  // A company found later, or a database from before sharing was read: no snapshot.
+  await getDb().update(companies).set({ accessRefreshedAt: null }).where(eq(companies.driveFolderId, BETA));
+  await getDb().delete(companyPrincipals).where(eq(companyPrincipals.companyId, await companyIdOf(BETA)));
+  client.permissionCalls.length = 0;
+
+  await ensureAccessKnown({ ...process.env, DRIVE_CLIENT: "fake" }, client);
+
+  assert.deepEqual(client.permissionCalls, [BETA], "only the company with no snapshot is read");
+  assert.equal(canSee("eva@kancelaria.sk", await listCompanyPrincipals(await companyIdOf(BETA))), true);
+
+  client.permissionCalls.length = 0;
+  await ensureAccessKnown({ ...process.env, DRIVE_CLIENT: "fake" }, client);
+  assert.deepEqual(client.permissionCalls, [], "once every company is read, a page asks Drive nothing");
 });
