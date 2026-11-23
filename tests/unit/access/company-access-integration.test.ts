@@ -71,12 +71,12 @@ test("a sweep that reads only the change log reads only the companies the log na
   await runSweep(client); // the first sweep lists everything, so every company is read
   client.permissionCalls.length = 0;
 
-  client.rename(ALFA, "Doklady Alfa");
+  await client.rename(ALFA, "Doklady Alfa");
   await runSweep(client);
   assert.deepEqual(client.permissionCalls, [ALFA], "a company folder's change reads that company");
 
   client.permissionCalls.length = 0;
-  client.rename(EVA_GROUP, "Eva");
+  await client.rename(EVA_GROUP, "Eva");
   await runSweep(client);
   assert.deepEqual([...client.permissionCalls].sort(), [ALFA, BETA].sort(), "a group folder's change reads its companies");
 

@@ -11,6 +11,7 @@ import {
   applyFolderRename,
   undoFolderRename,
 } from "@/lib/drive-mutations/apply-rename";
+import { companyActionRefusal } from "@/lib/access/guard";
 import {
   assertMonthEditable,
   closeCompanyMonth,
@@ -38,6 +39,12 @@ import {
 import type { DocumentFieldFormInput } from "@/modules/document-fields";
 import type { PartySwapProvenance } from "@/modules/party-swap";
 import { revalidatePath } from "next/cache";
+
+/*
+ * Every action that takes a company id (directly, or through its document) starts
+ * with the visibility guard (ADR 0023). A company the person may not see is refused
+ * with the same message as a missing one, and nothing is read or written.
+ */
 
 export async function refreshSweepAction(): Promise<{ sweepAt: string }> {
   const parentFolderId = await requireDriveParentFolderId();
@@ -67,6 +74,11 @@ export async function confirmFolderRenameAction(input: {
   driveFolderId: string;
   targetName: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
@@ -107,6 +119,11 @@ export async function undoFolderRenameAction(input: {
   monthKey: string;
   mutationId: number;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const readOnly = await assertMonthEditable(input.companyId, input.monthKey);
   if (readOnly) {
     return readOnly;
@@ -131,6 +148,11 @@ export async function closeMonthAction(input: {
   companyId: number;
   monthKey: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await closeCompanyMonth(input.companyId, input.monthKey);
   if (!result.ok) {
     return result;
@@ -145,6 +167,11 @@ export async function reopenMonthAction(input: {
   companyId: number;
   monthKey: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await reopenCompanyMonth(input.companyId, input.monthKey);
   if (!result.ok) {
     return result;
@@ -161,6 +188,11 @@ export async function confirmDocumentAction(input: {
   documentId: string;
   confirmed: boolean;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await confirmDocument(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -168,6 +200,7 @@ export async function confirmDocumentAction(input: {
   return result;
 }
 
+/** The form posts reach the guard through the action they call. */
 export async function confirmDocumentFormAction(
   formData: FormData,
 ): Promise<void> {
@@ -185,6 +218,11 @@ export async function dismissDocumentAction(input: {
   documentId: string;
   reason?: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await dismissDocument(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -209,6 +247,11 @@ export async function saveDocumentNoteAction(input: {
   documentId: string;
   note: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await saveDocumentNote(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -221,6 +264,11 @@ export async function reextractDocumentAction(input: {
   monthKey: string;
   documentId: string;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await requestDocumentReextraction({
     ...input,
     schedule: scheduleDocumentExtractionForMonth,
@@ -241,6 +289,11 @@ export async function lookupEkasaUidAction(input: {
   | { ok: true; found: false; message: string }
   | { ok: false; message: string }
 > {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await lookupEkasaUidForDocument({
     ...input,
     uidRaw: input.uid,
@@ -261,6 +314,11 @@ export async function saveDocumentFieldsAction(input: {
   documentId: string;
   fields: DocumentFieldFormInput;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await saveDocumentFields(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -275,6 +333,11 @@ export async function setAdvanceSettlementAction(input: {
   documentId: string;
   settled: boolean;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await setAdvanceSettlement(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -289,6 +352,11 @@ export async function takePartyFromRegisterAction(input: {
   documentId: string;
   side: "supplier" | "customer";
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await takePartyFromRegister(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -303,6 +371,11 @@ export async function swapDocumentPartiesAction(input: {
   fields: DocumentFieldFormInput;
   partyProvenance: PartySwapProvenance;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await swapDocumentParties(input);
   if (result.ok) {
     revalidateMonth(input.companyId, input.monthKey);
@@ -321,6 +394,11 @@ export async function moveLateArrivalsAction(input: {
   companyId: number;
   ids?: number[];
 }): Promise<{ ok: true; moved: number; failed: Array<{ name: string; message: string }> } | { ok: false; message: string }> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   if (!(await resolveDriveParentFolderId())) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
@@ -333,6 +411,11 @@ export async function undoLateArrivalMoveAction(input: {
   companyId: number;
   lateArrivalId: number;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   if (!(await resolveDriveParentFolderId())) {
     return { ok: false, message: "DRIVE_PARENT_FOLDER_ID is not configured" };
   }
@@ -350,6 +433,11 @@ export async function setLateArrivalIgnoredAction(input: {
   lateArrivalId: number;
   ignored: boolean;
 }): Promise<MutationActionResult> {
+  const refused = await companyActionRefusal(input.companyId);
+  if (refused) {
+    return refused;
+  }
+
   const result = await setLateArrivalIgnored(input);
   revalidateCompanyMonths(input.companyId);
   return result;

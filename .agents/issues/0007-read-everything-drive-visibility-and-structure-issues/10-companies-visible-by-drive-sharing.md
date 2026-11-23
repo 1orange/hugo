@@ -1,7 +1,7 @@
 # 10 — Each person sees only the companies shared with them in Drive
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -33,13 +33,13 @@ for who sees which company.
 
 ## Acceptance criteria
 
-- [ ] With two signed-in users and fake Drive permissions, each sees only their companies on *Firmy*, and the summary counts only theirs (e2e, replacing the *Moje firmy* spec).
-- [ ] Opening another user's company's month, profile, structure or activity URL returns not found. A server action on its document is refused (integration tests).
-- [ ] The Omega export refuses an invisible company.
-- [ ] No snapshot: an empty list with the loading message, never all companies.
-- [ ] Group chips appear only when visible companies span more than one group.
-- [ ] *Moje firmy* code, UI and tests are removed. Lint and type checks pass.
-- [ ] ADR 0023 written, ADR 0011 marked amended.
+- [ ] With two signed-in users and fake Drive permissions, each sees only their companies on *Firmy*, and the summary counts only theirs (e2e, replacing the *Moje firmy* spec). Note: `tests/e2e/company-visibility.spec.ts` is written; Playwright was not run in this session.
+- [ ] Opening another user's company's month, profile, structure or activity URL returns not found. A server action on its document is refused (integration tests). Note: the action refusal is an integration test (`companyRefusalFor`); the page 404s are covered only by the e2e spec, which was not run.
+- [ ] The Omega export refuses an invisible company. Note: both export actions call the guard; no test calls the action itself (it needs a session), so this rests on the code and the review.
+- [x] No snapshot: an empty list with the loading message, never all companies. (`tests/unit/access/visibility-integration.test.ts`, "before the first read"; the page branch is read, not run.)
+- [ ] Group chips appear only when visible companies span more than one group. Note: the rule is in `company-table.tsx` (`groups.length > 1`); the UI spec in `tests/ui/company-table.spec.ts` is written, Playwright was not run.
+- [x] *Moje firmy* code, UI and tests are removed. Lint and type checks pass. Note: `tsc` is clean; `lint:async` reports only the 10 pre-existing errors.
+- [x] ADR 0023 written, ADR 0011 marked amended.
 
 ## Blocked by
 

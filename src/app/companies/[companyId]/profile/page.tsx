@@ -9,6 +9,7 @@ import {
   loadCompanyProfileView,
   lookupCompanyRegister,
 } from "@/lib/company-profile/service";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { loadProfileIdentity } from "@/lib/subject-directory/screen";
 import { scheduleStaleClientSubjectCheck } from "@/lib/subject-directory/schedule";
 import type { CompanyCountry } from "@/modules/company-profile";
@@ -41,6 +42,9 @@ export default async function CompanyProfilePage({
   const { ico: pickIco, saved, error: saveError, country: countryParam } = await searchParams;
   const companyId = Number.parseInt(companyIdRaw, 10);
   if (!Number.isFinite(companyId)) {
+    notFound();
+  }
+  if (!(await isCompanyVisible(session.user.email, companyId))) {
     notFound();
   }
 

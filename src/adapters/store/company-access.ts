@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { companies, companyPrincipals } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
 import type { AccessPrincipal, PrincipalType } from "@/modules/company-access";
@@ -103,4 +103,35 @@ export async function listCompaniesAccess(): Promise<CompanyAccess[]> {
       error: row.error,
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/** One row per principal of an active company; a company with none still has one row, with a null principal. */
+export type CompanyAccessRow = {
+  companyId: number;
+  /** When the sharing was last read successfully; null before the first success. */
+  accessRefreshedAt: string | null;
+  principal: AccessPrincipal | null;
+};
+
+/**
+ * Active companies with their snapshot and principals, in one query. This is
+ * all the visibility guard reads: it never calls Drive (PRD 0007). With an id,
+ * only that company's rows.
+ */
+export async function listCompanyAccessRows(companyId?: number): Promise<CompanyAccessRow[]> {
+  const active = eq(companies.active, true);
+  const rows = await getDb()
+    .select({
+      companyId: companies.id,
+      accessRefreshedAt: companies.accessRefreshedAt,
+      principal: companyPrincipals,
+    })
+    .from(companies)
+    .leftJoin(companyPrincipals, eq(companyPrincipals.companyId, companies.id))
+    .where(companyId === undefined ? active : and(active, eq(companies.id, companyId)));
+  return rows.map((row) => ({
+    companyId: row.companyId,
+    accessRefreshedAt: row.accessRefreshedAt,
+    principal: row.principal ? toPrincipal(row.principal) : null,
+  }));
 }

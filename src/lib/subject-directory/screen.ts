@@ -249,16 +249,23 @@ export async function loadProfileIdentity(companyId: number): Promise<ProfileIde
 }
 
 /** Where a subject is shown and what it holds, or null when there is no such subject. */
-export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetail | null> {
+export async function loadSubjectDetail(
+  subjectId: number,
+  /** The companies the viewer may see (ADR 0023). The directory is office-wide; its references to companies are not. */
+  visibleCompanyIds?: ReadonlySet<number>,
+): Promise<SubjectDetail | null> {
   const subject = await getSubject(subjectId);
   if (!subject) {
     return null;
   }
-  const [aliases, references, linked] = await Promise.all([
+  const [aliases, allReferences, linked] = await Promise.all([
     listSubjectAliases(subjectId),
     listSubjectReferences(subjectId),
     subject.linkedCompanyId === null ? null : getCompanyById(subject.linkedCompanyId),
   ]);
+  const references = visibleCompanyIds
+    ? allReferences.filter((reference) => visibleCompanyIds.has(reference.companyId))
+    : allReferences;
 
   const verdict = verdictOf(subject);
   const companies = new Map<number, string>();

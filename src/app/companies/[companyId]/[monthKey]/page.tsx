@@ -6,6 +6,7 @@ import { AppBar } from "@/components/app/app-bar";
 import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
 import { raiseMonthForReading } from "@/lib/extraction-queue/raise-month";
 import { scheduleSubjectChecksForMonth } from "@/lib/subject-directory/schedule";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { buildMonthView } from "@/lib/sweep/views";
 import { buildMonthDocumentView } from "@/lib/documents/view";
 import { getSettings } from "@/adapters/store/settings";
@@ -41,6 +42,10 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
   const documentSort = parseDocumentSortParams({ sort, direction, dir });
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
+    notFound();
+  }
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyIdNum))) {
     notFound();
   }
 

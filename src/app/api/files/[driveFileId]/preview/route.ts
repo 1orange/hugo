@@ -4,6 +4,7 @@ import { heicToJpeg } from "@/adapters/image/heic-to-jpeg";
 import { getFileByDriveId } from "@/adapters/store/files";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import {
   driveFileViewUrl,
   isHeicMimeType,
@@ -24,6 +25,10 @@ export async function GET(_request: Request, context: RouteContext) {
   const { driveFileId } = await context.params;
   const file = await getFileByDriveId(driveFileId);
   if (!file || file.deleted) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // A file of a company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, file.companyId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

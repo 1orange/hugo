@@ -175,7 +175,7 @@ export type ChaseSummary = {
 
 /**
  * Figures for the summary strip. Pure so the client can recount the rows it is
- * showing after the *Moje firmy* filter, rather than trusting a server total.
+ * showing after the group filter, rather than trusting a server total.
  */
 export function summariseChaseList(
   companies: readonly ChaseSummaryRow[],

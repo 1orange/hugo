@@ -223,6 +223,26 @@ test("the detail lists the companies and documents that reference the subject, e
   assert.equal(await loadSubjectDetail(alfaId + 999), null);
 });
 
+test("the references show only the companies the viewer may see; the subject itself is office-wide", async () => {
+  await seedTwoClients();
+  const alfaId = await learnAlfa();
+  await addInvoice(1, "delta-invoice-1", { name: "Alfa s.r.o.", ico: "31322832", dic: "", icDph: "" });
+  await addInvoice(2, "beta-invoice-1", { name: "Alfa s.r.o.", ico: "31322832", dic: "", icDph: "" });
+  await verifyCounterparty(ALFA_PARTY, deps(new FakeCompanyRegister(), new FakeVatRegister()), { documentId: "delta-invoice-1" });
+  await verifyCounterparty(ALFA_PARTY, deps(new FakeCompanyRegister(), new FakeVatRegister()), { documentId: "beta-invoice-1" });
+
+  const onlyDelta = await loadSubjectDetail(alfaId, new Set([1]));
+  assert.ok(onlyDelta);
+  assert.equal(onlyDelta.legalName, "Alfa s.r.o.", "the directory entry itself is still shown");
+  assert.deepEqual(onlyDelta.references.documents.map((document) => document.documentId), ["delta-invoice-1"]);
+  assert.deepEqual(onlyDelta.references.companies.map((company) => company.name), ["Delta s.r.o."]);
+
+  const none = await loadSubjectDetail(alfaId, new Set());
+  assert.ok(none);
+  assert.deepEqual(none.references.documents, []);
+  assert.deepEqual(none.references.companies, []);
+});
+
 test("the detail shows each value with its source, the register and VIES statuses, and the former names", async () => {
   await seedTwoClients();
   const alfaId = await learnAlfa();
