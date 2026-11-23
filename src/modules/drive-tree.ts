@@ -4,6 +4,7 @@ import {
   type FolderClassification,
   type FolderTaxonomySettings,
 } from "./folder-taxonomy";
+import type { LayoutFolder } from "./company-layout";
 import type { DriveCapabilities } from "./drive-mutation";
 import { isSystemFile } from "./system-files";
 
@@ -122,6 +123,8 @@ export type TreeCompany = {
   /** In the archive: a client that gets no new months. */
   archived: boolean;
   months: TreeMonth[];
+  /** The folders directly in the client folder, for the month-structure check (issue 06). */
+  folders: LayoutFolder[];
 };
 
 /** A company's group: the accountant's folder at the root, or the archive. */
@@ -278,6 +281,22 @@ function locationKey(location: FileLocation): string {
   ].join("|");
 }
 
+/**
+ * The folders directly in a client folder, each with the folders directly inside
+ * it: what the month-structure check reads (issue 06). Files are left out, since
+ * a document in the client folder is not a layout.
+ */
+function layoutFoldersOf(clientId: string, files: DriveFileRecord[]): LayoutFolder[] {
+  return files
+    .filter((file) => isFolder(file) && file.parents[0] === clientId)
+    .map((folder) => ({
+      name: folder.name,
+      childNames: files
+        .filter((file) => isFolder(file) && file.parents[0] === folder.id)
+        .map((file) => file.name),
+    }));
+}
+
 function buildTree(
   files: DriveFileRecord[],
   driveParentFolderId: string,
@@ -367,6 +386,7 @@ function buildTree(
       groupName: parents.get(indexed.parentId!)?.name ?? null,
       archived: parents.get(indexed.parentId!)?.archived ?? false,
       months,
+      folders: layoutFoldersOf(record.id, files),
     });
   }
 

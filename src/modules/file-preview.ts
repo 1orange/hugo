@@ -55,3 +55,11 @@ export function xmlPreviewCharset(head: string): string {
 export function driveFileViewUrl(driveFileId: string): string {
   return `https://drive.google.com/file/d/${driveFileId}/view`;
 }
+
+/**
+ * The Drive page of a folder, for the office to open and fix a client's layout
+ * (issue 06). Hugo does not create or move folders itself (ADR 0006).
+ */
+export function driveFolderViewUrl(driveFolderId: string): string {
+  return `https://drive.google.com/drive/folders/${driveFolderId}`;
+}

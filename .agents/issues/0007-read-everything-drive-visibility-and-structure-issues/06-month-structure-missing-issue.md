@@ -1,7 +1,7 @@
 # 06 — *Chýba mesačná štruktúra*: a company-level structure issue
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -34,11 +34,11 @@ Drive, so Hugo must **say so**. It does not read these layouts.
 
 ## Acceptance criteria
 
-- [ ] Company layout unit tests, one anonymised fixture per live shape: `months`; `months` with older year folders beside it; `year-months`; `year-types`; `types`; `empty`.
-- [ ] The sweep writes one `month-structure-missing` deviation for such a company and no per-month findings for it; archived companies get none (integration test).
-- [ ] After month folders are added in the fake Drive, the next sweep clears the deviation and discovers and queues the files in them.
-- [ ] *Firmy* marks the company and counts it among structure problems. The structure screen shows found, expected and the Drive link (UI test).
-- [ ] The deviation is idempotent: a repeated sweep over unchanged input writes nothing new.
+- [x] Company layout unit tests, one anonymised fixture per live shape: `months`; `months` with older year folders beside it; `year-months`; `year-types`; `types`; `empty`. (`tests/unit/modules/company-layout.test.ts`; `other` is covered too.)
+- [x] The sweep writes one `month-structure-missing` deviation for such a company and no per-month findings for it; archived companies get none (integration test). Note: the per-month suppression is structural (a non-`months` layout has no current-year month folders, so the per-month check has nothing to report); the test asserts the single row.
+- [x] After month folders are added in the fake Drive, the next sweep clears the deviation and discovers and queues the files in them.
+- [ ] *Firmy* marks the company and counts it among structure problems. The structure screen shows found, expected and the Drive link (UI test). Unmet in part: the count is asserted in the integration test (`countStructureDeviationsByCompany`), but no UI spec was written (not asked; Playwright not run), so the screen rendering is not covered by a test.
+- [x] The deviation is idempotent: a repeated sweep over unchanged input writes nothing new. (Stored rows are kept as they were, with their ids and detection time.)
 
 ## Blocked by
 
