@@ -95,6 +95,21 @@ export function priorityFor(
   return kind === "receipt" ? BACKLOG_RECEIPT_PRIORITY : BACKLOG_DOCUMENT_PRIORITY;
 }
 
+/**
+ * The tier a job waits in, from the priority BullMQ holds for it: the inverse of
+ * priorityFor. A raised month's jobs were moved to the raised levels, so the
+ * priority is the truth about how soon a job is read, not the tier it queued with.
+ */
+export function tierOfPriority(priority: number): ReadingTier {
+  if (priority <= RAISED_DOCUMENT_PRIORITY) {
+    return "raised";
+  }
+  if (priority <= RECENT_DOCUMENT_PRIORITY) {
+    return "recent";
+  }
+  return "backlog";
+}
+
 export interface ExtractionJobQueue {
   /**
    * Queues the file for reading unless it is already waiting, being read, or

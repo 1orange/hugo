@@ -1,5 +1,6 @@
 import type { ExtractionStage } from "@/modules/extraction-progress";
 import type { StageTiming } from "@/modules/extraction-timing";
+import type { WaitingMonth } from "./waiting";
 
 /** The reading lane (download, text, OCR) and the model lane (ADR 0020). */
 export type QueueLane = "read" | "model";
@@ -65,4 +66,10 @@ export type QueueSnapshot = {
   delayed: QueueJobView[];
   /** Newest first, one row per file. */
   recent: FinishedJobView[];
+  /**
+   * Waiting documents per company and month, in the order they will be read,
+   * counted over the whole queue (not the capped lists above). Running documents
+   * are not waiting, so they are not here.
+   */
+  waitingMonths: WaitingMonth[];
 };
