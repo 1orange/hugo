@@ -1,7 +1,7 @@
 # 05 — One folder-type rule for every month
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -28,13 +28,13 @@ travel orders), so a plain code rule would misfile historic folders. Use **one r
 
 ## Acceptance criteria
 
-- [ ] Every accepted older name resolves to its old slot in a 2025 and a 2026 month. In particular `05 Platby kartou` → `04 Bločky`, `06 Iné doklady` → `06 Ostatné dokumenty`, `07 DPH` → `08 DPH`.
-- [ ] A coded name that is neither canonical nor accepted (`04`, `05 Iné`) resolves by its code in a 2026 month.
-- [ ] `Bločky` and `08 Cestovné náhrady` resolve as specified.
-- [ ] Behaviour from `2027_01` is unchanged (the existing tests pass).
-- [ ] Expected slots for months before 2027 are unchanged.
-- [ ] A sweep over a month with a coded folder discovers its files and queues them. Previously they were unknown (sweep integration test).
-- [ ] Settings text updated, ADR 0007 amended.
+- [x] Every accepted older name resolves to its old slot in a 2025 and a 2026 month. In particular `05 Platby kartou` → `04 Bločky`, `06 Iné doklady` → `06 Ostatné dokumenty`, `07 DPH` → `08 DPH`.
+- [x] A coded name that is neither canonical nor accepted (`04`, `05 Iné`) resolves by its code in a 2026 month.
+- [x] `Bločky` and `08 Cestovné náhrady` resolve as specified.
+- [x] Behaviour from `2027_01` is unchanged (the existing tests pass).
+- [x] Expected slots for months before 2027 are unchanged.
+- [x] A sweep over a month with a coded folder discovers its files and queues them. Previously they were unknown (sweep integration test).
+- [x] Settings text updated, ADR 0007 amended.
 
 ## Blocked by
 
