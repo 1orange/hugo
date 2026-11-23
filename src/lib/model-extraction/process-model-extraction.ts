@@ -17,7 +17,7 @@ import { printsEkasaMarks } from "@/modules/ekasa-text";
 import { molSellerIco } from "@/modules/mol-invoice";
 import { extractModelTextLines, modelTextForDocument, type ModelTextSource } from "./model-text";
 import { readEmbeddedInvoiceXml } from "./embedded-invoice";
-import { shouldExtractWithModel } from "./should-extract-with-model";
+import { looksLikeEkasaReceipt, shouldExtractWithModel } from "./should-extract-with-model";
 
 export type ModelExtractionSource = ModelTextSource;
 
@@ -39,6 +39,13 @@ export type ModelDeps = {
    * the model reads them there. Without it the model reads them here, at once.
    */
   handOffToModel?: (input: ModelTextInput) => Promise<void>;
+  /**
+   * An eKasa receipt filed outside the receipt folder (a client's `bloček_O-…`
+   * in 06 Ostatné dokumenty): the model is never its reader, the eKasa lookup
+   * is. The reading lane passes the receipt path here; without it, such a file
+   * fails as before. Resolves whether a result was written.
+   */
+  readAsEkasaReceipt?: () => Promise<boolean>;
 };
 
 /**
@@ -134,6 +141,9 @@ export async function processModelExtractionFile(
   const { lines, hadTextLayer, source: extractionSource } = text;
 
   if (!shouldExtractWithModel({ lines, hadTextLayer, fromOcr: extractionSource === "ocr" })) {
+    if (deps.readAsEkasaReceipt && !input.reread && looksLikeEkasaReceipt(lines)) {
+      return deps.readAsEkasaReceipt();
+    }
     await writeExtractedPayload(
       input.driveFileId,
       {},
