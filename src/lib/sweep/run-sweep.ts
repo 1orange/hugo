@@ -25,10 +25,14 @@ import { announce } from "@/lib/events/bus";
 import { buildDriveTree, fileStateKey, type DomainEvent } from "@/modules/drive-tree";
 import { listDriveForSweep } from "./drive-listing";
 import { refreshCompanyAccess } from "@/lib/access/refresh-company-access";
-import { checkCompanyStructure } from "@/modules/drive-structure";
+import {
+  checkCompanyLayout,
+  checkCompanyStructure,
+  type StructureDeviation,
+} from "@/modules/drive-structure";
 import { observedFolderName, type FolderClassification } from "@/modules/folder-taxonomy";
 import { companiesForAccessRefresh } from "@/modules/company-access";
-import { monthKeyAt } from "@/modules/month-lifecycle";
+import { bookingMonthKey, monthKeyAt } from "@/modules/month-lifecycle";
 
 /** Held while a sweep diffs Drive against the database (ADR 0021). */
 const SWEEP_LOCK_KEY = 7_261_670_122;
@@ -85,6 +89,8 @@ async function sweep(driveClient: DriveClient, options: SweepOptions): Promise<S
   });
 
   const currentMonthKey = monthKeyAt(new Date(sweepAt));
+  // The year the office books in: the month structure is read for it (issue 06).
+  const bookingYear = Number(bookingMonthKey(new Date(sweepAt)).slice(0, 4));
   const companyIdByDriveFolderId = new Map<string, number>();
   const structureRows: StructureDeviationInsert[] = [];
   for (const company of tree) {
@@ -109,19 +115,33 @@ async function sweep(driveClient: DriveClient, options: SweepOptions): Promise<S
       ),
     );
 
-    const deviations = checkCompanyStructure({
-      company: { driveFolderId: company.driveFolderId, name: company.name },
-      months: company.months.map((month) => ({
-        driveFolderId: month.driveFolderId,
-        name: month.key,
-        children: month.folderSlots.map((slot) => ({
-          driveFolderId: slot.driveFolderId,
-          name: observedSlotName(slot.classification),
-        })),
-      })),
-      canonicalFolderNames: settings.canonicalFolderNames,
-      currentMonthKey,
-    });
+    // Archived clients are not checked (issue 06). A client without the month
+    // structure gets that one finding instead of its per-month ones, which have
+    // no months to report on.
+    let deviations: StructureDeviation[] = [];
+    if (!company.archived) {
+      const layoutDeviation = checkCompanyLayout({
+        company: { driveFolderId: company.driveFolderId, name: company.name },
+        folders: company.folders,
+        canonicalFolderNames: settings.canonicalFolderNames,
+        year: bookingYear,
+      });
+      deviations = layoutDeviation
+        ? [layoutDeviation]
+        : checkCompanyStructure({
+            company: { driveFolderId: company.driveFolderId, name: company.name },
+            months: company.months.map((month) => ({
+              driveFolderId: month.driveFolderId,
+              name: month.key,
+              children: month.folderSlots.map((slot) => ({
+                driveFolderId: slot.driveFolderId,
+                name: observedSlotName(slot.classification),
+              })),
+            })),
+            canonicalFolderNames: settings.canonicalFolderNames,
+            currentMonthKey,
+          });
+    }
     for (const deviation of deviations) {
       structureRows.push({ companyId: row.id, deviation, detectedAt: sweepAt });
     }
