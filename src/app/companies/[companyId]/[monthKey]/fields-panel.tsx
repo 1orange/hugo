@@ -5,6 +5,7 @@ import type { DocumentListItem } from "@/lib/documents/view";
 import {
   cashRoundingOfFields,
   checkArithmeticWarnings,
+  deriveVariableSymbol,
   fieldCheckState,
   resolvePartyRoles,
   type FieldCheckState,
@@ -316,6 +317,17 @@ export function FieldsPanel({
         baseLiteral: row.baseLiteral,
         vatLiteral: row.vatLiteral,
       }));
+      changed = true;
+    }
+    // A symbol still derived from the number follows her edit to it, as the VAT does. Only a derived one:
+    // an empty symbol is derived when the document is saved, which shows it after the reload.
+    const followedSymbol = deriveVariableSymbol(draft.documentNumber) ?? "";
+    if (
+      document.fieldEditor.provenance.variableSymbol === "derived" &&
+      !manualOverridesRef.current.has("variableSymbol") &&
+      followedSymbol !== draft.variableSymbol
+    ) {
+      next.variableSymbol = followedSymbol;
       changed = true;
     }
     if (changed) {
@@ -908,7 +920,7 @@ export function FieldsPanel({
           <p className={`${GROUP_HEADING} eyebrow`}>Doklad</p>
           <div className={GROUP}>
             <Field
-              label="Číslo dokladu"
+              label="Číslo dokladu KV DPH"
               value={draft.documentNumber}
               state={resolveState("documentNumber")}
               readOnly={readOnly}
@@ -920,6 +932,7 @@ export function FieldsPanel({
             <Field
               label="Variabilný symbol"
               value={draft.variableSymbol}
+              provenance={provenance.variableSymbol}
               state={resolveState("variableSymbol")}
               readOnly={readOnly}
               disabled={pending}

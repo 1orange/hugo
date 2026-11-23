@@ -640,6 +640,60 @@ test("VAT summary derivation survives save and reload with derived provenance", 
   assert.equal(invoice.fieldEditor.fields.recapVatCents, 2300);
 });
 
+test("a derived variable symbol follows her edits to the number until she types one", async () => {
+  await seedMonth();
+  const db = getDb();
+  await db.update(documents).set({
+    extractedPayloadJson: serializeExtractedPayload({
+      kind: "extracted",
+      parties: [],
+      documentNumber: "SK-26001",
+      variableSymbol: null,
+      issueDate: "2026-01-10",
+      taxableSupplyDate: null,
+      dueDate: null,
+      currency: "EUR",
+      amountCents: null,
+      amountLiteral: null,
+      vatRecap: [],
+      docTypeHint: "invoice",
+    }),
+    extractionStatus: "complete",
+    extractionPipelineVersion: 5,
+  }).where(eq(documents.driveFileId, INVOICE_A));
+
+  const shown = async () =>
+    (await buildMonthDocumentView(1, "2026_01"))!.documents.find((document) => document.driveFileId === INVOICE_A)!;
+  const save = (documentNumber: string, variableSymbol: string) =>
+    saveDocumentFields({
+      companyId: 1,
+      monthKey: "2026_01",
+      documentId: INVOICE_A,
+      fields: emptyFieldInput({ documentNumber, variableSymbol }),
+    });
+
+  let invoice = await shown();
+  assert.equal(invoice.fieldEditor.fields.variableSymbol, "26001");
+  assert.equal(invoice.fieldEditor.provenance.variableSymbol, "derived");
+
+  // She edits the number, and the symbol she was shown still holds the old digits.
+  assert.equal((await save("SK-26002", "26001")).ok, true);
+  invoice = await shown();
+  assert.equal(invoice.fieldEditor.fields.variableSymbol, "26002");
+  assert.equal(invoice.fieldEditor.provenance.variableSymbol, "derived");
+
+  // She types a symbol: it stops following the number, through a save and a reload.
+  assert.equal((await save("SK-26003", "777")).ok, true);
+  invoice = await shown();
+  assert.equal(invoice.fieldEditor.fields.variableSymbol, "777");
+  assert.equal(invoice.fieldEditor.provenance.variableSymbol, "confirmed");
+
+  assert.equal((await save("SK-26004", "777")).ok, true);
+  invoice = await shown();
+  assert.equal(invoice.fieldEditor.fields.variableSymbol, "777");
+  assert.equal(invoice.fieldEditor.provenance.variableSymbol, "confirmed");
+});
+
 test("closed month rejects saving fields", async () => {
   await seedMonth();
   const db = getDb();

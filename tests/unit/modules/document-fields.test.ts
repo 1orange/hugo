@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   cashRoundingOfFields,
   checkArithmeticWarning,
+  deriveVariableSymbol,
   mergeDocumentFields,
   parseConfirmedFieldsFromInput,
   type DocumentFieldFormInput,
@@ -481,4 +482,94 @@ test("an exact total shows no rounding line", () => {
     recapVatCents: 315,
   };
   assert.equal(cashRoundingOfFields(fields), null);
+});
+
+function documentWithNumber(
+  documentNumber: string,
+  variableSymbol: string | null = null,
+) {
+  return {
+    kind: "extracted" as const,
+    parties: [],
+    documentNumber,
+    variableSymbol,
+    issueDate: null,
+    taxableSupplyDate: null,
+    dueDate: null,
+    currency: "EUR",
+    amountCents: null,
+    amountLiteral: null,
+    vatRecap: [],
+    docTypeHint: "invoice" as const,
+  };
+}
+
+test("the variable symbol is the document number's digits, one to ten of them", () => {
+  assert.equal(deriveVariableSymbol("SK-26001"), "26001");
+  assert.equal(deriveVariableSymbol("FA2026/0012"), "20260012");
+  assert.equal(deriveVariableSymbol("1234567890"), "1234567890");
+  assert.equal(deriveVariableSymbol("ABC"), null);
+  assert.equal(deriveVariableSymbol("12345678901"), null);
+});
+
+test("an empty variable symbol is derived from the number, flagged derived", () => {
+  const merged = mergeDocumentFields(documentWithNumber("SK-26001"), {});
+  assert.equal(merged.fields.variableSymbol, "26001");
+  assert.equal(merged.provenance.variableSymbol, "derived");
+
+  const withSlashes = mergeDocumentFields(documentWithNumber("FA2026/0012"), {});
+  assert.equal(withSlashes.fields.variableSymbol, "20260012");
+});
+
+test("a number with no digits or with eleven leaves the symbol empty", () => {
+  for (const documentNumber of ["ABC", "12345678901"]) {
+    const merged = mergeDocumentFields(documentWithNumber(documentNumber), {});
+    assert.equal(merged.fields.variableSymbol, "");
+    assert.equal(merged.provenance.variableSymbol, "empty");
+  }
+});
+
+test("a printed variable symbol is never replaced by the number", () => {
+  const merged = mergeDocumentFields(documentWithNumber("SK-26001", "777"), {});
+  assert.equal(merged.fields.variableSymbol, "777");
+  assert.equal(merged.provenance.variableSymbol, "extracted");
+});
+
+test("a typed variable symbol is kept after the number is edited", () => {
+  const merged = mergeDocumentFields(documentWithNumber("SK-26001"), {
+    documentNumber: "SK-26002",
+    variableSymbol: "777",
+  });
+  assert.equal(merged.fields.variableSymbol, "777");
+  assert.equal(merged.provenance.variableSymbol, "confirmed");
+});
+
+test("a derived variable symbol follows an edit to the number", () => {
+  const merged = mergeDocumentFields(documentWithNumber("SK-26001"), {
+    documentNumber: "FA2026/0013",
+    variableSymbol: "26001",
+    derived: {
+      variableSymbol: {
+        dependencies: ["documentNumber"],
+        dependencyValues: { documentNumber: "SK-26001" },
+      },
+    },
+  });
+  assert.equal(merged.fields.variableSymbol, "20260013");
+  assert.equal(merged.provenance.variableSymbol, "derived");
+});
+
+test("a derived variable symbol goes empty when the number no longer has digits", () => {
+  const merged = mergeDocumentFields(documentWithNumber("SK-26001"), {
+    documentNumber: "ABC",
+    variableSymbol: "26001",
+    derived: {
+      variableSymbol: {
+        dependencies: ["documentNumber"],
+        dependencyValues: { documentNumber: "SK-26001" },
+      },
+    },
+  });
+  assert.equal(merged.fields.variableSymbol, "");
+  assert.equal(merged.provenance.variableSymbol, "empty");
 });
