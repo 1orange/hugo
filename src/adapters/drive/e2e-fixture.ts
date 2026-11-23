@@ -4,6 +4,9 @@ import { FOLDER_MIME, type DriveFileRecord } from "@/modules/drive-tree";
 const PARENT_ID = "e2e-parent";
 const COMPANY_ID = "e2e-company-beta";
 const COMPANY_CZ_ID = "e2e-company-gamma";
+const COMPANY_GROUP_ONLY_ID = "e2e-company-epsilon";
+const MONTH_GROUP_ONLY_ID = "e2e-month-epsilon-2026-01";
+const SLOT_GROUP_ONLY_02_ID = "e2e-slot-epsilon-02";
 const MONTH_ID = "e2e-month-2026-01";
 const MONTH_CZ_ID = "e2e-month-cz-2026-01";
 const SLOT_02_ID = "e2e-slot-02";
@@ -42,6 +45,16 @@ export function e2eDriveFixture(): DriveFileRecord[] {
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
     },
+    // Shared only with a group, so no one can see it (company id 3, as the sweep numbers folders by name): the visibility spec's case.
+    {
+      id: COMPANY_GROUP_ONLY_ID,
+      name: "Zeta s.r.o.",
+      parents: [PARENT_ID],
+      createdTime: "2026-01-01T00:00:00.000Z",
+      mimeType: FOLDER_MIME,
+    },
+    { id: MONTH_GROUP_ONLY_ID, name: "2026_01", parents: [COMPANY_GROUP_ONLY_ID], createdTime: "2026-01-01T00:00:00.000Z", mimeType: FOLDER_MIME },
+    { id: SLOT_GROUP_ONLY_02_ID, name: "02 Prijaté faktúry", parents: [MONTH_GROUP_ONLY_ID], createdTime: "2026-01-01T00:00:00.000Z", mimeType: FOLDER_MIME },
     {
       id: MONTH_ID,
       name: "2026_01",
@@ -158,13 +171,16 @@ export function e2eDriveFixture(): DriveFileRecord[] {
 export const E2E_DRIVE_PARENT_FOLDER_ID = PARENT_ID;
 
 /**
- * Who the e2e Drive shares each company folder with. Beta is shared with the one
- * allowlisted e2e user; Gamma only with a group, which Hugo reports but cannot expand.
+ * Who the e2e Drive shares each company folder with. Beta and Gamma are shared
+ * with the allowlisted e2e user; Epsilon only with a group, which Hugo reports but
+ * cannot expand, so nobody sees it (company-visibility.spec.ts).
+ * Zeta, not Epsilon: the sweep numbers the companies by name, and Zeta must follow Gamma.
  */
 export function e2eDrivePermissions(): Record<string, DrivePermission[]> {
   return {
     [COMPANY_ID]: [{ type: "user", role: "writer", emailAddress: "allowed@example.com", inherited: false }],
-    [COMPANY_CZ_ID]: [{ type: "group", role: "reader", emailAddress: "ucto@example.com", inherited: false }],
+    [COMPANY_CZ_ID]: [{ type: "user", role: "reader", emailAddress: "allowed@example.com", inherited: false }],
+    [COMPANY_GROUP_ONLY_ID]: [{ type: "group", role: "reader", emailAddress: "ucto@example.com", inherited: false }],
   };
 }
 

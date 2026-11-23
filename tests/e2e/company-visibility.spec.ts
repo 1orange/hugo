@@ -2,9 +2,9 @@ import { test, expect, type Browser, type Page } from "@playwright/test";
 import { resetE2eData } from "./helpers";
 
 /**
- * The fixture's sharing (ADR 0023): Beta (company 1) is shared with the first
- * person only; Gamma (company 2) only with a group, which nobody can be seen
- * through. The second person is allowlisted but sees no company at all.
+ * The fixture's sharing (ADR 0023): Beta (company 1) and Gamma (company 2) are
+ * shared with the first person only; Zeta (company 3) only with a group, which
+ * nobody can be seen through. The second person is allowlisted but sees no company.
  */
 const SHARED = "allowed@example.com";
 const OTHER = "other@example.com";
@@ -28,10 +28,11 @@ test("each person sees only the companies shared with them on Firmy, and the sum
   browser,
 }) => {
   const shared = await signedInAs(browser, SHARED);
-  // Beta has no profile, and Gamma (invisible here) is the other one that would count.
+  // Beta and Gamma have no profile; Zeta (group only) is invisible here, so it does not count.
   await expect(shared.getByTestId("company-1")).toHaveText("Beta s.r.o.");
-  await expect(shared.getByTestId("company-2")).toHaveCount(0);
-  await expect(shared.getByTestId("summary-profile-missing")).toHaveText("1");
+  await expect(shared.getByTestId("company-2")).toHaveText("Gamma s.r.o.");
+  await expect(shared.getByTestId("company-3")).toHaveCount(0);
+  await expect(shared.getByTestId("summary-profile-missing")).toHaveText("2");
   await expect(shared.getByRole("button", { name: "Moje firmy" })).toHaveCount(0);
 
   const other = await signedInAs(browser, OTHER);
@@ -40,6 +41,7 @@ test("each person sees only the companies shared with them on Firmy, and the sum
   );
   await expect(other.getByTestId("company-1")).toHaveCount(0);
   await expect(other.getByTestId("company-2")).toHaveCount(0);
+  await expect(other.getByTestId("company-3")).toHaveCount(0);
   await expect(other.getByTestId("company-summary")).toHaveCount(0);
 });
 
@@ -64,7 +66,11 @@ test("a company the person can see still opens, and a company shared only with a
   await expect(shared).toHaveURL(/\/companies\/1\/2026_01$/);
 
   const gamma = await shared.goto("/companies/2/2026_01");
-  expect(gamma?.status()).toBe(404);
+  expect(gamma?.status()).toBe(200);
+
+  // Zeta (company 3) is shared only with a group: not found, although its folder exists.
+  const epsilon = await shared.goto("/companies/3/2026_01");
+  expect(epsilon?.status()).toBe(404);
 });
 
 test("the API routes refuse another person's company and file, and serve the shared ones", async ({ browser }) => {
