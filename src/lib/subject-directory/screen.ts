@@ -266,6 +266,8 @@ export async function loadSubjectDetail(
   const references = visibleCompanyIds
     ? allReferences.filter((reference) => visibleCompanyIds.has(reference.companyId))
     : allReferences;
+  // The company the subject is the client of is a company too: its name and page only where she may see it.
+  const linkedVisible = linked && (!visibleCompanyIds || visibleCompanyIds.has(linked.id)) ? linked : null;
 
   const verdict = verdictOf(subject);
   const companies = new Map<number, string>();
@@ -301,8 +303,8 @@ export async function loadSubjectDetail(
       label: viesStatusLabel(record),
       checkedLabel: formatDateTime(record.checkedAt),
     })),
-    linkedCompany: linked
-      ? { id: linked.id, name: companyDisplayName(linked.name), href: `/companies/${linked.id}/activity` }
+    linkedCompany: linkedVisible
+      ? { id: linkedVisible.id, name: companyDisplayName(linkedVisible.name), href: `/companies/${linkedVisible.id}/activity` }
       : null,
     office: { client: subject.officeClient, keeper: subject.officeKeeper, cooperation: subject.officeCooperation },
     references: {

@@ -103,6 +103,9 @@ export function ActivityLogPanel({ view, basePath }: ActivityLogPanelProps) {
               <p className="mt-1 text-ink-3">
                 {entry.actorLabel}
                 {entry.monthKey ? ` · ${monthLabel(entry.monthKey)}` : null}
+                {view.scope === "global" && entry.companyId !== null && view.companyNames[entry.companyId]
+                  ? ` · ${view.companyNames[entry.companyId]}`
+                  : null}
               </p>
               <p className="mt-2">{entry.summary}</p>
             </li>

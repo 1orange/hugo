@@ -12,7 +12,7 @@ import { closeCompanyMonth } from "../../../src/lib/month-lifecycle/service.ts";
 import { companies } from "../../../src/lib/db/schema.ts";
 import {
   listCompanyActivity,
-  listGlobalActivity,
+  listVisibleActivity,
 } from "../../../src/adapters/store/activity-log.ts";
 import { formatActivityEntry } from "../../../src/modules/activity-log.ts";
 import { saveGlobalSettings } from "../../../src/lib/settings/service.ts";
@@ -135,10 +135,15 @@ test("global settings events appear only in global activity scope", async () => 
     companyActivity.entries.every((row) => row.companyId === company.id),
   );
 
-  const globalActivity = await listGlobalActivity({});
+  const globalActivity = await listVisibleActivity([], {});
   assert.ok(globalActivity.entries.length >= 1);
   assert.ok(globalActivity.entries.every((row) => row.companyId === null));
   assert.ok(
     globalActivity.entries.some((row) => row.type === "CanonicalFolderNamesChanged"),
+  );
+  assert.equal(
+    (await listVisibleActivity([company.id], {})).entries.length,
+    (await listCompanyActivity(company.id, {})).entries.length + globalActivity.entries.length,
+    "the feed of a person who sees the company is the company's events and the office's",
   );
 });

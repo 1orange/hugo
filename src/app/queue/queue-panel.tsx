@@ -240,8 +240,8 @@ const TIER_LABEL: Record<ReadingTier, string> = {
 
 /**
  * The documents not yet read, per company and month, in the order the queue
- * reads them, with when the queue will be empty. Shows every company for now:
- * the visible-companies filter (ADR 0023, 0007/11) is not applied to it yet.
+ * reads them, with when the queue will be empty. The server sends only the
+ * viewer's companies here, and the estimate over their waiting documents (ADR 0023).
  */
 function WaitingSection({ months, estimate }: { months: WaitingMonth[]; estimate: QueueEstimate }) {
   const totals = waitingTotals(months);

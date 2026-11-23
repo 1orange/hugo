@@ -64,22 +64,30 @@ export async function isCompanyVisible(email: string, companyId: number): Promis
   return visibilityOf(email, await listCompanyAccessRows(companyId)).ids.has(companyId);
 }
 
-/** The jobs a queue snapshot lists, each naming its company. */
-type QueueJobsLike = { running: Array<{ companyId: number }>; waiting: Array<{ companyId: number }>; delayed: Array<{ companyId: number }>; recent: Array<{ companyId: number }> };
+/** Every row a queue snapshot lists per company: the jobs and the per-month waiting counts. */
+type QueueRowsLike = {
+  running: Array<{ companyId: number }>;
+  waiting: Array<{ companyId: number }>;
+  delayed: Array<{ companyId: number }>;
+  recent: Array<{ companyId: number }>;
+  waitingMonths: Array<{ companyId: number }>;
+};
 
 /**
- * The queue screen's jobs kept to the visible companies. The queue is shared
- * by every company, so without this a person would see another client's
- * documents by name. Counts that are not per company are left as they are.
+ * The queue kept to the visible companies. The queue is shared by every company,
+ * so without this a person would see another client's documents and month names
+ * (the jobs and `waitingMonths`). The lane concurrency, the services and the Drive
+ * panel name no company and stay as they are.
  */
-export function restrictQueueToCompanies<View extends QueueJobsLike>(view: View, ids: ReadonlySet<number>): View {
-  const keep = <Job extends { companyId: number }>(jobs: Job[]): Job[] => jobs.filter((job) => ids.has(job.companyId));
+export function restrictQueueToCompanies<View extends QueueRowsLike>(view: View, ids: ReadonlySet<number>): View {
+  const keep = <Row extends { companyId: number }>(rows: Row[]): Row[] => rows.filter((row) => ids.has(row.companyId));
   return {
     ...view,
     running: keep(view.running),
     waiting: keep(view.waiting),
     delayed: keep(view.delayed),
     recent: keep(view.recent),
+    waitingMonths: keep(view.waitingMonths),
   };
 }
 

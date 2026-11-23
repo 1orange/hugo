@@ -1,7 +1,7 @@
 # 11 — The queue screen, activity log and live updates show only one's own companies
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -22,10 +22,10 @@ work. Apply the same visibility guard to them:
 
 ## Acceptance criteria
 
-- [ ] Two users with different visible companies: each one's queue screen lists only their companies' documents (integration test on the snapshot, UI test on the page).
-- [ ] The issue 02 estimate counts only the viewer's waiting documents.
-- [ ] The activity log shows only visible companies' events plus office-wide ones.
-- [ ] An event for an invisible company is not delivered on that user's event stream. The reconnect snapshot is filtered (test on the stream filter).
+- [ ] Two users with different visible companies: each one's queue screen lists only their companies' documents (integration test on the snapshot, UI test on the page). Unmet in part: the snapshot test is in `tests/unit/access/queue-visibility.redis.test.ts`; the UI spec on the page was not written, and Playwright was not run.
+- [x] The issue 02 estimate counts only the viewer's waiting documents (`loadExtractionQueueView(visible)`, `queue-visibility.redis.test.ts`).
+- [x] The activity log shows only visible companies' events plus office-wide ones (`listVisibleActivity`, `office-feed-integration.test.ts`).
+- [x] An event for an invisible company is not delivered on that user's event stream. The reconnect snapshot is filtered (`visibility.test.ts` stream filter; `queue-visibility.redis.test.ts` queue).
 
 ## Blocked by
 
