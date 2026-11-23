@@ -32,6 +32,11 @@ export const EXTRACTION_PIPELINE_VERSION = 7;
 /** Results before this contract must not change merely by opening them. */
 export const PARTY_ENRICHMENT_PIPELINE_VERSION = 5;
 
+/**
+ * A statement's document is `not-read` (ADR 0013, amended 2026-11-23), which is
+ * false here. A missing row still answers true, so the queue skips statement
+ * folders by name as well (enqueueMonthExtraction), whatever selects candidates.
+ */
 export function needsExtraction(
   document:
     | { extractionStatus: string; extractionPipelineVersion: number | null }

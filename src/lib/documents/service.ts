@@ -15,6 +15,7 @@ import {
   type DocumentVatRecapRow,
   type ExtractedPayload,
 } from "@/modules/document-payload";
+import { isStatementFolderSlot } from "@/modules/document-state";
 import {
   PARTY_SWAP_FIELDS,
   pickPartyProvenance,
@@ -192,7 +193,10 @@ export async function confirmDocument(input: {
       documentId: document.id,
     });
     // A confirmed document may record its subject's VAT-group membership (PRD 0004, story 33).
-    await scheduleSubjectCheckForDocument(document.id);
+    // A statement has no subject to check.
+    if (!isStatementFolderSlot(document.folderSlot)) {
+      await scheduleSubjectCheckForDocument(document.id);
+    }
   } else {
     await setDocumentDecision(input.documentId, null, {
       decidedAt: null,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import { MessageSquare, Search, X } from "lucide-react";
 import type {
   DocumentListItem,
@@ -15,6 +15,7 @@ import {
   filterReadOnlyFiles,
   hasSubjectProblem,
   normalizeDocumentSearch,
+  statementGroupRank,
   type DocumentSortDirection,
   type DocumentSortKey,
 } from "@/modules/document-browser";
@@ -241,85 +242,96 @@ export function DocumentRail({
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5" aria-label="Doklady mesiaca">
-            {documents.map((document) => {
+            {documents.map((document, index) => {
               const selected = document.id === selectedDocumentId;
               const dismissed = document.decision === "not_relevant";
               const vat = document.fieldEditor.fields.recapVatLiteral.trim();
+              // Statements come last, under their own heading (sorted so by document-browser).
+              const startsStatements =
+                statementGroupRank(document) === 1 &&
+                (index === 0 || statementGroupRank(documents[index - 1]!) === 0);
 
               return (
-                <li key={document.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(document.id)}
-                    data-testid="month-document-row"
-                    data-document-id={document.id}
-                    // The label turns into the supplier once extraction reads it.
-                    title={document.name}
-                    aria-current={selected ? "true" : undefined}
-                    className={`group press flex w-full items-start gap-2.5 rounded-[9px] px-2.5 py-2 text-left transition-colors duration-100 ${
-                      selected ? "bg-accent text-white" : "text-ink hover:bg-black/[0.035]"
-                    } ${dismissed && !selected ? "opacity-60" : ""}`}
-                  >
-                    <StateGlyph document={document} selected={selected} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline gap-2">
-                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                          <span className="block min-w-0 truncate text-[13.5px] font-semibold">{document.label}</span>
-                          {hasSubjectProblem(document) ? (
-                            <SubjectProblemMark documentId={document.id} selected={selected} />
-                          ) : null}
+                <Fragment key={document.id}>
+                  {startsStatements ? (
+                    <li className="px-1.5 pt-3 pb-1" data-testid="folder-group-statements">
+                      <h3 className="eyebrow">Bankové výpisy</h3>
+                    </li>
+                  ) : null}
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(document.id)}
+                      data-testid="month-document-row"
+                      data-document-id={document.id}
+                      // The label turns into the supplier once extraction reads it.
+                      title={document.name}
+                      aria-current={selected ? "true" : undefined}
+                      className={`group press flex w-full items-start gap-2.5 rounded-[9px] px-2.5 py-2 text-left transition-colors duration-100 ${
+                        selected ? "bg-accent text-white" : "text-ink hover:bg-black/[0.035]"
+                      } ${dismissed && !selected ? "opacity-60" : ""}`}
+                    >
+                      <StateGlyph document={document} selected={selected} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline gap-2">
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="block min-w-0 truncate text-[13.5px] font-semibold">{document.label}</span>
+                            {hasSubjectProblem(document) ? (
+                              <SubjectProblemMark documentId={document.id} selected={selected} />
+                            ) : null}
+                          </span>
+                          <span className="tabular shrink-0 text-[13px] font-medium">{document.amountDisplay}</span>
                         </span>
-                        <span className="tabular shrink-0 text-[13px] font-medium">{document.amountDisplay}</span>
+                        <span className={`mt-px flex items-baseline gap-2 text-[12px] ${selected ? "text-white/80" : "text-ink-3"}`}>
+                          {/* The date first, so a long folder name never pushes it out of view. */}
+                          <DocumentDate document={document} />
+                          <span className="min-w-0 flex-1 truncate" title={document.folderSlot}>
+                            {document.folderSlot}
+                            {document.receiptOfFile
+                              ? ` · bloček ${document.receiptOfFile.index} z ${document.receiptOfFile.count}`
+                              : ""}
+                          </span>
+                          {vat ? <span className="tabular shrink-0">DPH {vat}</span> : null}
+                        </span>
+                        {document.sameReceiptAs.length > 0 && document.decision === null ? (
+                          <span className={`mt-0.5 block truncate text-[12px] ${selected ? "text-white/85" : "text-warn"}`}>
+                            Rovnaký bloček aj v {document.sameReceiptAs[0]!.fileName}
+                          </span>
+                        ) : null}
+                        {document.decision === null && document.derivedStatus.kind === "pending-extraction" ? (
+                          <PendingHint
+                            live={liveExtraction.get(document.driveFileId)}
+                            fallback={document.derivedStatus.hint}
+                            selected={selected}
+                          />
+                        ) : document.decision === null && document.derivedStatus.kind !== "awaiting-decision" ? (
+                          <span
+                            className={`mt-0.5 block truncate text-[12px] ${
+                              selected
+                                ? "text-white/85"
+                                : document.derivedStatus.kind === "manual-entry"
+                                  ? "text-warn"
+                                  : "text-ink-3"
+                            }`}
+                          >
+                            {document.derivedStatus.hint}
+                          </span>
+                        ) : null}
+                        {dismissed ? (
+                          <span className={`mt-0.5 block truncate text-[12px] italic ${selected ? "text-white/85" : "text-ink-3"}`}>
+                            Nerelevantné{document.notRelevantReason ? `: ${document.notRelevantReason}` : ""}
+                          </span>
+                        ) : null}
+                        {document.note ? (
+                          <span className={`mt-0.5 flex items-center gap-1.5 text-[12px] ${selected ? "text-white/85" : "text-ink-3"}`}>
+                            <MessageSquare aria-hidden className="size-3 shrink-0" strokeWidth={2} />
+                            <span className="truncate">{document.note}</span>
+                          </span>
+                        ) : null}
                       </span>
-                      <span className={`mt-px flex items-baseline gap-2 text-[12px] ${selected ? "text-white/80" : "text-ink-3"}`}>
-                        {/* The date first, so a long folder name never pushes it out of view. */}
-                        <DocumentDate document={document} />
-                        <span className="min-w-0 flex-1 truncate" title={document.folderSlot}>
-                          {document.folderSlot}
-                          {document.receiptOfFile
-                            ? ` · bloček ${document.receiptOfFile.index} z ${document.receiptOfFile.count}`
-                            : ""}
-                        </span>
-                        {vat ? <span className="tabular shrink-0">DPH {vat}</span> : null}
-                      </span>
-                      {document.sameReceiptAs.length > 0 && document.decision === null ? (
-                        <span className={`mt-0.5 block truncate text-[12px] ${selected ? "text-white/85" : "text-warn"}`}>
-                          Rovnaký bloček aj v {document.sameReceiptAs[0]!.fileName}
-                        </span>
-                      ) : null}
-                      {document.decision === null && document.derivedStatus.kind === "pending-extraction" ? (
-                        <PendingHint
-                          live={liveExtraction.get(document.driveFileId)}
-                          fallback={document.derivedStatus.hint}
-                          selected={selected}
-                        />
-                      ) : document.decision === null && document.derivedStatus.kind !== "awaiting-decision" ? (
-                        <span
-                          className={`mt-0.5 block truncate text-[12px] ${
-                            selected
-                              ? "text-white/85"
-                              : document.derivedStatus.kind === "manual-entry"
-                                ? "text-warn"
-                                : "text-ink-3"
-                          }`}
-                        >
-                          {document.derivedStatus.hint}
-                        </span>
-                      ) : null}
-                      {dismissed ? (
-                        <span className={`mt-0.5 block truncate text-[12px] italic ${selected ? "text-white/85" : "text-ink-3"}`}>
-                          Nerelevantné{document.notRelevantReason ? `: ${document.notRelevantReason}` : ""}
-                        </span>
-                      ) : null}
-                      {document.note ? (
-                        <span className={`mt-0.5 flex items-center gap-1.5 text-[12px] ${selected ? "text-white/85" : "text-ink-3"}`}>
-                          <MessageSquare aria-hidden className="size-3 shrink-0" strokeWidth={2} />
-                          <span className="truncate">{document.note}</span>
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
+                    </button>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>

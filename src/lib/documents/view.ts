@@ -12,14 +12,16 @@ import { getMonthByKey, getOpenMonthKey } from "@/adapters/store/months";
 import {
   deriveDocumentStatus,
   deriveReceiptKind,
-  isProcessedFolderSlot,
+  isDocumentFolderSlot,
+  isStatementFolderSlot,
   type DerivedDocumentStatus,
-  type ProcessedFolderSlot,
+  type DocumentFolderSlot,
 } from "@/modules/document-state";
 import {
   checkArithmeticWarning,
   effectiveAmountDisplay,
   enrichmentEnabledFor,
+  mergeDocumentFields,
   type EditableDocumentFields,
   type FieldProvenanceMap,
 } from "@/modules/document-fields";
@@ -35,6 +37,7 @@ import {
 } from "@/modules/editor-field-checks";
 import {
   getTypedEkasaUid,
+  emptyExtractedPayload,
   hasEkasaLookupPayload,
   isEkasaPayload,
   isModelExtractedPayload,
@@ -123,7 +126,8 @@ export type DocumentListItem = {
   /** Other documents holding the same eKasa receipt, which must be booked once. */
   sameReceiptAs: Array<{ id: string; fileName: string; monthKey: string }>;
   name: string;
-  folderSlot: ProcessedFolderSlot;
+  /** A statement's folder too: its row has no fields, only a decision (ADR 0013). */
+  folderSlot: DocumentFolderSlot;
   mimeType: string;
   receiptKind: "receipt" | null;
   decision: "confirmed" | "not_relevant" | null;
@@ -369,22 +373,27 @@ export async function buildMonthDocumentView(
       continue;
     }
     const folderSlot = file.folderSlot ?? document.folderSlot;
-    if (!isProcessedFolderSlot(folderSlot)) {
+    if (!isDocumentFolderSlot(folderSlot)) {
       continue;
     }
+    const options = {
+      folderSlot,
+      profile: companyProfile,
+      homeCurrency,
+      extractionPipelineVersion: document.extractionPipelineVersion,
+    };
+    // A statement is never read: nothing to merge, and no directory facts to fill
+    // into a party that does not exist. Its row carries a decision and nothing else.
     mergedByDocument.set(
       document.id,
-      await mergeDocumentFieldsWithDirectory(
-        parseExtractedPayload(document.extractedPayloadJson),
-        parseConfirmedPayload(document.confirmedPayloadJson),
-        {
-          folderSlot,
-          profile: companyProfile,
-          homeCurrency,
-          extractionPipelineVersion: document.extractionPipelineVersion,
-        },
-        directoryCache,
-      ),
+      isStatementFolderSlot(folderSlot)
+        ? { merged: mergeDocumentFields(emptyExtractedPayload(), {}, options), directory: {} }
+        : await mergeDocumentFieldsWithDirectory(
+            parseExtractedPayload(document.extractedPayloadJson),
+            parseConfirmedPayload(document.confirmedPayloadJson),
+            options,
+            directoryCache,
+          ),
     );
   }
 
@@ -396,9 +405,10 @@ export async function buildMonthDocumentView(
       }
 
       const folderSlot = file.folderSlot ?? document.folderSlot;
-      if (!isProcessedFolderSlot(folderSlot)) {
+      if (!isDocumentFolderSlot(folderSlot)) {
         return null;
       }
+      const statement = isStatementFolderSlot(folderSlot);
 
       const payload = parseExtractedPayload(document.extractedPayloadJson);
       const confirmed = parseConfirmedPayload(document.confirmedPayloadJson);
@@ -458,6 +468,7 @@ export async function buildMonthDocumentView(
         outsideEkasa: isModelExtractedPayload(payload) && payload.outsideEkasa === true,
         canReextract:
           !monthReadOnly &&
+          !statement &&
           !settledFiles.has(document.driveFileId) &&
           document.extractionStatus !== "pending",
         typedEkasaUid: getTypedEkasaUid(payload),

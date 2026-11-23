@@ -14,6 +14,7 @@ import { announce } from "@/lib/events/bus";
 import { listModelExtractionCandidates } from "@/lib/model-extraction/discover-model-extraction";
 import { assertMonthEditable } from "@/lib/month-lifecycle/service";
 import { needsExtraction, needsPipelineReread } from "@/modules/extraction-pipeline";
+import { isStatementFolderSlot } from "@/modules/document-state";
 
 /**
  * Queues the month's documents that still need reading; returns how many this
@@ -42,6 +43,12 @@ export async function enqueueMonthExtraction(
   let added = 0;
   let companyName: string | null = null;
   for (const file of candidates) {
+    // A statement is listed, never read (ADR 0013): no lane takes it, whichever
+    // query found it. Checked here, where every job is added, so a candidate
+    // query that forgets the folder rule cannot queue one.
+    if (isStatementFolderSlot(file.folderSlot)) {
+      continue;
+    }
     const document = await getDocument(file.driveFileId);
     const reread = !needsExtraction(document) && file.kind === "document" && needsPipelineReread(document);
     if (!needsExtraction(document) && !reread) {

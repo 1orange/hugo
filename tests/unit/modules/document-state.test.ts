@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  NOT_READ_EXTRACTION_STATUS,
   PROCESSED_FOLDER_SLOTS,
   countAwaitingDecision,
   deriveDocumentStatus,
   deriveReceiptKind,
   hasAutomaticExtraction,
+  isDocumentFolderSlot,
   isProcessedFolderSlot,
+  isStatementFolderSlot,
 } from "../../../src/modules/document-state.ts";
 import { CANONICAL_FOLDER_NAMES } from "../../../src/modules/folder-taxonomy.ts";
 
@@ -157,4 +160,32 @@ test("awaiting count reads only undecided documents", () => {
     { decision: null },
   ];
   assert.equal(countAwaitingDecision(documents), 2);
+});
+
+test("statements are document folders that are never read", () => {
+  assert.equal(isStatementFolderSlot("03 Bankové výpisy"), true);
+  assert.equal(isStatementFolderSlot("02 Prijaté faktúry"), false);
+  assert.equal(isStatementFolderSlot(null), false);
+  assert.equal(isDocumentFolderSlot("03 Bankové výpisy"), true);
+  assert.equal(isDocumentFolderSlot("04 Bločky"), true);
+  assert.equal(isDocumentFolderSlot("07 Mzdy"), false);
+  assert.equal(isDocumentFolderSlot(null), false);
+  assert.equal(
+    hasAutomaticExtraction({ folderSlot: "03 Bankové výpisy", mimeType: "application/pdf" }),
+    false,
+  );
+});
+
+test("a statement's status is not read, whatever her decision", () => {
+  const statement = {
+    extractionStatus: NOT_READ_EXTRACTION_STATUS,
+    extractionFailureReason: null,
+    folderSlot: "03 Bankové výpisy",
+    mimeType: "application/pdf",
+  };
+  assert.deepEqual(deriveDocumentStatus({ ...statement, decision: null }), {
+    kind: "not-read",
+    hint: "Nečíta sa",
+  });
+  assert.equal(deriveDocumentStatus({ ...statement, decision: "confirmed" }).kind, "not-read");
 });

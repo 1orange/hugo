@@ -9,7 +9,11 @@ import {
   type EkasaExtractedPayload,
   type ExtractedPayload,
 } from "@/modules/document-payload";
-import { isProcessedFolderSlot } from "@/modules/document-state";
+import {
+  isDocumentFolderSlot,
+  isStatementFolderSlot,
+  NOT_READ_EXTRACTION_STATUS,
+} from "@/modules/document-state";
 import { isSystemFile } from "@/modules/system-files";
 import {
   EXTRACTION_PIPELINE_VERSION,
@@ -131,7 +135,7 @@ export async function ensureDocumentsForMonth(
           eq(files.deleted, false),
         ),
       )
-  ).filter((file) => isProcessedFolderSlot(file.folderSlot));
+  ).filter((file) => isDocumentFolderSlot(file.folderSlot));
   if (eligible.length === 0) {
     return 0;
   }
@@ -144,6 +148,7 @@ export async function ensureDocumentsForMonth(
           companyId: documents.companyId,
           monthKey: documents.monthKey,
           folderSlot: documents.folderSlot,
+          extractionStatus: documents.extractionStatus,
         })
         .from(documents)
         .where(inArray(documents.id, eligible.map((file) => file.driveFileId)))
@@ -156,11 +161,25 @@ export async function ensureDocumentsForMonth(
     const existing = existingPlaces.get(file.driveFileId);
     if (existing !== undefined) {
       if (existing.folderSlot !== folderSlot || existing.monthKey !== monthKey || existing.companyId !== companyId) {
+        // A file moved in or out of the statement folder changes whether it is read:
+        // a statement is never read, and a file that leaves the folder is read afresh.
+        const movedIntoStatements =
+          isStatementFolderSlot(folderSlot) && existing.extractionStatus !== NOT_READ_EXTRACTION_STATUS;
+        const movedOutOfStatements =
+          !isStatementFolderSlot(folderSlot) && existing.extractionStatus === NOT_READ_EXTRACTION_STATUS;
         // Every receipt read out of the file moves with it: to another folder, or
         // to another month (a late arrival moved into the open month, ADR 0006).
         await db
           .update(documents)
-          .set({ folderSlot, monthKey, companyId })
+          .set({
+            folderSlot,
+            monthKey,
+            companyId,
+            ...(movedIntoStatements
+              ? { extractionStatus: NOT_READ_EXTRACTION_STATUS, extractionFailureReason: null }
+              : {}),
+            ...(movedOutOfStatements ? { extractionStatus: "pending", extractionFailureReason: null } : {}),
+          })
           .where(eq(documents.driveFileId, file.driveFileId));
       }
       continue;
@@ -174,7 +193,7 @@ export async function ensureDocumentsForMonth(
         companyId,
         monthKey,
         folderSlot,
-        extractionStatus: "pending",
+        extractionStatus: isStatementFolderSlot(folderSlot) ? NOT_READ_EXTRACTION_STATUS : "pending",
         extractedPayloadJson: serializeExtractedPayload(emptyExtractedPayload()),
         confirmedPayloadJson: "{}",
         createdAt,

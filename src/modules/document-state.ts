@@ -18,13 +18,25 @@ export const PROCESSED_FOLDER_SLOTS = [
 const RECEIPT_FOLDER_SLOT = "04 Bločky";
 
 /**
- * Presence-only (ADR 0013). The app records that a statement arrived and never
- * opens one. Pinned for the same reason as `PROCESSED_FOLDER_SLOTS`: renaming
+ * A statement is never read (ADR 0013, amended 2026-11-23): Hugo lists it and
+ * takes her decision on it, and no reader, model or export ever sees its
+ * contents. Pinned for the same reason as `PROCESSED_FOLDER_SLOTS`: renaming
  * it in settings must not silently stop the chase list from seeing statements.
  */
-export const STATEMENT_FOLDER_SLOT = "03 Bankové výpisy";
+export const STATEMENT_FOLDER_SLOT = "03 Bankové výpisy" as const;
+
+/**
+ * The extraction status of a statement's document. Terminal: nothing reads a
+ * statement, so it never moves on. It lives in the status column rather than
+ * being decided from the folder at each query, so every "is this read yet"
+ * question answers no for a statement with no folder check of its own.
+ */
+export const NOT_READ_EXTRACTION_STATUS = "not-read";
 
 export type ProcessedFolderSlot = (typeof PROCESSED_FOLDER_SLOTS)[number];
+
+/** Every folder whose files get document rows: the processed ones, and statements. */
+export type DocumentFolderSlot = ProcessedFolderSlot | typeof STATEMENT_FOLDER_SLOT;
 
 export type DocumentDecision = "confirmed" | "not_relevant";
 
@@ -43,6 +55,8 @@ export type DerivedDocumentStatus =
   | { kind: "manual-entry"; hint: string }
   /** No parser exists for this kind of document yet. Normal, not a problem. */
   | { kind: "manual-only"; hint: string }
+  /** A statement: listed and decided, never read (ADR 0013, amended 2026-11-23). */
+  | { kind: "not-read"; hint: string }
   | { kind: "extracted"; hint: string }
   | { kind: "awaiting-decision"; hint: string };
 
@@ -77,6 +91,19 @@ export function isProcessedFolderSlot(
   return (PROCESSED_FOLDER_SLOTS as readonly string[]).includes(folderSlot);
 }
 
+export function isStatementFolderSlot(
+  folderSlot: string | null,
+): folderSlot is typeof STATEMENT_FOLDER_SLOT {
+  return folderSlot === STATEMENT_FOLDER_SLOT;
+}
+
+/** A folder whose files get document rows: the processed folders, and statements, which are listed but never read. */
+export function isDocumentFolderSlot(
+  folderSlot: string | null,
+): folderSlot is DocumentFolderSlot {
+  return isProcessedFolderSlot(folderSlot) || isStatementFolderSlot(folderSlot);
+}
+
 /**
  * "receipt" for the receipts folder: eKasa reading, the UID box. Cash and card are no
  * longer told apart by folder; nothing downstream needed the difference.
@@ -88,6 +115,9 @@ export function deriveReceiptKind(folderSlot: string): "receipt" | null {
 export function deriveDocumentStatus(
   document: DocumentForState,
 ): DerivedDocumentStatus {
+  if (document.extractionStatus === NOT_READ_EXTRACTION_STATUS) {
+    return { kind: "not-read", hint: "Nečíta sa" };
+  }
   if (document.extractionStatus === "pending") {
     return hasAutomaticExtraction(document)
       ? { kind: "pending-extraction", hint: "Spracúva sa…" }

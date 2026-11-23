@@ -195,6 +195,24 @@ test("sorting supports date, price, partner, filename, and action-first state", 
   assert.deepEqual(sortDocuments([newest, oldest], "status", "asc").map((row) => row.id), ["old", "new"]);
 });
 
+test("bank statements form their own group after the other documents, in either direction", () => {
+  const statement = { ...document("statement", { issueDateAt: "2026-05-30T00:00:00.000Z" }), folderSlot: "03 Bankové výpisy" as const };
+  const older = document("older", { issueDateAt: "2026-04-01T00:00:00.000Z" });
+  const newer = document("newer", { issueDateAt: "2026-04-20T00:00:00.000Z" });
+  // The statement is the newest of all: date order alone would put it first.
+  assert.deepEqual(sortDocuments([statement, older, newer], "issueDate", "desc").map((row) => row.id), [
+    "newer",
+    "older",
+    "statement",
+  ]);
+  assert.deepEqual(sortDocuments([older, statement, newer], "issueDate", "asc").map((row) => row.id), [
+    "older",
+    "newer",
+    "statement",
+  ]);
+  assert.deepEqual(sortDocuments([statement, older], "partner", "asc").map((row) => row.id), ["older", "statement"]);
+});
+
 test("VAT warnings join manual-entry states at the front of status sorting", () => {
   const warning = document("warning", {
     status: "awaiting-decision",

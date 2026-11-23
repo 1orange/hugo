@@ -61,6 +61,14 @@ export function DocumentStage({ document }: { document: DocumentListItem | null 
             className="h-full min-h-[520px] w-full max-w-[820px] rounded-[4px] border-0 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.08),0_8px_28px_rgb(0_0_0/0.1)]"
             data-testid="pdf-preview"
           />
+        ) : kind === "text" ? (
+          // The route serves XML as text/plain, so the frame shows the markup as text.
+          <iframe
+            title={document.name}
+            src={previewUrl}
+            className="h-full min-h-[520px] w-full max-w-[820px] rounded-[4px] border-0 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.08),0_8px_28px_rgb(0_0_0/0.1)]"
+            data-testid="text-preview"
+          />
         ) : (
           <div className="self-center text-center">
             <p className="text-[15px] font-semibold">Náhľad nie je k dispozícii</p>
