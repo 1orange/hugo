@@ -50,6 +50,8 @@ numbers; a release is a merge to `main`.
   as "The PDF has no extractable text layer".
 - Companies appear on the first page load after a fresh database, instead of waiting for the poll.
 - No libheif or valkey-glide warnings on every compile.
+- A register check refused by the rate limit pauses the subject queue until a lookup slot is free,
+  instead of failing (a stack trace per refusal) and being dropped after 60 refusals in a backlog.
 
 ### Migrations
 `0014` Drive push status, `0015` company sharing, `0016` reading window start, `0017` late

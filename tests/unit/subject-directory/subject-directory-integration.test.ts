@@ -301,7 +301,9 @@ test("a lookup over the rate limit is refused for an unknown subject, and judged
 
   await assert.rejects(
     verifyCounterparty({ name: "Gamma s.r.o.", ico: "31333532", dic: "CZ31333532", icDph: "" }, limited, doc()),
-    SubjectLookupDeferred,
+    (error: unknown) =>
+      error instanceof SubjectLookupDeferred && error.retryAfterMs > 0 && error.retryAfterMs <= 60_000,
+    "refused, saying how long until the limiter has a slot",
   );
   assert.equal(register.lookupCalls.length, 1);
   assert.equal((await allSubjects()).length, 1, "the refused subject was not written");

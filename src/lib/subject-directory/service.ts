@@ -54,9 +54,13 @@ import type { LookupRateLimiter } from "./rate-limit";
  * subject was printed under. Runs on the worker; pages never call it.
  */
 
-/** A lookup refused by the rate limit for a subject the directory does not hold yet: tried again later. */
+/**
+ * A lookup refused by the rate limit for a subject the directory does not hold yet: tried again
+ * later. `retryAfterMs` is how long until the limiter has a slot; the subject worker pauses the
+ * queue that long rather than failing the job.
+ */
 export class SubjectLookupDeferred extends Error {
-  constructor() {
+  constructor(readonly retryAfterMs: number = 60_000) {
     super("Príliš veľa dotazov na register — overenie sa zopakuje neskôr.");
     this.name = "SubjectLookupDeferred";
   }
@@ -306,7 +310,7 @@ export async function viesAnswerFor(
       if (held) {
         return viesAnswerOf(held);
       }
-      throw new SubjectLookupDeferred();
+      throw new SubjectLookupDeferred(deps.limiter.msUntilFree());
     }
 
     let answer: VatNumberCheck;
@@ -437,7 +441,7 @@ async function refreshUnderLock(input: {
     if (current) {
       return sighted(current, party, deps.now(), sighting);
     }
-    throw new SubjectLookupDeferred();
+    throw new SubjectLookupDeferred(deps.limiter.msUntilFree());
   }
 
   let lookup: RegisterLookup | null;
@@ -531,7 +535,7 @@ async function lookUpIcoIn(
       if (held) {
         return held;
       }
-      throw new SubjectLookupDeferred();
+      throw new SubjectLookupDeferred(deps.limiter.msUntilFree());
     }
     let lookup: RegisterLookup | null;
     try {
