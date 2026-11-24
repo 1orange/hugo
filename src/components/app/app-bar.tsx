@@ -3,6 +3,7 @@ import { BookUser, ChevronRight, LogOut, Settings } from "lucide-react";
 import { signOut } from "@/lib/auth/config";
 import { formatSweepAge } from "@/modules/format-sk";
 import { RefreshButton } from "@/app/companies/refresh-button";
+import { NovinkyLink } from "./novinky-link";
 import { QueueIndicator } from "./queue-indicator";
 
 export type Crumb = {
@@ -81,6 +82,8 @@ export function AppBar({
 
       <div className="flex items-center gap-0.5">
         <RefreshButton />
+
+        <NovinkyLink email={email} className={ICON_BUTTON} />
 
         <Link href="/adresar" data-testid="nav-adresar" aria-label="Adresár" title="Adresár" className={ICON_BUTTON}>
           <BookUser aria-hidden className="size-[18px]" strokeWidth={1.8} />
