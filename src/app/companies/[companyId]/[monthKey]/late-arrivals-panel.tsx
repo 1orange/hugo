@@ -14,22 +14,23 @@ type LateArrivalsPanelProps = {
   companyId: number;
   /** The month on screen. */
   monthKey: string;
-  /** Whether that month is the open one, where late arrivals are moved to. */
-  isOpenMonth: boolean;
+  /** Whether that month is where late arrivals are moved to: the month being booked (ADR 0006, amended 2026-11-24). */
+  isTargetMonth: boolean;
   view: LateArrivalsView;
 };
 
 /**
- * Documents that arrived in a closed month after its close (ADR 0005, ADR 0006).
- * On the open month: the proposed moves, confirmed in one click, and the
- * warnings; each can be ignored, each move undone. On a closed month: a note
- * that what arrived late here is waiting in the open month.
+ * Documents that came late (ADR 0005, ADR 0006): into a closed month after its
+ * close, or into a month after it stopped being booked. On the target month:
+ * the proposed moves, confirmed in one click, and the warnings; each can be
+ * ignored, each move undone. On the month they came into: a note that they
+ * wait in the target month.
  */
-export function LateArrivalsPanel({ companyId, monthKey, isOpenMonth, view }: LateArrivalsPanelProps) {
+export function LateArrivalsPanel({ companyId, monthKey, isTargetMonth, view }: LateArrivalsPanelProps) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ tone: "bad" | "good"; text: string } | null>(null);
 
-  if (!isOpenMonth) {
+  if (!isTargetMonth) {
     const here = view.pending.filter((item) => item.sourceMonthKey === monthKey);
     if (here.length === 0) {
       return null;
@@ -42,18 +43,18 @@ export function LateArrivalsPanel({ companyId, monthKey, isOpenMonth, view }: La
         <span aria-hidden className="size-1.5 rounded-full bg-warn-dot" />
         <span>
           <b>
-            Po uzavretí sem {arrivedVerb(here.length)} {countWithNoun(here.length, DOKLAD_FORMS)}.
+            Neskoro sem {arrivedVerb(here.length)} {countWithNoun(here.length, DOKLAD_FORMS)}.
           </b>{" "}
-          {view.openMonthKey ? (
+          {view.targetMonthKey ? (
             <>
-              Presunúť ich môžeš v otvorenom mesiaci{" "}
-              <Link className="font-semibold underline underline-offset-2" href={`/companies/${companyId}/${view.openMonthKey}`}>
-                {view.openMonthKey}
+              Presunúť ich môžeš v spracúvanom mesiaci{" "}
+              <Link className="font-semibold underline underline-offset-2" href={`/companies/${companyId}/${view.targetMonthKey}`}>
+                {view.targetMonthKey}
               </Link>
               .
             </>
           ) : (
-            "Nie je otvorený žiadny mesiac, do ktorého by sa presunuli."
+            "Spracúvaný mesiac je uzavretý alebo chýba, nie je kam ich presunúť."
           )}
         </span>
       </p>
@@ -94,8 +95,8 @@ export function LateArrivalsPanel({ companyId, monthKey, isOpenMonth, view }: La
           {view.pending.length > 0 ? ` · ${view.pending.length}` : ""}
         </h3>
         <span className="text-[13px] text-warn-strong/80">
-          Prišli do uzavretého mesiaca po jeho uzavretí. Presunú sa sem, do {monthKey}, do priečinka s rovnakým
-          názvom.
+          Prišli do staršieho mesiaca, keď sa už nespracúval, alebo do uzavretého po jeho uzavretí. Presunú sa sem,
+          do {monthKey}, do priečinka s rovnakým názvom.
         </span>
         <div className="flex-1" />
         {view.movableCount > 0 ? (
@@ -155,7 +156,7 @@ export function LateArrivalsPanel({ companyId, monthKey, isOpenMonth, view }: La
                 <button
                   type="button"
                   disabled={pending || !item.canUndo}
-                  title={item.canUndo ? "Vrátiť doklad späť do uzavretého mesiaca" : "Presun sa už nedá vrátiť"}
+                  title={item.canUndo ? "Vrátiť doklad späť do mesiaca, kam prišiel" : "Presun sa už nedá vrátiť"}
                   onClick={() => run(() => undoLateArrivalMoveAction({ companyId, lateArrivalId: item.id }))}
                   data-testid={`late-arrival-undo-${item.driveFileId}`}
                   className="press rounded-lg bg-fill px-2.5 py-1 text-[12.5px] font-medium text-ink disabled:opacity-40"

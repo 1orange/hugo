@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bookingMonthKey,
+  selectLateArrivalTargetMonthKey,
   describeMissingSlots,
   deriveCompanyStage,
   isFutureMonth,
@@ -169,4 +170,17 @@ test("the open month follows the office clock across the first-of-month edge", (
   const after = selectOpenMonthKey(pastYear(["2026_01", "2026_02", "2026_03", "2026_04", "2026_05", "2026_06", "2026_07", "2026_08", "2026_09", "2026_10", "2026_11"]), monthKeyAt(new Date("2026-11-30T23:00:00.000Z")));
   assert.equal(before, null);
   assert.equal(after, "2026_12");
+});
+
+test("late arrivals go to the booking month, or the next unclosed month when it is closed", () => {
+  const november = new Date("2026-11-24T10:00:00.000Z");
+  const open = (monthKey: string) => ({ monthKey, closedAt: null });
+  const closed = (monthKey: string) => ({ monthKey, closedAt: "2026-11-05T10:00:00.000Z" });
+  assert.equal(selectLateArrivalTargetMonthKey([open("2026_09"), open("2026_10"), open("2026_11"), open("2026_12")], november), "2026_10");
+  assert.equal(selectLateArrivalTargetMonthKey([closed("2026_10"), open("2026_11"), open("2026_12")], november), "2026_11");
+  assert.equal(selectLateArrivalTargetMonthKey([closed("2026_10"), closed("2026_11"), open("2026_12")], november), null, "never a future month");
+  // A dormant client with no month from the booked one on keeps its open month.
+  assert.equal(selectLateArrivalTargetMonthKey([closed("2025_12"), open("2026_01")], november), "2026_01");
+  // January: December of the previous year is booked.
+  assert.equal(selectLateArrivalTargetMonthKey([open("2026_12"), open("2027_01")], new Date("2027-01-05T10:00:00.000Z")), "2026_12");
 });

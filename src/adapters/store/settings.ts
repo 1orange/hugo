@@ -32,6 +32,8 @@ export type SettingsRow = {
   subjectRefreshDays: number;
   /** The first month read in the background (`YYYY_MM`); null means the default (see reading-planner). */
   readingWindowStart: string | null;
+  /** Uploads since then into a month no longer booked are late arrivals; null until the first sweep sets it. */
+  lateArrivalsSince: string | null;
 };
 
 function defaultMovableFolderNames(): string[] {
@@ -87,6 +89,7 @@ export async function getSettings(): Promise<SettingsRow> {
     omegaT00ForeignDocumentTypeCode: row.omegaT00ForeignDocumentTypeCode ?? "380",
     subjectRefreshDays: row.subjectRefreshDays ?? DEFAULT_SUBJECT_REFRESH_DAYS,
     readingWindowStart: row.readingWindowStart ?? null,
+    lateArrivalsSince: row.lateArrivalsSince ?? null,
   };
 }
 
@@ -135,6 +138,11 @@ export async function setSubjectRefreshDays(days: number): Promise<void> {
  */
 export async function setReadingWindowStart(monthKey: string | null): Promise<void> {
   await updateSettings({ readingWindowStart: monthKey });
+}
+
+/** Set once, by the first sweep that applies the booking-month rule for late arrivals. */
+export async function setLateArrivalsSince(since: string): Promise<void> {
+  await updateSettings({ lateArrivalsSince: since });
 }
 
 export async function setAutoAdvanceAfterDecision(enabled: boolean): Promise<void> {

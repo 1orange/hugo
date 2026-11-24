@@ -15,12 +15,12 @@ async function signIn(page: import("@playwright/test").Page) {
   await expect(page).toHaveURL(/\/companies$/);
 }
 
-test("late arrivals are moved into the open month in one click, and a move is undone", async ({ page }) => {
+test("late arrivals are moved into the target month in one click, and a move is undone", async ({ page }) => {
   await signIn(page);
 
-  // The closed month points to the open one.
+  // The closed month points to the target month (with no month from the booked one on, the open month).
   await page.goto("/companies/2/2025_12");
-  await expect(page.getByTestId("late-arrivals-source-note")).toContainText("Po uzavretí sem prišli 2 doklady");
+  await expect(page.getByTestId("late-arrivals-source-note")).toContainText("Neskoro sem prišli 2 doklady");
   await page.getByTestId("late-arrivals-source-note").getByRole("link", { name: "2026_01" }).click();
   await expect(page).toHaveURL(/\/companies\/2\/2026_01$/);
 
@@ -43,7 +43,7 @@ test("late arrivals are moved into the open month in one click, and a move is un
 
   // Only the statement is still waiting in December.
   await page.goto("/companies/2/2025_12");
-  await expect(page.getByTestId("late-arrivals-source-note")).toContainText("Po uzavretí sem prišiel 1 doklad");
+  await expect(page.getByTestId("late-arrivals-source-note")).toContainText("Neskoro sem prišiel 1 doklad");
 
   // Undo puts the invoice back, and it is proposed again.
   await page.goto("/companies/2/2026_01");

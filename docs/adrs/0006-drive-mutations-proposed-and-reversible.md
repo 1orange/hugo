@@ -107,3 +107,24 @@ the office's folder names: `02 Prijaté faktúry`, `04 Platby hotovosťou`, `05 
   otherwise it refuses and says why. An undone late arrival is pending again.
 - `files.list` asks `corpora=allDrives`: in the default corpus the files of a shared drive the
   service account belongs to are not listed at all, which would have left a shared drive unswept.
+
+## Amendment, 2026-11-24 — late into a month no longer booked; moved to the booking month
+
+The office books the previous month (in November, October). A client still uploads into older months,
+which nobody closes in Hugo, so the closed-month rule alone never saw them.
+
+- **A second lateness rule.** A file uploaded into a month after that month stopped being booked is a
+  late arrival: from November on, anything put into September or earlier. "Uploaded" is the file's
+  Drive `createdTime`, or the time a sweep saw it moved into that month. Never `firstSeenAt`, which a
+  rebuilt database sets to today for every file and would make the whole drive late. Months are read on
+  the office clock.
+- **Only from when the rule began.** `settings.late_arrivals_since` is set by the first sweep that
+  applies the rule. Uploads before it are the drive's history and are not proposed. The closed-month
+  rule is unchanged and takes precedence.
+- **Target: the booking month.** Late arrivals are proposed for the booking month. If it is closed or
+  missing, they go to the next unclosed month up to the current one. They are never proposed for a
+  future month and never for the open month as such. Before this amendment the target was the open
+  month (November in November).
+- **Still proposed, not automatic.** The office chose to keep the batch confirmation and undo (decided
+  2026-11-24); only detection and target changed. The movable folders are unchanged (`01`, `03`, `07`
+  warn).

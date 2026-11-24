@@ -1,7 +1,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import { months } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
-import { monthKeyAt, selectOpenMonthKey } from "@/modules/month-lifecycle";
+import { monthKeyAt, selectLateArrivalTargetMonthKey, selectOpenMonthKey } from "@/modules/month-lifecycle";
 
 export type MonthRow = {
   id: number;
@@ -57,6 +57,11 @@ export async function getOpenMonthKey(
   currentMonthKey: string = monthKeyAt(new Date()),
 ): Promise<string | null> {
   return selectOpenMonthKey(await listMonthsForCompany(companyId), currentMonthKey);
+}
+
+/** Where this company's late arrivals are proposed to go (see selectLateArrivalTargetMonthKey). */
+export async function getLateArrivalTargetMonthKey(companyId: number, instant: Date = new Date()): Promise<string | null> {
+  return selectLateArrivalTargetMonthKey(await listMonthsForCompany(companyId), instant);
 }
 
 export async function getMonthByKey(

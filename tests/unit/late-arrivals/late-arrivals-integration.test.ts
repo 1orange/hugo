@@ -114,7 +114,7 @@ test("what arrives in a closed month after its close is proposed for the open mo
   await runSweep(client);
 
   const view = await loadLateArrivalsView(1);
-  assert.equal(view.openMonthKey, "2026_11", "the open month is the current month");
+  assert.equal(view.targetMonthKey, "2026_11", "the open month is the current month");
   assert.deepEqual(
     view.pending.map((item) => [item.driveFileId, item.sourceMonthKey, item.assessment]),
     [
@@ -334,5 +334,35 @@ test("in an older open month a late receipt goes to the folder named like the on
       ["late-cash", "s-11-cash"],
       ["late-card", "s-11-card"],
     ],
+  );
+});
+
+// ADR 0006, amended 2026-11-24: nothing closed, and still a September invoice
+// uploaded in November is late. It is proposed for October, the month being
+// booked; what was in the drive before the rule began is left alone.
+test("an upload into a month no longer booked is proposed for the booking month; the drive's history is not", async () => {
+  const drive = driveLayout();
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT);
+  const client = new FakeDriveClient(drive);
+  // A late upload from before the rule began: history, not proposed.
+  drive.push({ ...pdf("old-late", "s-09-02"), createdTime: "2026-11-02T09:00:00.000Z" });
+  clockAt("2026-11-24T08:00:00.000Z");
+  await runSweep(client);
+  assert.deepEqual((await loadLateArrivalsView(1)).pending, [], "the first sweep sets the start and proposes nothing");
+
+  clockAt("2026-11-24T12:05:00.000Z");
+  drive.push(
+    { ...pdf("late-upload", "s-09-02"), createdTime: "2026-11-24T12:00:00.000Z" },
+    { ...pdf("october-upload", "s-10-02"), createdTime: "2026-11-24T12:01:00.000Z" },
+  );
+  await runSweep(client);
+
+  const view = await loadLateArrivalsView(1);
+  assert.equal(view.targetMonthKey, "2026_10", "the booking month, not the open month");
+  assert.deepEqual(
+    view.pending.map((item) => [item.driveFileId, item.sourceMonthKey, item.assessment]),
+    [["late-upload", "2026_09", { kind: "move", targetMonthKey: "2026_10", targetFolderId: "s-10-02" }]],
+    "October is being booked: an upload into it is not late",
   );
 });

@@ -141,7 +141,7 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
       <LateArrivalsPanel
         companyId={companyIdNum}
         monthKey={monthKey}
-        isOpenMonth={view.isOpenMonth}
+        isTargetMonth={lateArrivals.targetMonthKey === monthKey}
         view={lateArrivals}
       />
 

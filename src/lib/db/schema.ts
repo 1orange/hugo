@@ -56,6 +56,9 @@ export const settings = pgTable("settings", {
   subjectRefreshDays: integer("subject_refresh_days").notNull().default(30),
   // The first month read on the background sweep (`YYYY_MM`); null is the default, January of the booking month's year (ADR 0020, amended 2026-11-23).
   readingWindowStart: text("reading_window_start"),
+  // From when an upload into a month no longer booked is a late arrival (ADR 0006, amended 2026-11-24).
+  // Set on the first sweep that applies the rule, so the drive's history is not proposed all at once.
+  lateArrivalsSince: text("late_arrivals_since"),
   // Where the sweep last read Drive's change log, and when it last listed every file (ADR 0003).
   driveChangesToken: text("drive_changes_token"),
   driveSnapshotAt: text("drive_snapshot_at"),

@@ -1,6 +1,9 @@
+import { uploadedAfterMonthWasBooked } from "./month-lifecycle";
+
 /**
- * Late arrivals (ADR 0005, ADR 0006, amended 2026-11-12): a file that arrived
- * in a month after the month was closed. She closed the month without it, so
+ * Late arrivals (ADR 0005, ADR 0006, amended 2026-11-12 and 2026-11-24): a file
+ * that arrived in a month after the month was closed, or was uploaded into it
+ * after the month stopped being booked. She closed the month without it, so
  * left where it is it would never be seen again. These rules are pure: the
  * sweep keeps the log with them, and the screen asks them what to propose.
  */
@@ -20,6 +23,10 @@ export type LateArrivalFile = {
   firstSeenAt: string;
   /** Moved here from another month at; null or absent when here since first seen. */
   arrivedAt?: string | null;
+  /** When the file was uploaded to Drive: survives a rebuilt database, unlike firstSeenAt. */
+  driveCreatedTime?: string;
+  /** The file's calendar month (`YYYY_MM`) when `monthKey` is keyed by company too. */
+  period?: string;
 };
 
 /** When the file arrived in the month it is in: moved there, or first seen there. */
@@ -41,6 +48,32 @@ export function isLateArrival(file: LateArrivalFile, closedAt: string | null | u
   return Date.parse(arrivalTimeOf(file)) > Date.parse(closedAt);
 }
 
+/**
+ * When a file came into its month, for the booking-month rule: moved there (a
+ * sweep saw it), else uploaded to Drive. Never firstSeenAt, which a rebuilt
+ * database sets to today for every file.
+ */
+export function uploadTimeOf(file: Pick<LateArrivalFile, "arrivedAt" | "driveCreatedTime">): string | null {
+  return file.arrivedAt ?? file.driveCreatedTime ?? null;
+}
+
+/**
+ * A file uploaded into a month after that month stopped being booked (ADR 0006,
+ * amended 2026-11-24): from November, anything put into September or earlier.
+ * Only uploads since `since` count, the moment the rule was first applied, so
+ * the drive's history is not proposed all at once.
+ */
+export function isPassedMonthArrival(file: LateArrivalFile, since: string | null | undefined): boolean {
+  if (!since || file.deleted || file.folderSlot === null) {
+    return false;
+  }
+  const uploadedAt = uploadTimeOf(file);
+  if (!uploadedAt || Date.parse(uploadedAt) < Date.parse(since)) {
+    return false;
+  }
+  return uploadedAfterMonthWasBooked(file.period ?? file.monthKey, uploadedAt);
+}
+
 /** A log entry, as far as the sweep's bookkeeping is concerned. */
 export type LateArrivalEntry = {
   id: number;
@@ -51,6 +84,8 @@ export type LateArrivalEntry = {
   sourceParentId: string;
   detectedAt: string;
   statusChangedAt: string | null;
+  /** Where a moved entry's file was moved to (`YYYY_MM`). */
+  targetMonthKey?: string | null;
 };
 
 export type DetectedLateArrival = {
@@ -79,17 +114,26 @@ export function planLateArrivalSync(input: {
   files: readonly LateArrivalFile[];
   closedAtByMonth: ReadonlyMap<string, string>;
   entries: readonly LateArrivalEntry[];
+  /** Uploads since then into a month no longer booked are late too; null turns that rule off. */
+  passedMonthsSince?: string | null;
 }): LateArrivalSyncPlan {
   const entryByFile = new Map(input.entries.map((entry) => [entry.driveFileId, entry]));
   const lateFiles = new Set<string>();
   const detected: DetectedLateArrival[] = [];
 
   for (const file of input.files) {
-    if (!isLateArrival(file, input.closedAtByMonth.get(file.monthKey))) {
+    const known = entryByFile.get(file.driveFileId);
+    // Hugo's own move put it here: arriving in its target is not arriving late.
+    if (known?.status === "moved" && known.targetMonthKey && known.targetMonthKey === (file.period ?? file.monthKey)) {
+      continue;
+    }
+    const afterClose = isLateArrival(file, input.closedAtByMonth.get(file.monthKey));
+    const afterBooking = !afterClose && isPassedMonthArrival(file, input.passedMonthsSince);
+    if (!afterClose && !afterBooking) {
       continue;
     }
     lateFiles.add(file.driveFileId);
-    const arrivedAt = arrivalTimeOf(file);
+    const arrivedAt = afterClose ? arrivalTimeOf(file) : uploadTimeOf(file)!;
     const place = {
       driveFileId: file.driveFileId,
       sourceMonthKey: file.monthKey,
@@ -124,17 +168,17 @@ export function planLateArrivalSync(input: {
   return { detected, resolved };
 }
 
-/** A folder of the open month a late arrival may be moved into. */
+/** A folder of the target month a late arrival may be moved into. */
 export type DestinationFolder = { name: string; driveFolderId: string };
 
 export type LateArrivalAssessment =
-  /** Proposed: into the open month, the folder of the same name. */
+  /** Proposed: into the month being booked, the folder of the same name. */
   | { kind: "move"; targetMonthKey: string; targetFolderId: string }
   /** A folder whose documents belong to their period: a bank statement, payroll, issued invoices. */
   | { kind: "warning"; reason: "not-movable-folder" }
-  /** No month is open to move it into. */
+  /** No month to move it into: the booked month is closed or missing, and no later one is open. */
   | { kind: "warning"; reason: "no-open-month" }
-  /** The open month has no folder of that name; Hugo does not create it (ADR 0006, amended 2026-11-11). */
+  /** The target month has no folder of that name; Hugo does not create it (ADR 0006, amended 2026-11-11). */
   | { kind: "warning"; reason: "missing-destination"; targetMonthKey: string }
   /** Drive says the file cannot be moved (`canMoveItemWithinDrive`). */
   | { kind: "warning"; reason: "cannot-move" };
@@ -147,23 +191,26 @@ export function assessLateArrival(input: {
   folderSlot: string;
   canMove: boolean;
   movableFolderNames: readonly string[];
-  openMonthKey: string | null;
+  targetMonthKey: string | null;
+  /** The month the file came into; a target not after it is no target. */
+  sourceMonthKey?: string;
   destinationFolders: readonly DestinationFolder[];
 }): LateArrivalAssessment {
   if (!input.movableFolderNames.includes(input.folderSlot)) {
     return { kind: "warning", reason: "not-movable-folder" };
   }
-  if (!input.openMonthKey) {
+  // Never back into the month it came from, or an older one.
+  if (!input.targetMonthKey || (input.sourceMonthKey !== undefined && input.targetMonthKey <= input.sourceMonthKey)) {
     return { kind: "warning", reason: "no-open-month" };
   }
   const destination = input.destinationFolders.find((folder) => folder.name === input.folderSlot);
   if (!destination) {
-    return { kind: "warning", reason: "missing-destination", targetMonthKey: input.openMonthKey };
+    return { kind: "warning", reason: "missing-destination", targetMonthKey: input.targetMonthKey };
   }
   if (!input.canMove) {
     return { kind: "warning", reason: "cannot-move" };
   }
-  return { kind: "move", targetMonthKey: input.openMonthKey, targetFolderId: destination.driveFolderId };
+  return { kind: "move", targetMonthKey: input.targetMonthKey, targetFolderId: destination.driveFolderId };
 }
 
 /** The warning in Slovak, as the screen shows it. */
@@ -172,7 +219,7 @@ export function lateArrivalWarningText(assessment: Exclude<LateArrivalAssessment
     case "not-movable-folder":
       return `Priečinok „${folderSlot}“ patrí k svojmu obdobiu — doklad sa nepresúva. Skontroluj ho v uzavretom mesiaci.`;
     case "no-open-month":
-      return "Nie je otvorený žiadny mesiac, do ktorého by sa doklad presunul.";
+      return "Nie je mesiac, do ktorého by sa doklad presunul: spracúvaný mesiac je uzavretý alebo chýba.";
     case "missing-destination":
       return `Mesiac ${assessment.targetMonthKey} nemá priečinok „${folderSlot}“. Vytvor ho v Drive a doklad sa ponúkne na presun.`;
     case "cannot-move":
