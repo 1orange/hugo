@@ -29,7 +29,7 @@ travel orders), so a plain code rule would misfile historic folders. Use **one r
 ## Acceptance criteria
 
 - [x] Every accepted older name resolves to its old slot in a 2025 and a 2026 month. In particular `05 Platby kartou` → `04 Bločky`, `06 Iné doklady` → `06 Ostatné dokumenty`, `07 DPH` → `08 DPH`.
-- [x] A coded name that is neither canonical nor accepted (`04`, `05 Iné`) resolves by its code in a 2026 month.
+- [x] A coded name that is neither canonical nor accepted resolves by its code in a 2026 month — only for `01`, `02`, `03`, `07`. Corrected 2026-11-24 after the office's structure note: an old `04`, `05`, `06` (`04`, `05 Iné`) stays unknown and is reported for renaming, never read by number.
 - [x] `Bločky` and `08 Cestovné náhrady` resolve as specified.
 - [x] Behaviour from `2027_01` is unchanged (the existing tests pass).
 - [x] Expected slots for months before 2027 are unchanged.

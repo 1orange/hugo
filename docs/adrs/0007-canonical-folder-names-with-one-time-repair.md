@@ -175,10 +175,10 @@ The two name-based steps (accepted older name, near-miss) apply only before 2027
 
 **The near-miss comes before the code in older months.** The issue listed the code first. Before 2027_01, though, a coded typo of an old name keeps the old name's type: `05 Platby kartu` is card receipts, and read by its number it would be a travel order. `04 Bločky_hotorvosť`, the example above, would lose its one-click repair to `04 Bločky`. So the near-miss decides first there.
 
-**A coded folder is filed by its code, without a rename.** In an older month `04 Pokladňa` and `04` are receipts, `06 Zmluvy` is `06 Ostatné dokumenty`, and no rename is proposed for them. This supersedes the 2026-08-28 amendment's "slot assignment remains exact-name-only" for coded folders: the code assigns the slot, the rename stays optional. Adding a name to the canonical list is now the way to adopt a folder only for a name without a type number; the impact preview's example is `09 Pokladňa`.
+**A coded folder is filed by its code, without a rename, where the code kept its meaning.** From 2027_01 any code does. Before 2027_01 only `01`, `02`, `03` and `07` do (issued and received invoices, statements, payroll mean the same in both schemes): `02 Faktúry od dodávateľov` is received invoices, and no rename is proposed. This supersedes the 2026-08-28 amendment's "slot assignment remains exact-name-only" for those codes. Adding a name to the canonical list is the way to adopt any other folder; the impact preview's example is `09 Pokladňa`.
+
+**An old `04`, `05` or `06` is never read by its number** (corrected the same day, after the office's structure note: "staré mesiace treba mapovať podľa názvu, nie podľa čísla"). Before 2027 they were cash, card and other documents; from 2027 receipts, travel orders and other documents. A folder in an older month with one of these codes and a name that is neither accepted nor a near-miss (`05 Iné`, a bare `04`) stays unknown and is reported as `folder-unrecognised`, for the office to rename. This closes the open point first written here, where `05 Iné` was read as `05 Cestovné príkazy`.
 
 **Two accepted names added**, seen on the live drive: `Bločky` → `04 Bločky`, and `08 Cestovné náhrady` → `05 Cestovné príkazy`.
-
-**Open point.** A bare `05 Iné` in an older month resolves to `05 Cestovné príkazy` by its number, though the old `05 Iné doklady` was `06 Ostatné dokumenty`. The rule says so, so it stays until the office decides otherwise. The same applies to a coded typo of an old name whose number changed meaning and which is not near enough to the old name to be repaired.
 
 Expected slots are unchanged: an older month is still not expected to hold `05 Cestovné príkazy` or `08 DPH`. The settings text now states the rule.

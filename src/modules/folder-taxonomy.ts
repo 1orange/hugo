@@ -293,8 +293,19 @@ export function classifyFolder(
   if (repair) {
     return repair;
   }
-  return classifyByCode(normalized.trim(), settings.canonicalFolderNames) ?? { kind: "unknown", name };
+  // Before 2027_01 only the codes whose meaning did not change are read by number:
+  // an old 04, 05 or 06 is cash, card or other documents, not 2027's receipts,
+  // travel orders or other documents ("staré mesiace treba mapovať podľa názvu,
+  // nie podľa čísla", the office's structure, 2026-11-11). Such a folder with an
+  // unknown name is left unknown, for the office to rename, never guessed.
+  const coded = OLDER_MONTH_STABLE_CODES.has(TYPE_CODE.exec(normalized.trim())?.[1] ?? "")
+    ? classifyByCode(normalized.trim(), settings.canonicalFolderNames)
+    : null;
+  return coded ?? { kind: "unknown", name };
 }
+
+/** The codes that mean the same before and from 2027_01: issued and received invoices, statements, payroll. */
+const OLDER_MONTH_STABLE_CODES: ReadonlySet<string> = new Set(["01", "02", "03", "07"]);
 
 export function isMovableFolder(
   name: string,

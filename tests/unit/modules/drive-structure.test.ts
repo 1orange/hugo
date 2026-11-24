@@ -164,9 +164,9 @@ const mutationCases: MutationCase[] = [
     name: "a folder the client created with a type's number fills that type, and no rename is proposed",
     change: (children) =>
       children.map((child) =>
-        child.name.normalize("NFC") === "04 Platby hotovosťou" ? { ...child, name: "04 Pokladňa" } : child,
+        child.name.normalize("NFC") === "02 Prijaté faktúry" ? { ...child, name: "02 Faktúry od dodávateľov" } : child,
       ),
-    // From the number: `04 Pokladňa` is the receipts type, so the slot is filled and nothing is missing.
+    // From the number: 02 means received invoices before and from 2027, so the slot is filled and nothing is missing.
     expected: [],
   },
   {

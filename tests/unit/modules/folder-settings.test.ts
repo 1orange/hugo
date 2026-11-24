@@ -264,8 +264,11 @@ test("previewCanonicalListImpact: folders still carrying the 2026-08 names stay 
   // The older names are accepted as the office's slots (2026-11-12): no folder loses its slot.
   assert.equal(impact.totalAffected, 0);
   assert.deepEqual(impact.affectedFolders, []);
-  // `04 Platby hotovosťou` is already read by its code, as the receipts slot of the older list: nothing new.
-  assert.deepEqual(impact.newlyRecognisedFolders, []);
+  // `04 Platby hotovosťou` is not read by its number in an older month (an old 04 is not 2027's 04),
+  // so under the older list it was unknown; the office's list accepts it by name.
+  assert.deepEqual(impact.newlyRecognisedFolders, [
+    { companyId: 1, companyName: "Alpha s.r.o.", monthKey: "2026_06", folderName: "04 Platby hotovosťou" },
+  ]);
 });
 
 test("the new default movable list is a subset of the new canonical list", () => {

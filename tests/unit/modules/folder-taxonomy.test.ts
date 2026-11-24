@@ -122,14 +122,20 @@ test("a typo of an old name keeps the old name's type, not the number's new one"
   });
 });
 
-test("in an older month a coded name with no older name or near-miss is read by its code", () => {
-  assert.deepEqual(classifyFolder("04", settings, "2026_10"), {
+test("in an older month only the codes that kept their meaning are read by number", () => {
+  // 01, 02, 03 and 07 mean the same before and from 2027_01.
+  assert.deepEqual(classifyFolder("02 Faktúry od dodávateľov", settings, "2026_10"), {
     kind: "canonical",
-    name: "04 Bločky",
-    observedName: "04",
+    name: "02 Prijaté faktúry",
+    observedName: "02 Faktúry od dodávateľov",
   });
-  // By its number, as the office defined the type from 2027_01 (the code's slot, not the old `05` meaning).
-  assert.deepEqual(classifyFolder("05 Iné", settings, "2026_10"), {
+  // An old 04, 05 or 06 meant cash, card or other documents: by its number it would
+  // be misfiled ("staré mesiace treba mapovať podľa názvu, nie podľa čísla").
+  for (const name of ["04", "05 Iné", "06 Zmluvy"]) {
+    assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "unknown", name }, name);
+  }
+  // From 2027_01 the number is the type.
+  assert.deepEqual(classifyFolder("05 Iné", settings, "2027_01"), {
     kind: "canonical",
     name: "05 Cestovné príkazy",
     observedName: "05 Iné",
@@ -168,13 +174,14 @@ test("a near-miss in an older month is a repair candidate for the type's current
 
 test("a coded folder the client named herself is read by its code, and never proposed for a rename", () => {
   const cases: Array<[string, string]> = [
-    ["04 Pokladňa", "04 Bločky"],
-    ["06 Zmluvy", "06 Ostatné dokumenty"],
     ["02 Prijaté faktúry 2025", "02 Prijaté faktúry"],
+    ["07 Mzdy a odvody", "07 Mzdy"],
   ];
   for (const [name, slot] of cases) {
     assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "canonical", name: slot, observedName: name }, name);
   }
+  // From 2027_01 any code is read so.
+  assert.deepEqual(classifyFolder("04 Pokladňa", settings, "2027_03"), { kind: "canonical", name: "04 Bločky", observedName: "04 Pokladňa" });
 });
 
 test("classifyFolder refuses to guess between equally close canonical names", () => {

@@ -100,14 +100,14 @@ test("a sweep over a month with a coded folder discovers its files and files the
     ...fixture,
     {
       id: "integration-coded",
-      name: "04 Pokladňa",
+      name: "02 Faktúry od dodávateľov",
       parents: [MONTH_ID],
       createdTime: "2026-01-01T00:00:00.000Z",
       mimeType: FOLDER_MIME,
     },
     {
       id: "integration-receipt",
-      name: "receipt-001.pdf",
+      name: "invoice-001.pdf",
       parents: ["integration-coded"],
       createdTime: "2026-02-10T00:00:00.000Z",
       mimeType: "application/pdf",
@@ -118,16 +118,16 @@ test("a sweep over a month with a coded folder discovers its files and files the
   // Two files from the fixture and the receipt, each discovered once.
   assert.equal(first.eventCount, 3);
 
-  const receipt = (await getDb().select().from(files)).find((row) => row.name === "receipt-001.pdf");
-  assert.equal(receipt?.folderSlot, "04 Bločky");
+  const receipt = (await getDb().select().from(files)).find((row) => row.name === "invoice-001.pdf");
+  assert.equal(receipt?.folderSlot, "02 Prijaté faktúry");
 
-  // The extraction queue takes the coded receipt as a receipt, with the slot the sweep recorded.
+  // The extraction queue takes the coded invoice as a document, with the slot the sweep recorded.
   const queue = new MemoryExtractionJobQueue();
   const companyId = (await getDb().select().from(companies))[0]!.id;
   await enqueueMonthExtraction(queue, companyId, "2026_02");
   const queued = queue.jobs.get("integration-receipt");
-  assert.equal(queued?.data.kind, "receipt");
-  assert.equal(queued?.data.folderSlot, "04 Bločky");
+  assert.equal(queued?.data.kind, "document");
+  assert.equal(queued?.data.folderSlot, "02 Prijaté faktúry");
 });
 
 // Sweeps before the system-files rule recorded desktop.ini as a document,
