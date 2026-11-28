@@ -13,6 +13,7 @@ import {
   saveDocumentNoteAction,
   setAdvanceSettlementAction,
   swapDocumentPartiesAction,
+  takePartyFromProfileAction,
   takePartyFromRegisterAction,
 } from "../../actions";
 import { DecisionBar } from "./decision-bar";
@@ -20,6 +21,8 @@ import { isTypingTarget } from "./keyboard";
 import { DocumentRail } from "./document-rail";
 import { DocumentStage } from "./document-stage";
 import { FieldsPanel, type DocumentFieldsInput } from "./fields-panel";
+import { StatementPanel } from "./statement-panel";
+import { isStatementFolderSlot } from "@/modules/document-state";
 import type { PartySwapProvenance } from "@/modules/party-swap";
 import { useMonthExtraction } from "./use-month-extraction";
 import {
@@ -360,6 +363,24 @@ export function DocumentWorkbench({
     );
   }
 
+  function takeFromProfile(side: "supplier" | "customer") {
+    if (!selectedDocument) {
+      return;
+    }
+    // A refused take reloads the document, as the register take does.
+    runAction(
+      () =>
+        takePartyFromProfileAction({
+          companyId,
+          monthKey,
+          documentId: selectedDocument.id,
+          side,
+        }),
+      undefined,
+      () => router.refresh(),
+    );
+  }
+
   function setAdvanceSettlement(settled: boolean) {
     if (!selectedDocument) {
       return;
@@ -516,23 +537,29 @@ export function DocumentWorkbench({
           className="flex min-h-0 flex-col lg:shadow-[inset_1px_0_0_rgb(0_0_0/0.07)]"
           aria-label="Údaje dokladu"
         >
-          <FieldsPanel
-            document={selectedDocument}
-            readOnly={view.readOnly}
-            pending={pending}
-            saveState={saveState}
-            onSave={saveFields}
-            onSwapParties={swapParties}
-            onTakeFromRegister={takeFromRegister}
-            onSetAdvanceSettlement={setAdvanceSettlement}
-            note={note}
-            onNoteChange={setNote}
-            onNoteSave={saveNote}
-            noteDirty={note !== (selectedDocument?.note ?? "")}
-            onLookupUid={lookupUid}
-            uidLookupMessage={uidLookupMessage}
-            onReextract={reextract}
-          />
+          {selectedDocument && isStatementFolderSlot(selectedDocument.folderSlot) ? (
+            // A statement has no values to read or fill: its pane is its name and decision.
+            <StatementPanel document={selectedDocument} />
+          ) : (
+            <FieldsPanel
+              document={selectedDocument}
+              readOnly={view.readOnly}
+              pending={pending}
+              saveState={saveState}
+              onSave={saveFields}
+              onSwapParties={swapParties}
+              onTakeFromRegister={takeFromRegister}
+              onTakeFromProfile={takeFromProfile}
+              onSetAdvanceSettlement={setAdvanceSettlement}
+              note={note}
+              onNoteChange={setNote}
+              onNoteSave={saveNote}
+              noteDirty={note !== (selectedDocument?.note ?? "")}
+              onLookupUid={lookupUid}
+              uidLookupMessage={uidLookupMessage}
+              onReextract={reextract}
+            />
+          )}
         </section>
       </div>
     </div>

@@ -10,7 +10,7 @@ import type { ExtractionQueueView } from "@/lib/extraction-queue/view";
  */
 export type ServerEvent =
   | { type: "queue"; view: ExtractionQueueView }
-  | Extract<AppEvent, { type: "document-read" | "files-changed" | "document-checked" }>
+  | Extract<AppEvent, { type: "document-read" | "files-changed" | "document-checked" | "access-changed" }>
   /** The connection is down; the browser is reconnecting. */
   | { type: "disconnected" };
 
@@ -32,7 +32,7 @@ function connect(): void {
     latestQueue = JSON.parse((message as MessageEvent<string>).data) as ExtractionQueueView;
     emit({ type: "queue", view: latestQueue });
   });
-  for (const type of ["document-read", "files-changed", "document-checked"] as const) {
+  for (const type of ["document-read", "files-changed", "document-checked", "access-changed"] as const) {
     source.addEventListener(type, (message) => {
       emit(JSON.parse((message as MessageEvent<string>).data) as ServerEvent);
     });

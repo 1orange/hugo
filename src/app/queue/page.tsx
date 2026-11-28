@@ -5,6 +5,7 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { loadExtractionQueueView } from "@/lib/extraction-queue/view";
+import { visibleCompanies } from "@/lib/access/visibility";
 import { QueuePanel } from "./queue-panel";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,9 @@ export default async function QueuePage({ searchParams }: QueuePageProps) {
     redirect("/auth/refused");
   }
 
-  const view = await loadExtractionQueueView();
+  // The queue names documents by client, so it is built for the companies she may see (ADR 0023).
+  const visibility = await visibleCompanies(session.user.email);
+  const view = await loadExtractionQueueView(visibility.ids);
   const back = backHref((await searchParams).from);
 
   return (

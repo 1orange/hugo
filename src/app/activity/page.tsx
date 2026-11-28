@@ -4,6 +4,7 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { buildGlobalActivityView } from "@/lib/activity-log/view";
+import { visibleCompanies } from "@/lib/access/visibility";
 import { ActivityLogPanel } from "@/app/companies/[companyId]/activity/activity-log-panel";
 
 type GlobalActivityPageProps = {
@@ -30,7 +31,10 @@ export default async function GlobalActivityPage({
   const query = await searchParams;
   const beforeId = query.before ? Number(query.before) : undefined;
   const filters = query.type ? { eventType: query.type } : {};
+  // Her companies' events and the office's own; another company's events are not read (ADR 0023).
+  const visibility = await visibleCompanies(session.user.email);
   const view = await buildGlobalActivityView(
+    [...visibility.ids],
     filters,
     Number.isInteger(beforeId) ? beforeId : undefined,
   );
@@ -51,7 +55,7 @@ export default async function GlobalActivityPage({
         <header>
           <h1 className="text-2xl">Celý denník aktivity</h1>
           <p className="mt-1 text-sm text-ink-2">
-            Zmeny, ktoré nepatria ku konkrétnej firme.
+            Zmeny firiem, ktoré vidíš, a zmeny úradu, ktoré nepatria ku konkrétnej firme.
           </p>
         </header>
 

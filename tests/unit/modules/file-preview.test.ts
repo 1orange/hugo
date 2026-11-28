@@ -4,7 +4,20 @@ import {
   driveFileViewUrl,
   isHeicMimeType,
   previewKindForMimeType,
+  xmlPreviewCharset,
 } from "../../../src/modules/file-preview.ts";
+
+test("XML previews as text, whatever its mime type says", () => {
+  // Bank statements arrive as XML: shown as the text they are, never as a document.
+  assert.equal(previewKindForMimeType("application/xml"), "text");
+  assert.equal(previewKindForMimeType("text/xml; charset=windows-1250"), "text");
+});
+
+test("an XML preview uses the charset its declaration names, else UTF-8", () => {
+  assert.equal(xmlPreviewCharset('<?xml version="1.0" encoding="windows-1250"?><výpis/>'), "windows-1250");
+  assert.equal(xmlPreviewCharset("ï»¿<?xml version='1.0' encoding='UTF-8'?>"), "utf-8");
+  assert.equal(xmlPreviewCharset("<výpis>no declaration</výpis>"), "utf-8");
+});
 
 test("preview kind maps the types the preview route serves", () => {
   assert.equal(previewKindForMimeType("application/pdf"), "pdf");

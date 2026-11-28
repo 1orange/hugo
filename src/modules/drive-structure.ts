@@ -6,6 +6,7 @@ import {
   type FolderClassification,
 } from "./folder-taxonomy";
 import { countWithNoun } from "./format-sk";
+import { detectCompanyLayout, type CompanyLayout, type LayoutFolder } from "./company-layout";
 
 /**
  * *Štruktúra Drive* (ADR 0007, amended 2026-11-11; PRD 0004). One company's
@@ -23,7 +24,9 @@ import { countWithNoun } from "./format-sk";
 export type StructureDeviationKind =
   | "subfolder-missing"
   | "subfolder-repair"
-  | "folder-unrecognised";
+  | "folder-unrecognised"
+  /** The client has no `YYYY_MM` folders for the year: company-level (issue 06). */
+  | "month-structure-missing";
 
 /**
  * `blocking`: documents have nowhere to go until someone acts (a missing slot).
@@ -35,6 +38,7 @@ const SEVERITY: Record<StructureDeviationKind, StructureSeverity> = {
   "subfolder-missing": "blocking",
   "subfolder-repair": "attention",
   "folder-unrecognised": "attention",
+  "month-structure-missing": "blocking",
 };
 
 export type StructureFolderInput = {
@@ -70,6 +74,8 @@ export type StructureDeviation = {
   expectedName: string | null;
   /** The rename the existing repair flow would propose, for a near-miss. */
   repair: { targetName: string } | null;
+  /** What was found instead of the month structure; set only for `month-structure-missing`. */
+  layout: CompanyLayout | null;
 };
 
 function nfc(value: string): string {
@@ -78,6 +84,45 @@ function nfc(value: string): string {
 
 function joinPath(...segments: string[]): string {
   return segments.map(nfc).join("/");
+}
+
+export type CompanyLayoutCheckInput = {
+  company: StructureFolderInput;
+  /** The folders directly in the client folder, each with the folders directly inside it. */
+  folders: LayoutFolder[];
+  canonicalFolderNames: readonly string[];
+  /** The year the month structure is read for: the booking month's (issue 06). */
+  year: number;
+};
+
+/**
+ * The company-level check (issue 06): a client whose Drive has no `YYYY_MM`
+ * folders for the year directly in the client folder. Null when it has them, so
+ * the per-month check applies. Hugo reads nothing from such a layout and says so
+ * here instead; the fix is in Drive, and the next sweep that finds the months
+ * clears this.
+ */
+export function checkCompanyLayout(input: CompanyLayoutCheckInput): StructureDeviation | null {
+  const layout = detectCompanyLayout({
+    folders: input.folders,
+    year: input.year,
+    settings: { canonicalFolderNames: input.canonicalFolderNames.map(nfc) },
+  });
+  if (layout.kind === "months") {
+    return null;
+  }
+  return {
+    kind: "month-structure-missing",
+    severity: SEVERITY["month-structure-missing"],
+    path: nfc(input.company.name),
+    monthKey: null,
+    // The client folder is what exists and what the office opens in Drive.
+    folderId: input.company.driveFolderId,
+    observedName: null,
+    expectedName: null,
+    repair: null,
+    layout,
+  };
 }
 
 export function checkCompanyStructure(input: StructureCheckInput): StructureDeviation[] {
@@ -193,6 +238,7 @@ function build(
     observedName: detail.observedName,
     expectedName: detail.expectedName,
     repair: detail.repair,
+    layout: null,
   };
 }
 

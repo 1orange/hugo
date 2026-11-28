@@ -10,6 +10,10 @@ export const companies = pgTable("companies", {
   groupName: text("group_name"),
   /** In the archive group: a former client that gets no new months. */
   archived: boolean("archived").notNull().default(false),
+  /** When the company folder's sharing was last read from Drive; null before the first read (PRD 0007). */
+  accessRefreshedAt: text("access_refreshed_at"),
+  /** What the last read of the sharing failed with. The principals kept are the ones before it. */
+  accessError: text("access_error"),
 });
 
 export const settings = pgTable("settings", {
@@ -44,8 +48,17 @@ export const settings = pgTable("settings", {
   driveWatchResourceId: text("drive_watch_resource_id"),
   driveWatchToken: text("drive_watch_token"),
   driveWatchExpiresAt: text("drive_watch_expires_at"),
+  // When Drive's webhook last accepted a notification (sync pings and rejects do not count), and
+  // when a sweep last wrote changed files. The queue screen's Drive panel shows both (0007/03).
+  driveLastNotificationAt: text("drive_last_notification_at"),
+  driveLastChangeAt: text("drive_last_change_at"),
   // Register data older than this is refreshed on the next sighting (ADR 0022).
   subjectRefreshDays: integer("subject_refresh_days").notNull().default(30),
+  // The first month read on the background sweep (`YYYY_MM`); null is the default, January of the booking month's year (ADR 0020, amended 2026-11-23).
+  readingWindowStart: text("reading_window_start"),
+  // From when an upload into a month no longer booked is a late arrival (ADR 0006, amended 2026-11-24).
+  // Set on the first sweep that applies the rule, so the drive's history is not proposed all at once.
+  lateArrivalsSince: text("late_arrivals_since"),
   // Where the sweep last read Drive's change log, and when it last listed every file (ADR 0003).
   driveChangesToken: text("drive_changes_token"),
   driveSnapshotAt: text("drive_snapshot_at"),
@@ -64,6 +77,26 @@ export const driveItems = pgTable("drive_items", {
   canRename: boolean("can_rename"),
   canMove: boolean("can_move"),
 });
+
+/**
+ * Who a company's Drive folder is shared with, as of the last successful read of
+ * its sharing (PRD 0007). Replaced wholesale per company on each read; a failed
+ * read keeps the rows it had. Who sees a company is decided from these rows (ADR 0023).
+ */
+export const companyPrincipals = pgTable("company_principals", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id),
+  /** user | group | domain | anyone. */
+  type: text("type").notNull(),
+  /** Lower-cased; null for a domain or anyone grant. */
+  email: text("email"),
+  /** Lower-cased; null for a user, group or anyone grant. */
+  domain: text("domain"),
+  role: text("role").notNull(),
+  inherited: boolean("inherited").notNull(),
+}, (table) => [index("company_principals_company").on(table.companyId)]);
 
 export const months = pgTable("months", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),

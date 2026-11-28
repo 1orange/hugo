@@ -84,7 +84,7 @@ test("before 2027_01 the numbers meant other things: an old 05 or 06 is mapped b
   assert.deepEqual(slotsFilledBy(classifyFolder("05 Platby kartou", settings, "2027_01")), ["05 Cestovné príkazy"]);
 });
 
-test("older months' names are accepted as the type they stand for (the office's table)", () => {
+test("older months' names are accepted as the type they stand for, in 2025 and 2026 alike", () => {
   const cases: Array<[string, string]> = [
     ["04 Platby hotovosťou", "04 Bločky"],
     ["05 Platby kartou", "04 Bločky"],
@@ -92,21 +92,54 @@ test("older months' names are accepted as the type they stand for (the office's 
     ["04 Bločky_hotovosť", "04 Bločky"],
     ["04 Bločky hotovosť", "04 Bločky"],
     ["05 Bločky_firemná karta", "04 Bločky"],
+    ["Bločky", "04 Bločky"],
     ["06 Iné doklady", "06 Ostatné dokumenty"],
     ["05 Iné doklady", "06 Ostatné dokumenty"],
     ["06 Cestovné príkazy", "05 Cestovné príkazy"],
+    ["08 Cestovné náhrady", "05 Cestovné príkazy"],
     ["06 Mzdy", "07 Mzdy"],
     ["07 DPH", "08 DPH"],
   ];
-  for (const [name, slot] of cases) {
-    for (const form of ["NFC", "NFD"] as const) {
-      assert.deepEqual(
-        classifyFolder(name.normalize(form), settings, "2026_10"),
-        { kind: "canonical", name: slot, observedName: name },
-        `${form} ${name}`,
-      );
+  for (const monthKey of ["2025_06", "2026_10"]) {
+    for (const [name, slot] of cases) {
+      for (const form of ["NFC", "NFD"] as const) {
+        assert.deepEqual(
+          classifyFolder(name.normalize(form), settings, monthKey),
+          { kind: "canonical", name: slot, observedName: name },
+          `${monthKey} ${form} ${name}`,
+        );
+      }
     }
   }
+});
+
+test("a typo of an old name keeps the old name's type, not the number's new one", () => {
+  // Before 2027_01 `05` is card receipts. Read by its number, this typo would be a travel order.
+  assert.deepEqual(classifyFolder("05 Platby kartu", settings, "2026_03"), {
+    kind: "repair-candidate",
+    observedName: "05 Platby kartu",
+    targetName: "04 Bločky",
+  });
+});
+
+test("in an older month only the codes that kept their meaning are read by number", () => {
+  // 01, 02, 03 and 07 mean the same before and from 2027_01.
+  assert.deepEqual(classifyFolder("02 Faktúry od dodávateľov", settings, "2026_10"), {
+    kind: "canonical",
+    name: "02 Prijaté faktúry",
+    observedName: "02 Faktúry od dodávateľov",
+  });
+  // An old 04, 05 or 06 meant cash, card or other documents: by its number it would
+  // be misfiled ("staré mesiace treba mapovať podľa názvu, nie podľa čísla").
+  for (const name of ["04", "05 Iné", "06 Zmluvy"]) {
+    assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "unknown", name }, name);
+  }
+  // From 2027_01 the number is the type.
+  assert.deepEqual(classifyFolder("05 Iné", settings, "2027_01"), {
+    kind: "canonical",
+    name: "05 Cestovné príkazy",
+    observedName: "05 Iné",
+  });
 });
 
 test("classifyFolder treats an NFD folder name as canonical, not as a repair", () => {
@@ -139,10 +172,16 @@ test("a near-miss in an older month is a repair candidate for the type's current
   });
 });
 
-test("classifyFolder does not propose renaming a deliberate folder that shares a prefix", () => {
-  for (const name of ["04 Pokladňa", "06 Zmluvy", "02 Prijaté faktúry 2025"]) {
-    assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "unknown", name }, name);
+test("a coded folder the client named herself is read by its code, and never proposed for a rename", () => {
+  const cases: Array<[string, string]> = [
+    ["02 Prijaté faktúry 2025", "02 Prijaté faktúry"],
+    ["07 Mzdy a odvody", "07 Mzdy"],
+  ];
+  for (const [name, slot] of cases) {
+    assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "canonical", name: slot, observedName: name }, name);
   }
+  // From 2027_01 any code is read so.
+  assert.deepEqual(classifyFolder("04 Pokladňa", settings, "2027_03"), { kind: "canonical", name: "04 Bločky", observedName: "04 Pokladňa" });
 });
 
 test("classifyFolder refuses to guess between equally close canonical names", () => {
@@ -151,7 +190,7 @@ test("classifyFolder refuses to guess between equally close canonical names", ()
 });
 
 test("classifyFolder never silently maps unknown names in an older month", () => {
-  for (const name of ["mix doklady", "09 Extra folder", "04", "Bločky", "99 Unknown slot"]) {
+  for (const name of ["mix doklady", "09 Extra folder", "99 Unknown slot", "Poznámky"]) {
     assert.deepEqual(classifyFolder(name, settings, "2026_10"), { kind: "unknown", name }, name);
   }
 });

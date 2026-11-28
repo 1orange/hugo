@@ -16,6 +16,10 @@ export type SettingsRow = {
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   lastSweepAt: string | null;
+  /** The last Drive notification the webhook accepted (ADR 0020); null before the first. */
+  driveLastNotificationAt: string | null;
+  /** The last sweep that wrote changed files; null before the first such sweep. */
+  driveLastChangeAt: string | null;
   autoAdvanceAfterDecision: boolean;
   omegaT01EvidenceCode: string;
   omegaT01SeriesCode: string;
@@ -26,6 +30,10 @@ export type SettingsRow = {
   omegaT00DocumentTypeCode: string;
   omegaT00ForeignDocumentTypeCode: string;
   subjectRefreshDays: number;
+  /** The first month read in the background (`YYYY_MM`); null means the default (see reading-planner). */
+  readingWindowStart: string | null;
+  /** Uploads since then into a month no longer booked are late arrivals; null until the first sweep sets it. */
+  lateArrivalsSince: string | null;
 };
 
 function defaultMovableFolderNames(): string[] {
@@ -68,6 +76,8 @@ export async function getSettings(): Promise<SettingsRow> {
     canonicalFolderNames: JSON.parse(row.canonicalFolderNamesJson) as string[],
     movableFolderNames: parseMovableFolderNames(row.movableFolderNamesJson),
     lastSweepAt: row.lastSweepAt,
+    driveLastNotificationAt: row.driveLastNotificationAt,
+    driveLastChangeAt: row.driveLastChangeAt,
     autoAdvanceAfterDecision: row.autoAdvanceAfterDecision,
     omegaT01EvidenceCode: row.omegaT01EvidenceCode ?? "OF",
     omegaT01SeriesCode: row.omegaT01SeriesCode ?? "OF",
@@ -78,6 +88,8 @@ export async function getSettings(): Promise<SettingsRow> {
     omegaT00DocumentTypeCode: row.omegaT00DocumentTypeCode ?? "180",
     omegaT00ForeignDocumentTypeCode: row.omegaT00ForeignDocumentTypeCode ?? "380",
     subjectRefreshDays: row.subjectRefreshDays ?? DEFAULT_SUBJECT_REFRESH_DAYS,
+    readingWindowStart: row.readingWindowStart ?? null,
+    lateArrivalsSince: row.lateArrivalsSince ?? null,
   };
 }
 
@@ -120,6 +132,19 @@ export async function setSubjectRefreshDays(days: number): Promise<void> {
   await updateSettings({ subjectRefreshDays: days });
 }
 
+/**
+ * *Čítať doklady od*: null keeps the default, which moves with the booking
+ * year, so the caller stores null when the office chose the default.
+ */
+export async function setReadingWindowStart(monthKey: string | null): Promise<void> {
+  await updateSettings({ readingWindowStart: monthKey });
+}
+
+/** Set once, by the first sweep that applies the booking-month rule for late arrivals. */
+export async function setLateArrivalsSince(since: string): Promise<void> {
+  await updateSettings({ lateArrivalsSince: since });
+}
+
 export async function setAutoAdvanceAfterDecision(enabled: boolean): Promise<void> {
   await updateSettings({ autoAdvanceAfterDecision: enabled });
 }
@@ -143,6 +168,16 @@ export async function requireDriveParentFolderId(
 
 export async function updateLastSweepAt(timestamp: string): Promise<void> {
   await updateSettings({ lastSweepAt: timestamp });
+}
+
+/** Stamped when the webhook accepts a notification; see acceptDriveNotification. */
+export async function saveDriveLastNotificationAt(timestamp: string): Promise<void> {
+  await updateSettings({ driveLastNotificationAt: timestamp });
+}
+
+/** Stamped by a sweep that wrote changed files, so the Drive panel can tell silence from no change. */
+export async function saveDriveLastChangeAt(timestamp: string): Promise<void> {
+  await updateSettings({ driveLastChangeAt: timestamp });
 }
 
 export async function setDriveParentFolderId(driveParentFolderId: string): Promise<void> {

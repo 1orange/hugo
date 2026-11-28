@@ -249,16 +249,25 @@ export async function loadProfileIdentity(companyId: number): Promise<ProfileIde
 }
 
 /** Where a subject is shown and what it holds, or null when there is no such subject. */
-export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetail | null> {
+export async function loadSubjectDetail(
+  subjectId: number,
+  /** The companies the viewer may see (ADR 0023). The directory is office-wide; its references to companies are not. */
+  visibleCompanyIds?: ReadonlySet<number>,
+): Promise<SubjectDetail | null> {
   const subject = await getSubject(subjectId);
   if (!subject) {
     return null;
   }
-  const [aliases, references, linked] = await Promise.all([
+  const [aliases, allReferences, linked] = await Promise.all([
     listSubjectAliases(subjectId),
     listSubjectReferences(subjectId),
     subject.linkedCompanyId === null ? null : getCompanyById(subject.linkedCompanyId),
   ]);
+  const references = visibleCompanyIds
+    ? allReferences.filter((reference) => visibleCompanyIds.has(reference.companyId))
+    : allReferences;
+  // The company the subject is the client of is a company too: its name and page only where she may see it.
+  const linkedVisible = linked && (!visibleCompanyIds || visibleCompanyIds.has(linked.id)) ? linked : null;
 
   const verdict = verdictOf(subject);
   const companies = new Map<number, string>();
@@ -294,8 +303,8 @@ export async function loadSubjectDetail(subjectId: number): Promise<SubjectDetai
       label: viesStatusLabel(record),
       checkedLabel: formatDateTime(record.checkedAt),
     })),
-    linkedCompany: linked
-      ? { id: linked.id, name: companyDisplayName(linked.name), href: `/companies/${linked.id}/activity` }
+    linkedCompany: linkedVisible
+      ? { id: linkedVisible.id, name: companyDisplayName(linkedVisible.name), href: `/companies/${linkedVisible.id}/activity` }
       : null,
     office: { client: subject.officeClient, keeper: subject.officeKeeper, cooperation: subject.officeCooperation },
     references: {

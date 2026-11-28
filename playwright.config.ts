@@ -16,7 +16,8 @@ const e2eEnv = {
   DRIVE_CLIENT: "fake",
   COMPANY_REGISTER: "fake",
   DRIVE_PARENT_FOLDER_ID: "e2e-parent",
-  ALLOWED_EMAILS: "allowed@example.com",
+  // The second address is allowlisted but shared with no company: it sees the empty state (company-visibility.spec.ts).
+  ALLOWED_EMAILS: "allowed@example.com,other@example.com",
   AUTH_SECRET: "e2e-test-secret",
   AUTH_GOOGLE_ID: "e2e",
   AUTH_GOOGLE_SECRET: "e2e",

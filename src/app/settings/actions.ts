@@ -52,6 +52,7 @@ export async function saveSettingsAction(input: {
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   autoAdvanceAfterDecision: boolean;
+  readingWindowStart: string;
 }): Promise<ActionResult<{ settings: Awaited<ReturnType<typeof loadSettingsFormData>> }>> {
   const denied = await assertAllowedSettingsAccess();
   if (denied) {

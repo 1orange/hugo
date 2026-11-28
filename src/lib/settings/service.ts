@@ -5,6 +5,7 @@ import {
   getSettings,
   setAutoAdvanceAfterDecision,
   setDriveParentFolderId,
+  setReadingWindowStart,
   updateCanonicalFolderNames,
   updateMovableFolderNames,
   type SettingsRow,
@@ -18,12 +19,19 @@ import {
   validateMovableFolderNames,
   type CanonicalListImpact,
 } from "@/modules/folder-settings";
+import {
+  defaultReadingWindowStart,
+  parseReadingWindowStart,
+  readingWindowStartFor,
+} from "@/modules/reading-planner";
 
 export type SettingsFormData = {
   driveParentFolderId: string;
   canonicalFolderNames: string[];
   movableFolderNames: string[];
   autoAdvanceAfterDecision: boolean;
+  /** *Čítať doklady od*, as the form sent it (`YYYY_MM`); absent keeps the stored window. */
+  readingWindowStart?: string;
 };
 
 export async function buildExistingFolderRefs() {
@@ -86,6 +94,12 @@ export async function saveGlobalSettings(input: SettingsFormData): Promise<Setti
     return { ok: false, message: "Drive parent folder id cannot be blank." };
   }
 
+  const readingWindow =
+    input.readingWindowStart === undefined ? null : parseReadingWindowStart(input.readingWindowStart);
+  if (readingWindow && !readingWindow.ok) {
+    return { ok: false, message: readingWindow.message };
+  }
+
   const canonicalValidation = validateCanonicalFolderNames(
     input.canonicalFolderNames,
   );
@@ -130,6 +144,16 @@ export async function saveGlobalSettings(input: SettingsFormData): Promise<Setti
     });
   }
 
+  // The default moves with the booking year, so keeping it stores none, and the
+  // window start keeps following the rule rather than freezing this year's value.
+  if (readingWindow?.ok) {
+    const storedWindowStart =
+      readingWindow.value === defaultReadingWindowStart(new Date()) ? null : readingWindow.value;
+    if (storedWindowStart !== previous.readingWindowStart) {
+      await setReadingWindowStart(storedWindowStart);
+    }
+  }
+
   const autoAdvance = input.autoAdvanceAfterDecision === true;
   if (autoAdvance !== previous.autoAdvanceAfterDecision) {
     await setAutoAdvanceAfterDecision(autoAdvance);
@@ -169,11 +193,14 @@ export async function saveGlobalSettings(input: SettingsFormData): Promise<Setti
 
 export async function loadSettingsFormData(): Promise<SettingsRow & {
   effectiveDriveParentFolderId: string | null;
+  /** The window start in force: the stored one, or the default for this booking year. */
+  effectiveReadingWindowStart: string;
 }> {
   const settings = await getSettings();
   return {
     ...settings,
     effectiveDriveParentFolderId:
       settings.driveParentFolderId ?? process.env.DRIVE_PARENT_FOLDER_ID ?? null,
+    effectiveReadingWindowStart: readingWindowStartFor(settings.readingWindowStart, new Date()),
   };
 }

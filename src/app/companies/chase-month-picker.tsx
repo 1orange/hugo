@@ -1,6 +1,7 @@
 "use client";
 
 import { MonthStepper } from "@/components/app/month-stepper";
+import { OPEN_MONTHS_PARAM } from "@/modules/companies-month";
 
 type ChaseMonthPickerProps = {
   monthKeys: string[];
@@ -8,9 +9,9 @@ type ChaseMonthPickerProps = {
 };
 
 /**
- * The default view reports each company's *own* open month, which is the daily
- * chase question. Picking a calendar month switches every row to that month, so
- * a past month can be reviewed the same way it was worked.
+ * Picking a calendar month switches every row to that month, so the office can
+ * review the month it books. *Otvorené mesiace* is the explicit option for each
+ * company's own open month, the daily chase question; it has its own URL.
  */
 export function ChaseMonthPicker({ monthKeys, selected }: ChaseMonthPickerProps) {
   if (monthKeys.length === 0) {
@@ -20,7 +21,11 @@ export function ChaseMonthPicker({ monthKeys, selected }: ChaseMonthPickerProps)
     <MonthStepper
       testId="chase-month-picker"
       currentKey={selected}
-      all={{ label: "Otvorené mesiace", href: "/companies", testId: "chase-month-open" }}
+      all={{
+        label: "Otvorené mesiace",
+        href: `/companies?month=${OPEN_MONTHS_PARAM}`,
+        testId: "chase-month-open",
+      }}
       months={[...monthKeys]
         .sort((left, right) => left.localeCompare(right))
         .map((monthKey) => ({

@@ -23,7 +23,7 @@ import { processExtractionJob } from "../../../src/lib/extraction-queue/process-
 import { processModelJob } from "../../../src/lib/extraction-queue/process-model-job.ts";
 import { ProgressReporter } from "../../../src/lib/extraction-queue/progress.ts";
 import { modelBecameReady, servicesBackOnline, serviceReadiness } from "../../../src/lib/extraction-queue/service-health.ts";
-import { isModelExtractedPayload, parseExtractedPayload } from "../../../src/modules/document-payload.ts";
+import { isEkasaPayload, isModelExtractedPayload, parseExtractedPayload } from "../../../src/modules/document-payload.ts";
 import { syntheticEkasaOpdResponse } from "../cash-discovery/synthetic-ekasa-opd.ts";
 import { SYNTHETIC_FIXTURE } from "../cash-discovery/synthetic-ekasa-lines.ts";
 import {
@@ -138,6 +138,28 @@ test("an eKasa receipt is finished in the reading lane, without the model", asyn
   assert.deepEqual(result, { outcome: "complete", reason: null });
   assert.equal((await row("doc-receipt")).extractionStatus, "complete");
   assert.deepEqual(asked, []);
+  assert.equal(queue.modelJobs.size, 0);
+});
+
+// A client's "bloček_O-…" filed in 06 Ostatné dokumenty: the model path does not
+// read eKasa receipts, and the receipt path only looked at 04, so it failed as
+// "The PDF has no extractable text layer." It is now read by its eKasa UID.
+test("an eKasa receipt filed among documents is read by the eKasa lookup, not failed", async () => {
+  const driveClient = await sweptMonth();
+  const queue = new MemoryExtractionJobQueue();
+  await enqueueMonthExtraction(queue, 1, "2026_01");
+  assert.equal(queue.jobs.get("doc-invoice-a")?.data.kind, "document", "a file in 02 is queued as a document");
+  const { extractor, asked } = countingExtractor();
+  const docs = { ...DOCS, "doc-invoice-a": DOCS["doc-receipt"]! };
+
+  const result = await readLane(queue, "doc-invoice-a", deps(driveClient, { extractor, docs }));
+
+  assert.deepEqual(result, { outcome: "complete", reason: null });
+  const document = await row("doc-invoice-a");
+  assert.equal(document.extractionStatus, "complete");
+  assert.equal(document.extractionFailureReason, null);
+  assert.equal(isEkasaPayload(parseExtractedPayload(document.extractedPayloadJson)), true, "read as an eKasa receipt");
+  assert.deepEqual(asked, [], "the model is not asked");
   assert.equal(queue.modelJobs.size, 0);
 });
 

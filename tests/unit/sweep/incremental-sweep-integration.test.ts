@@ -5,10 +5,13 @@ import { FakeDriveClientWithChanges } from "../../../src/adapters/drive/fake-dri
 import { FOLDER_MIME, type DriveFileRecord } from "../../../src/modules/drive-tree.ts";
 import {
   getDriveSnapshotState,
+  getSettings,
+  saveDriveLastChangeAt,
   saveDriveSnapshotState,
   setDriveParentFolderId,
 } from "../../../src/adapters/store/settings.ts";
 import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
+import { subscribeAppEvents } from "../../../src/lib/events/bus.ts";
 import { applyFolderRename } from "../../../src/lib/drive-mutations/apply-rename.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { companies, driveItems, files, monthFolders } from "../../../src/lib/db/schema.ts";
@@ -58,6 +61,39 @@ test("the first sweep lists every file; later sweeps read only Drive's changes",
   assert.equal((await storedFile("invoice-2"))?.deleted, false, "a new file is found from the log");
   assert.equal((await storedFile("invoice-1"))?.deleted, true, "a removed file is marked deleted");
   assert.equal((await getDb().select().from(companies)).length, 1);
+});
+
+test("a sweep that wrote changes stamps the change time; a quiet one leaves it (the Drive panel's silence check)", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  const client = drive();
+  await runSweep(client);
+  assert.notEqual((await getSettings()).driveLastChangeAt, null, "the first listing wrote every file");
+
+  // A sentinel older than any sweep: a quiet sweep must not move it.
+  await saveDriveLastChangeAt("2000-01-01T00:00:00.000Z");
+  await runSweep(client);
+  assert.equal((await getSettings()).driveLastChangeAt, "2000-01-01T00:00:00.000Z");
+
+  client.add(pdf("invoice-4", "slot-02"));
+  await runSweep(client);
+  assert.notEqual((await getSettings()).driveLastChangeAt, "2000-01-01T00:00:00.000Z", "a sweep that found a file stamps it");
+});
+
+test("every sweep, quiet or not, tells the screens the queue moved, so the Drive panel refreshes", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  const client = drive();
+  await runSweep(client);
+
+  const seen: string[] = [];
+  const unsubscribe = subscribeAppEvents((event) => seen.push(event.type));
+  try {
+    await runSweep(client);
+  } finally {
+    unsubscribe();
+  }
+  assert.deepEqual(seen.filter((type) => type === "queue-changed"), ["queue-changed"]);
 });
 
 test("a quiet sweep rewrites no file", async () => {

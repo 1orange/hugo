@@ -1,14 +1,16 @@
 import type { Job } from "bullmq";
 import { extractionModelQueue, extractionQueue } from "@/adapters/job-queue/bullmq-queues";
-import type { ExtractionJobData, ModelJobData } from "@/adapters/job-queue/port";
+import { priorityFor, type ExtractionJobData, type ModelJobData } from "@/adapters/job-queue/port";
 import { readModelLaneSize } from "@/lib/worker/model-lane-size";
 import { redis, redisKey } from "@/lib/redis/connection";
 import { labelOf, percentOf, type JobProgress } from "./progress";
 import { LANE_LABEL, type FinishedJobView, type QueueJobIdentity, type QueueJobView, type QueueLane, type QueueSnapshot } from "./types";
+import { waitingMonths, type WaitingEntry } from "./waiting";
 
 /** Finished jobs are removed from BullMQ; how they ended is kept here, newest first. */
 const RECENT_KEEP = 100;
 const RECENT_SHOWN = 30;
+/** Rows of each waiting list the screen gets; the counts are over every job. */
 const LISTED = 200;
 
 function recentKey(): string {
@@ -68,6 +70,28 @@ function byTurn(left: Job, right: Job): number {
 
 const present = <D extends LaneData>(job: Job<D> | undefined): job is Job<D> => Boolean(job?.data);
 
+/**
+ * The priority a waiting job is read with now. BullMQ holds it on the job; a job
+ * with none (queued by an older build) reads as the tier it queued with.
+ */
+function priorityOf(job: Job<LaneData>): number {
+  if (job.priority) {
+    return job.priority;
+  }
+  return priorityFor(job.data.kind, job.data.tier);
+}
+
+function waitingEntry(job: Job<LaneData>, lane: QueueLane): WaitingEntry {
+  return {
+    lane,
+    priority: priorityOf(job),
+    timestamp: job.timestamp,
+    companyId: job.data.companyId,
+    companyName: job.data.companyName,
+    monthKey: job.data.monthKey,
+  };
+}
+
 /** What every worker is doing and what waits, in both lanes, as any web replica sees it. */
 export async function loadQueueSnapshot(now: number = Date.now()): Promise<QueueSnapshot> {
   const reading = extractionQueue();
@@ -85,12 +109,13 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
     modelLane,
   ] = await Promise.all([
     reading.getJobs(["active"], 0, LISTED - 1),
-    // Oldest in take order first: the first rows are the next to be read.
-    reading.getJobs(["prioritized", "waiting"], 0, LISTED - 1, true),
-    reading.getJobs(["delayed"], 0, LISTED - 1),
+    // Every waiting job, not a page of them: the per-month counts need the whole queue
+    // (a backlog is thousands of documents). Oldest in take order first.
+    reading.getJobs(["prioritized", "waiting"], 0, -1, true),
+    reading.getJobs(["delayed"], 0, -1),
     modelling.getJobs(["active"], 0, LISTED - 1),
-    modelling.getJobs(["prioritized", "waiting"], 0, LISTED - 1, true),
-    modelling.getJobs(["delayed"], 0, LISTED - 1),
+    modelling.getJobs(["prioritized", "waiting"], 0, -1, true),
+    modelling.getJobs(["delayed"], 0, -1),
     redis().lrange(recentKey(), 0, RECENT_KEEP - 1),
     reading.getGlobalConcurrency(),
     modelling.getGlobalConcurrency(),
@@ -111,6 +136,17 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
     jobs.filter(present).map((job) => jobView(job, lane, state, now));
   const sorted = (jobs: Job<LaneData>[]) => jobs.filter(present).sort(byTurn);
 
+  const readQueued = sorted(readWaiting);
+  const modelQueued = sorted(modelWaiting);
+  const readDelayedJobs = readDelayed.filter(present);
+  const modelDelayedJobs = modelDelayed.filter(present);
+  const waiting: WaitingEntry[] = [
+    ...readQueued.map((job) => waitingEntry(job, "read")),
+    ...readDelayedJobs.map((job) => waitingEntry(job, "read")),
+    ...modelQueued.map((job) => waitingEntry(job, "model")),
+    ...modelDelayedJobs.map((job) => waitingEntry(job, "model")),
+  ];
+
   return {
     // The model lane's size is what the worker set; the queue's own limit is the fallback for a queue no worker has sized.
     concurrency: { read: readConcurrency ?? 1, model: modelLane?.concurrency ?? modelConcurrency ?? 1 },
@@ -120,13 +156,14 @@ export async function loadQueueSnapshot(now: number = Date.now()): Promise<Queue
       ...views(modelActive, "model", "running"),
     ],
     waiting: [
-      ...views(sorted(readWaiting), "read", "waiting"),
-      ...views(sorted(modelWaiting), "model", "waiting"),
+      ...views(readQueued.slice(0, LISTED), "read", "waiting"),
+      ...views(modelQueued.slice(0, LISTED), "model", "waiting"),
     ],
     delayed: [
-      ...views(readDelayed, "read", "delayed"),
-      ...views(modelDelayed, "model", "delayed"),
+      ...views(readDelayedJobs.slice(0, LISTED), "read", "delayed"),
+      ...views(modelDelayedJobs.slice(0, LISTED), "model", "delayed"),
     ],
     recent,
+    waitingMonths: waitingMonths(waiting),
   };
 }

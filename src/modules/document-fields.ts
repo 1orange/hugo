@@ -307,7 +307,9 @@ function dependencyValue(
 }
 
 function clearInvalidDerivedValue(confirmed: ConfirmedPayload, key: string): void {
-  if (key === "vatRecap") {
+  if (key === "variableSymbol") {
+    delete confirmed.variableSymbol;
+  } else if (key === "vatRecap") {
     delete confirmed.vatRecap;
   } else if (key === "recapBaseLiteral") {
     delete confirmed.recapBaseLiteral;
@@ -387,6 +389,40 @@ function mergeScalar(
     return { value: extractedValue, provenance: "extracted" };
   }
   return { value: "", provenance: "empty" };
+}
+
+/**
+ * The variable symbol a document number implies: its digits, when there are
+ * one to ten of them. The symbol is a number of at most ten digits, so
+ * `SK-26001` gives `26001`, while a number with no digits, or eleven, gives
+ * nothing. Used by the merge and by the Omega export, so a raw number such as
+ * `SK-26001` is never written as a symbol.
+ */
+export function deriveVariableSymbol(documentNumber: string): string | null {
+  const digits = documentNumber.replace(/\D/g, "");
+  return digits.length >= 1 && digits.length <= 10 ? digits : null;
+}
+
+/**
+ * A printed or extracted symbol is never replaced, and a typed one stays.
+ * Otherwise the symbol is the document number's digits, flagged derived, so it
+ * follows her edits to the number. A derived value is recomputed from the
+ * current number rather than trusted as stored, so it cannot lag behind.
+ */
+function resolveVariableSymbol(
+  merged: { value: string; provenance: FieldProvenance },
+  documentNumber: string,
+): { value: string; provenance: FieldProvenance } {
+  const ownValue =
+    merged.provenance === "extracted" ||
+    (merged.provenance === "confirmed" && merged.value.length > 0);
+  if (ownValue) {
+    return merged;
+  }
+  const derived = deriveVariableSymbol(documentNumber);
+  return derived === null
+    ? { value: "", provenance: "empty" }
+    : { value: derived, provenance: "derived" };
 }
 
 function mergeMoneyLiteral(
@@ -683,12 +719,6 @@ export function mergeDocumentFields(
     fromExtracted,
     confirmed,
   );
-  const variableSymbol = mergeScalar(
-    "variableSymbol",
-    "variableSymbol",
-    fromExtracted,
-    confirmed,
-  );
   const issueDateRaw = mergeScalar("issueDateRaw", "issueDateRaw", fromExtracted, confirmed);
   const taxableSupplyDateRaw = mergeScalar(
     "taxableSupplyDateRaw",
@@ -698,6 +728,11 @@ export function mergeDocumentFields(
   );
   const dueDateRaw = mergeScalar("dueDateRaw", "dueDateRaw", fromExtracted, confirmed);
   const receiptNumber = mergeScalar("receiptNumber", "receiptNumber", fromExtracted, confirmed);
+  // The symbol follows the number the document shows, which a receipt carries as its receipt number.
+  const variableSymbol = resolveVariableSymbol(
+    mergeScalar("variableSymbol", "variableSymbol", fromExtracted, confirmed),
+    documentNumber.value || receiptNumber.value,
+  );
   const receiptTimestampRaw = mergeScalar(
     "receiptTimestampRaw",
     "receiptTimestampRaw",

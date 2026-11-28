@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "late_arrivals_since" text;

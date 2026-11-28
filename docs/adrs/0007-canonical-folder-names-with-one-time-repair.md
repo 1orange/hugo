@@ -166,3 +166,19 @@ Cash and card receipts are one type, `04 Bločky`; Hugo no longer tells them apa
 downstream used the difference). Processed types: `01`, `02`, `04`, `06`; `03` is presence-only;
 `05`, `07`, `08` are not read. Movable by default: `02`, `04`, `06`. Stored slot values are migrated
 (0008), and a settings list still on an earlier default moves to the eight types.
+
+## Amendment, 2026-11-23 — one folder-type rule for every month (issue 0007/05)
+
+A folder's type is read by one rule in every month, in this order: the exact canonical name; an accepted older name; a near-miss of a canonical or older name, repaired as before; the two-digit code (`01`–`08`, whatever follows it); unknown.
+
+The two name-based steps (accepted older name, near-miss) apply only before 2027_01, and when the month is not known. From 2027_01 a folder is its code and nothing else, as the 2026-11-12 amendment decided; the 2027 tests assert that and are unchanged. The code step is the same in every month.
+
+**The near-miss comes before the code in older months.** The issue listed the code first. Before 2027_01, though, a coded typo of an old name keeps the old name's type: `05 Platby kartu` is card receipts, and read by its number it would be a travel order. `04 Bločky_hotorvosť`, the example above, would lose its one-click repair to `04 Bločky`. So the near-miss decides first there.
+
+**A coded folder is filed by its code, without a rename, where the code kept its meaning.** From 2027_01 any code does. Before 2027_01 only `01`, `02`, `03` and `07` do (issued and received invoices, statements, payroll mean the same in both schemes): `02 Faktúry od dodávateľov` is received invoices, and no rename is proposed. This supersedes the 2026-08-28 amendment's "slot assignment remains exact-name-only" for those codes. Adding a name to the canonical list is the way to adopt any other folder; the impact preview's example is `09 Pokladňa`.
+
+**An old `04`, `05` or `06` is never read by its number** (corrected the same day, after the office's structure note: "staré mesiace treba mapovať podľa názvu, nie podľa čísla"). Before 2027 they were cash, card and other documents; from 2027 receipts, travel orders and other documents. A folder in an older month with one of these codes and a name that is neither accepted nor a near-miss (`05 Iné`, a bare `04`) stays unknown and is reported as `folder-unrecognised`, for the office to rename. This closes the open point first written here, where `05 Iné` was read as `05 Cestovné príkazy`.
+
+**Two accepted names added**, seen on the live drive: `Bločky` → `04 Bločky`, and `08 Cestovné náhrady` → `05 Cestovné príkazy`.
+
+Expected slots are unchanged: an older month is still not expected to hold `05 Cestovné príkazy` or `08 DPH`. The settings text now states the rule.

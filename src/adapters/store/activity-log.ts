@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 import { events } from "@/lib/db/schema";
 import { getDb } from "@/lib/db/client";
 import {
   eventMonthKey,
+  GLOBAL_EVENT_TYPES,
   type StoredActivityEvent,
 } from "@/modules/activity-log";
 
@@ -53,10 +54,7 @@ function applyMonthFilter(
   return rows.filter((row) => matchesMonthFilter(row, monthKey));
 }
 
-async function queryRows(
-  whereClause: ReturnType<typeof and> | ReturnType<typeof eq> | ReturnType<typeof isNull>,
-  query: ActivityQuery,
-): Promise<ActivityQueryResult> {
+async function queryRows(whereClause: SQL | undefined, query: ActivityQuery): Promise<ActivityQueryResult> {
   const db = getDb();
   const limit = query.limit ?? DEFAULT_PAGE_SIZE;
   const scanLimit =
@@ -97,8 +95,20 @@ export async function listCompanyActivity(
   return queryRows(eq(events.companyId, companyId), query);
 }
 
-export async function listGlobalActivity(query: ActivityQuery): Promise<ActivityQueryResult> {
-  return queryRows(isNull(events.companyId), query);
+/**
+ * The office-wide feed for one viewer (ADR 0023): the office's own events, which
+ * are company-less and of the office vocabulary (settings, the Adresár), plus the
+ * events of the companies she may see. Another company's events are not read.
+ *
+ * Company-less file events (a sweep that could not place a file) are left out:
+ * their names belong to a company nobody can be shown.
+ */
+export async function listVisibleActivity(
+  visibleCompanyIds: readonly number[],
+  query: ActivityQuery,
+): Promise<ActivityQueryResult> {
+  const office = and(isNull(events.companyId), inArray(events.type, [...GLOBAL_EVENT_TYPES]));
+  return queryRows(or(office, inArray(events.companyId, [...visibleCompanyIds])), query);
 }
 
 export async function listDistinctMonthKeysForCompany(companyId: number): Promise<string[]> {

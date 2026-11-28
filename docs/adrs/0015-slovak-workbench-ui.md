@@ -182,3 +182,27 @@ preview, fields — and so is the Slovak copy; the chrome around it changes.
   changes are saved from a bar that appears only when something changed.
 - **Motion.** Feedback on press; popovers and sheets grow from where they open; reduced motion turns
   movement into cross-fades, reduced transparency makes the translucent surfaces solid.
+
+## Amendment, 2026-11-23 — Firmy opens on the booking month (PRD 0007)
+
+In November the office books October, but *Firmy* opened on each company's open month, November,
+so every visit began with switching months. The home screen now opens on the **booking month**: the
+calendar month before the current one on the office clock (in November, October; in January,
+December of the previous year). `bookingMonthKey` in `month-lifecycle.ts` is the one place that
+computes it.
+
+- `/companies` with no month shows the booking month for every row, whether or not a company has
+  that folder. Its rows link to that month. A company without it shows *Tento mesiac tu nie je* (the
+  picked-month state, `no-month`) and links to its open month, as a picked month always did.
+- The booking month counts as a picked month for the chase list. It is a calendar view, not
+  "each company's open month", so a company missing the folder is `no-month`, not `idle`: `idle`
+  means a dormant client, which a missing October folder does not say.
+- The picker always lists the booking month, even when no company has it yet.
+- **Otvorené mesiace** is the explicit option for each company's own open month, at `?month=open`.
+  It is the daily chase view and keeps its meaning: each company's newest unclosed, started month.
+- A picked month that no company has, and that is not the booking month, keeps the open-month view
+  as before. An unrecognised value is treated as no value. The decision is `resolveCompaniesMonth`
+  in `src/modules/companies-month.ts`.
+
+The open month itself is unchanged (ADR 0005). It still decides what closing and late-arrival
+handling act on. Only which month the home screen shows is different.

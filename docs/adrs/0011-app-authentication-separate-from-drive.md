@@ -57,3 +57,8 @@ Which companies an accountant works on is a **personal filter, not a permission*
 kept in the browser's local storage, namespaced by the signed-in email, and never sent to the server.
 Server-side assignment, per-user visibility and recording who performed an action are deliberately
 not introduced; if the office later needs any of them, they get their own ADR.
+
+**Superseded (2026-11-23, ADR 0023):** the personal filter and the statement that every allowlisted
+user opens every company are withdrawn. *Moje firmy* is removed; which companies a person sees follows
+the sharing of each company's Drive folder, enforced on the server. The allowlist decision above is
+unchanged: it still decides who may sign in, and Drive access admits nobody.

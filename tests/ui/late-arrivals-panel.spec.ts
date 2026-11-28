@@ -27,7 +27,7 @@ test.beforeAll(async () => {
           canUndo: false, ...extra,
         });
         const VIEW = {
-          openMonthKey: "2026_11",
+          targetMonthKey: "2026_11",
           pending: [
             item(1, "late-invoice", { kind: "move", targetMonthKey: "2026_11", targetFolderId: "s-11-02" }, null),
             item(2, "late-statement", { kind: "warning", reason: "not-movable-folder" },
@@ -36,13 +36,13 @@ test.beforeAll(async () => {
           moved: [item(3, "moved-receipt", null, null, { status: "moved", targetMonthKey: "2026_11", canUndo: true })],
           movableCount: 1,
         };
-        const EMPTY = { openMonthKey: "2026_11", pending: [], moved: [], movableCount: 0 };
+        const EMPTY = { targetMonthKey: "2026_11", pending: [], moved: [], movableCount: 0 };
         window.renderPanel = (scenario) => {
           const props = {
-            open: { monthKey: "2026_11", isOpenMonth: true, view: VIEW },
-            empty: { monthKey: "2026_11", isOpenMonth: true, view: EMPTY },
-            "closed-source": { monthKey: "2026_09", isOpenMonth: false, view: VIEW },
-            "closed-other": { monthKey: "2026_08", isOpenMonth: false, view: VIEW },
+            open: { monthKey: "2026_11", isTargetMonth: true, view: VIEW },
+            empty: { monthKey: "2026_11", isTargetMonth: true, view: EMPTY },
+            "closed-source": { monthKey: "2026_09", isTargetMonth: false, view: VIEW },
+            "closed-other": { monthKey: "2026_08", isTargetMonth: false, view: VIEW },
           }[scenario];
           createRoot(window.document.getElementById("root")).render(<LateArrivalsPanel companyId={1} {...props} />);
         };
@@ -125,10 +125,11 @@ test("with nothing late the panel is not shown", async ({ page }) => {
   await expect(page.getByTestId("late-arrivals")).toHaveCount(0);
 });
 
-test("the closed month it arrived in points to the open month", async ({ page }) => {
+test("the month it arrived in points to the month being booked", async ({ page }) => {
   await render(page, "closed-source");
   const note = page.getByTestId("late-arrivals-source-note");
-  await expect(note).toContainText("Po uzavretí sem prišli 2 doklady");
+  await expect(note).toContainText("Neskoro sem prišli 2 doklady");
+  await expect(note).toContainText("v spracúvanom mesiaci");
   await expect(note.getByRole("link", { name: "2026_11" })).toHaveAttribute("href", "/companies/1/2026_11");
 
   await render(page, "closed-other");

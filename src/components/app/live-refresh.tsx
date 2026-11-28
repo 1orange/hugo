@@ -18,7 +18,8 @@ export function LiveRefresh() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = subscribeServerEvents((event) => {
-      if (event.type !== "document-read" && event.type !== "files-changed") {
+      // access-changed: Drive sharing was read, so the companies this person sees may differ.
+      if (event.type !== "document-read" && event.type !== "files-changed" && event.type !== "access-changed") {
         return;
       }
       timer ??= setTimeout(() => {

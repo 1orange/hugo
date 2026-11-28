@@ -61,7 +61,7 @@ async function lookUpClientRegister(
   }
   try {
     if (!deps.limiter.tryTake()) {
-      throw new SubjectLookupDeferred();
+      throw new SubjectLookupDeferred(deps.limiter.msUntilFree());
     }
     let lookup: RegisterLookup | null;
     try {

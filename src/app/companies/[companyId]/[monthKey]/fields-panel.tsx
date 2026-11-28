@@ -5,6 +5,7 @@ import type { DocumentListItem } from "@/lib/documents/view";
 import {
   cashRoundingOfFields,
   checkArithmeticWarnings,
+  deriveVariableSymbol,
   fieldCheckState,
   resolvePartyRoles,
   type FieldCheckState,
@@ -26,6 +27,7 @@ import {
 } from "@/modules/party-swap";
 import {
   checkDocumentParties,
+  offersProfileTakeover,
   offersRegisterTakeover,
   partyIdentityKey,
   subjectFindingMessage,
@@ -33,6 +35,7 @@ import {
   type IntegrityVerdict,
   type SubjectCheck,
 } from "@/modules/subject-integrity";
+import type { ClientIdentity } from "@/modules/party-roles";
 import { isTypingTarget } from "./keyboard";
 
 export type VatRecapRowInput = {
@@ -75,6 +78,8 @@ type FieldsPanelProps = {
   onSwapParties: (fields: DocumentFieldsInput, partyProvenance: PartySwapProvenance) => void;
   /** *Prevziať z registra* for one flagged party: its legal name, DIČ and IČ DPH from the register. */
   onTakeFromRegister: (side: "supplier" | "customer") => void;
+  /** *Prevziať z profilu* for one party that disagrees with her profile: the profile's values, IČO included. */
+  onTakeFromProfile: (side: "supplier" | "customer") => void;
   /** Her decision whether the invoice is settled by an advance (true) or not (false). */
   onSetAdvanceSettlement: (settled: boolean) => void;
   note: string;
@@ -185,6 +190,7 @@ export function FieldsPanel({
   onSave,
   onSwapParties,
   onTakeFromRegister,
+  onTakeFromProfile,
   onSetAdvanceSettlement,
   note,
   onNoteChange,
@@ -316,6 +322,17 @@ export function FieldsPanel({
         baseLiteral: row.baseLiteral,
         vatLiteral: row.vatLiteral,
       }));
+      changed = true;
+    }
+    // A symbol still derived from the number follows her edit to it, as the VAT does. Only a derived one:
+    // an empty symbol is derived when the document is saved, which shows it after the reload.
+    const followedSymbol = deriveVariableSymbol(draft.documentNumber) ?? "";
+    if (
+      document.fieldEditor.provenance.variableSymbol === "derived" &&
+      !manualOverridesRef.current.has("variableSymbol") &&
+      followedSymbol !== draft.variableSymbol
+    ) {
+      next.variableSymbol = followedSymbol;
       changed = true;
     }
     if (changed) {
@@ -518,6 +535,7 @@ export function FieldsPanel({
   // The worker's verdict while the draft holds the values it was judged for (ADR 0022);
   // otherwise judged here, offline, on every keystroke and swap.
   const profileIdentity = document.fieldEditor.roleContext?.profile ?? null;
+  const profileTakeTitle = profileTakeoverTitle(profileIdentity);
   const integrity =
     document.fieldEditor.partyIntegrityStored &&
     partyIdentityKey(draft, profileIdentity) === document.fieldEditor.partyIntegrityIdentity
@@ -813,13 +831,14 @@ export function FieldsPanel({
             />
           </div>
           <IntegrityFindings check={integrity.supplier} testId="party-integrity-findings-supplier" />
-          {offersRegisterTakeover(integrity.supplier) ? (
-            <TakeFromRegisterButton
-              disabled={swapLocked}
-              testId="take-register-supplier"
-              onClick={() => onTakeFromRegister("supplier")}
-            />
-          ) : null}
+          <PartyTakeovers
+            side="supplier"
+            check={integrity.supplier}
+            disabled={swapLocked}
+            profileTitle={profileTakeTitle}
+            onTakeFromRegister={onTakeFromRegister}
+            onTakeFromProfile={onTakeFromProfile}
+          />
         </fieldset>
 
         <div className="-my-1 flex justify-center">
@@ -894,13 +913,14 @@ export function FieldsPanel({
             />
           </div>
           <IntegrityFindings check={integrity.customer} testId="party-integrity-findings-customer" />
-          {offersRegisterTakeover(integrity.customer) ? (
-            <TakeFromRegisterButton
-              disabled={swapLocked}
-              testId="take-register-customer"
-              onClick={() => onTakeFromRegister("customer")}
-            />
-          ) : null}
+          <PartyTakeovers
+            side="customer"
+            check={integrity.customer}
+            disabled={swapLocked}
+            profileTitle={profileTakeTitle}
+            onTakeFromRegister={onTakeFromRegister}
+            onTakeFromProfile={onTakeFromProfile}
+          />
         </fieldset>
 
         <fieldset>
@@ -908,7 +928,7 @@ export function FieldsPanel({
           <p className={`${GROUP_HEADING} eyebrow`}>Doklad</p>
           <div className={GROUP}>
             <Field
-              label="Číslo dokladu"
+              label="Číslo dokladu KV DPH"
               value={draft.documentNumber}
               state={resolveState("documentNumber")}
               readOnly={readOnly}
@@ -920,6 +940,7 @@ export function FieldsPanel({
             <Field
               label="Variabilný symbol"
               value={draft.variableSymbol}
+              provenance={provenance.variableSymbol}
               state={resolveState("variableSymbol")}
               readOnly={readOnly}
               disabled={pending}
@@ -1309,30 +1330,98 @@ function IntegrityBadge({ check, testId }: { check: SubjectCheck; testId: string
   );
 }
 
-/** Takes the register's name, DIČ and IČ DPH for a flagged party (PRD 0004, story 34). */
-function TakeFromRegisterButton({
+/**
+ * The takeover buttons of one party: *Prevziať z registra* where the register holds the value
+ * (PRD 0004, story 34) and *Prevziať z profilu* where her profile does (PRD 0007, issue 14).
+ * Both show when both apply, side by side.
+ */
+function PartyTakeovers({
+  side,
+  check,
+  disabled,
+  profileTitle,
+  onTakeFromRegister,
+  onTakeFromProfile,
+}: {
+  side: "supplier" | "customer";
+  check: SubjectCheck;
+  disabled: boolean;
+  profileTitle: string;
+  onTakeFromRegister: (side: "supplier" | "customer") => void;
+  onTakeFromProfile: (side: "supplier" | "customer") => void;
+}) {
+  const fromRegister = offersRegisterTakeover(check);
+  const fromProfile = offersProfileTakeover(check);
+  if (!fromRegister && !fromProfile) {
+    return null;
+  }
+  return (
+    <div className="mt-2 flex flex-wrap gap-2 px-1">
+      {fromRegister ? (
+        <TakeButton
+          label="Prevziať z registra"
+          title="Názov, DIČ a IČ DPH z registra sa zapíšu ako tvoje údaje. IČO sa nemení."
+          disabled={disabled}
+          testId={`take-register-${side}`}
+          onClick={() => onTakeFromRegister(side)}
+        />
+      ) : null}
+      {fromProfile ? (
+        <TakeButton
+          label="Prevziať z profilu"
+          title={profileTitle}
+          disabled={disabled}
+          testId={`take-profile-${side}`}
+          onClick={() => onTakeFromProfile(side)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function TakeButton({
+  label,
+  title,
   disabled,
   testId,
   onClick,
 }: {
+  label: string;
+  title: string;
   disabled: boolean;
   testId: string;
   onClick: () => void;
 }) {
   return (
-    <div className="mt-2 px-1">
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        title="Názov, DIČ a IČ DPH z registra sa zapíšu ako tvoje údaje. IČO sa nemení."
-        data-testid={testId}
-        className="press rounded-lg bg-surface px-3 py-1.5 text-[13px] font-semibold text-accent shadow-[0_0_0_1px_rgb(0_0_0/0.08)] disabled:opacity-40"
-      >
-        Prevziať z registra
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      data-testid={testId}
+      className="press rounded-lg bg-surface px-3 py-1.5 text-[13px] font-semibold text-accent shadow-[0_0_0_1px_rgb(0_0_0/0.08)] disabled:opacity-40"
+    >
+      {label}
+    </button>
   );
+}
+
+/**
+ * The tooltip of *Prevziať z profilu*: names what it writes, and only the values the profile
+ * holds (a profile without a DIČ writes no DIČ).
+ */
+function profileTakeoverTitle(profile: ClientIdentity | null): string {
+  const written = [
+    [profile?.legalName, "Názov"],
+    [profile?.ico, "IČO"],
+    [profile?.dic, "DIČ"],
+    [profile?.icDph, "IČ DPH"],
+  ]
+    .filter(([value]) => (value ?? "").trim().length > 0)
+    .map(([, label]) => label);
+  const list =
+    written.length > 1 ? `${written.slice(0, -1).join(", ")} a ${written[written.length - 1]}` : (written[0] ?? "");
+  return `Z profilu klienta sa zapíšu ako tvoje údaje: ${list}.`;
 }
 
 /** What is wrong with a party, in Slovak; nothing when all is well. */

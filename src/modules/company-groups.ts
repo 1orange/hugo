@@ -1,8 +1,9 @@
 /**
  * The accountant groups on *Firmy* (2026-11-12): the shared drive keeps each
  * accountant's clients in her own folder ("Eva – doklady klientov"), and the
- * company list can be narrowed to one of them. Like *Moje firmy*, the choice is
- * a personal view kept in this browser's storage under the signed-in email.
+ * company list can be narrowed to one of them. The choice is a personal view kept
+ * in this browser's storage under the signed-in email. The chips appear only when
+ * the companies the person may see span more than one group (ADR 0023).
  */
 
 const KEY_PREFIX = "hugo.companyGroup.v1.";

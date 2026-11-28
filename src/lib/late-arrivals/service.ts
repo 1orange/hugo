@@ -16,7 +16,7 @@ import {
   type LateArrivalRow,
 } from "@/adapters/store/late-arrivals";
 import { getMonthFolder, listMonthFolders } from "@/adapters/store/month-folders";
-import { getMonthByKey, getOpenMonthKey } from "@/adapters/store/months";
+import { getLateArrivalTargetMonthKey, getMonthByKey } from "@/adapters/store/months";
 import { getSettings } from "@/adapters/store/settings";
 import { announce } from "@/lib/events/bus";
 import { runSweep } from "@/lib/sweep/run-sweep";
@@ -53,10 +53,10 @@ export type LateArrivalItem = {
 };
 
 export type LateArrivalsView = {
-  openMonthKey: string | null;
+  targetMonthKey: string | null;
   /** Pending, oldest first: proposals and warnings. */
   pending: LateArrivalItem[];
-  /** Moved into the open month and not undone, newest first. */
+  /** Moved into the target month and not undone, newest first. */
   moved: LateArrivalItem[];
   /** How many the batch would move now. */
   movableCount: number;
@@ -66,7 +66,7 @@ type Destination = { name: string; driveFolderId: string; observedName: string }
 
 async function assess(
   entry: LateArrivalRow,
-  context: { openMonthKey: string | null; movableFolderNames: string[]; destinations: Destination[] },
+  context: { targetMonthKey: string | null; movableFolderNames: string[]; destinations: Destination[] },
 ): Promise<{ assessment: LateArrivalAssessment; canMove: boolean; name: string }> {
   const file = await getFileByDriveId(entry.driveFileId);
   const canMove = file?.canMove ?? true;
@@ -80,28 +80,29 @@ async function assess(
     folderSlot: entry.folderSlot,
     canMove,
     movableFolderNames: context.movableFolderNames,
-    openMonthKey: context.openMonthKey,
+    targetMonthKey: context.targetMonthKey,
+    sourceMonthKey: entry.sourceMonthKey,
     destinationFolders: destinations,
   });
   return { assessment, canMove, name: file?.name ?? entry.driveFileId };
 }
 
 async function moveContext(companyId: number) {
-  const [settings, openMonthKey] = await Promise.all([getSettings(), getOpenMonthKey(companyId)]);
+  const [settings, targetMonthKey] = await Promise.all([getSettings(), getLateArrivalTargetMonthKey(companyId)]);
   // A destination is named by the type it is: an older folder name (`04 Platby hotovosťou`) too.
-  const destinations: Destination[] = openMonthKey
-    ? (await listMonthFolders(companyId, openMonthKey)).flatMap((folder) => {
+  const destinations: Destination[] = targetMonthKey
+    ? (await listMonthFolders(companyId, targetMonthKey)).flatMap((folder) => {
         const classification = classifyFolder(
           folder.name,
           { canonicalFolderNames: settings.canonicalFolderNames },
-          openMonthKey,
+          targetMonthKey,
         );
         return classification.kind === "canonical"
           ? [{ name: classification.name, driveFolderId: folder.driveFolderId, observedName: folder.name }]
           : [];
       })
     : [];
-  return { openMonthKey, movableFolderNames: settings.movableFolderNames, destinations };
+  return { targetMonthKey, movableFolderNames: settings.movableFolderNames, destinations };
 }
 
 /** The company's late arrivals as the screen shows them. */
@@ -132,7 +133,7 @@ export async function loadLateArrivalsView(companyId: number): Promise<LateArriv
   }
   moved.sort((left, right) => right.id - left.id);
   return {
-    openMonthKey: context.openMonthKey,
+    targetMonthKey: context.targetMonthKey,
     pending,
     moved,
     movableCount: pending.filter((item) => item.assessment?.kind === "move").length,
@@ -173,8 +174,8 @@ export async function moveLateArrivals(input: {
 }): Promise<MoveLateArrivalsResult> {
   const now = input.now ?? (() => new Date().toISOString());
   const context = await moveContext(input.companyId);
-  if (!context.openMonthKey) {
-    return { ok: false, message: "Nie je otvorený žiadny mesiac, do ktorého by sa doklady presunuli." };
+  if (!context.targetMonthKey) {
+    return { ok: false, message: "Nie je mesiac, do ktorého by sa doklady presunuli: spracúvaný mesiac je uzavretý alebo chýba." };
   }
   const wanted = input.ids ? new Set(input.ids) : null;
   const entries = (await listLateArrivalsForCompany(input.companyId)).filter(
@@ -227,7 +228,7 @@ export async function moveLateArrivals(input: {
   }
 
   if (moved > 0) {
-    await afterDriveChange(input.driveClient, input.companyId, [context.openMonthKey, ...entries.map((entry) => entry.sourceMonthKey)], now());
+    await afterDriveChange(input.driveClient, input.companyId, [context.targetMonthKey, ...entries.map((entry) => entry.sourceMonthKey)], now());
   }
   return { ok: true, moved, failed };
 }

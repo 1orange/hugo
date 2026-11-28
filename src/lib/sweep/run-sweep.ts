@@ -13,15 +13,26 @@ import {
   replaceStructureDeviations,
   type StructureDeviationInsert,
 } from "@/adapters/store/structure-deviations";
-import { getSettings, resolveDriveParentFolderId, updateLastSweepAt } from "@/adapters/store/settings";
+import {
+  getSettings,
+  resolveDriveParentFolderId,
+  saveDriveLastChangeAt,
+  updateLastSweepAt,
+} from "@/adapters/store/settings";
 import { withAdvisoryLock, withAdvisoryLockIfFree } from "@/lib/db/client";
 import { syncLateArrivals } from "@/lib/late-arrivals/sync";
 import { announce } from "@/lib/events/bus";
 import { buildDriveTree, fileStateKey, type DomainEvent } from "@/modules/drive-tree";
 import { listDriveForSweep } from "./drive-listing";
-import { checkCompanyStructure } from "@/modules/drive-structure";
+import { refreshCompanyAccess } from "@/lib/access/refresh-company-access";
+import {
+  checkCompanyLayout,
+  checkCompanyStructure,
+  type StructureDeviation,
+} from "@/modules/drive-structure";
 import { observedFolderName, type FolderClassification } from "@/modules/folder-taxonomy";
-import { monthKeyAt } from "@/modules/month-lifecycle";
+import { companiesForAccessRefresh } from "@/modules/company-access";
+import { bookingMonthKey, monthKeyAt } from "@/modules/month-lifecycle";
 
 /** Held while a sweep diffs Drive against the database (ADR 0021). */
 const SWEEP_LOCK_KEY = 7_261_670_122;
@@ -32,21 +43,29 @@ export type SweepResult = {
   companyCount: number;
 };
 
+export type SweepOptions = {
+  /**
+   * Read every company's sharing, not only those the change log names. The poll
+   * and *Obnoviť* ask for it; a notification sweep reads what changed.
+   */
+  allAccess?: boolean;
+};
+
 /**
  * Brings the database in line with Drive and records what changed. One sweep
  * at a time across replicas: two at once both saw a new file as new. Drive is
  * listed inside the lock too, so a later sweep never writes an older listing.
  */
-export async function runSweep(driveClient: DriveClient): Promise<SweepResult> {
-  return withAdvisoryLock(SWEEP_LOCK_KEY, () => sweep(driveClient));
+export async function runSweep(driveClient: DriveClient, options: SweepOptions = {}): Promise<SweepResult> {
+  return withAdvisoryLock(SWEEP_LOCK_KEY, () => sweep(driveClient, options));
 }
 
 /** A sweep unless one is already running, which brings the database up to date anyway: null then. */
-export async function sweepUnlessRunning(driveClient: DriveClient): Promise<SweepResult | null> {
-  return withAdvisoryLockIfFree(SWEEP_LOCK_KEY, () => sweep(driveClient));
+export async function sweepUnlessRunning(driveClient: DriveClient, options: SweepOptions = {}): Promise<SweepResult | null> {
+  return withAdvisoryLockIfFree(SWEEP_LOCK_KEY, () => sweep(driveClient, options));
 }
 
-async function sweep(driveClient: DriveClient): Promise<SweepResult> {
+async function sweep(driveClient: DriveClient, options: SweepOptions): Promise<SweepResult> {
   const settings = await getSettings();
   const driveParentFolderId = await resolveDriveParentFolderId();
   if (!driveParentFolderId) {
@@ -54,7 +73,10 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   }
 
   const sweepAt = new Date().toISOString();
-  const { files: driveFiles } = await listDriveForSweep(driveClient, new Date(sweepAt));
+  const { files: driveFiles, mode, changedFileIds: logChangedFileIds } = await listDriveForSweep(
+    driveClient,
+    new Date(sweepAt),
+  );
   const storedFiles = await listStoredFilesForSweep();
   // Taken before the diff, which updates the stored rows it is given.
   const storedKeys = new Map(storedFiles.map((file) => [file.driveFileId, fileStateKey(file)]));
@@ -67,6 +89,8 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   });
 
   const currentMonthKey = monthKeyAt(new Date(sweepAt));
+  // The year the office books in: the month structure is read for it (issue 06).
+  const bookingYear = Number(bookingMonthKey(new Date(sweepAt)).slice(0, 4));
   const companyIdByDriveFolderId = new Map<string, number>();
   const structureRows: StructureDeviationInsert[] = [];
   for (const company of tree) {
@@ -91,19 +115,33 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
       ),
     );
 
-    const deviations = checkCompanyStructure({
-      company: { driveFolderId: company.driveFolderId, name: company.name },
-      months: company.months.map((month) => ({
-        driveFolderId: month.driveFolderId,
-        name: month.key,
-        children: month.folderSlots.map((slot) => ({
-          driveFolderId: slot.driveFolderId,
-          name: observedSlotName(slot.classification),
-        })),
-      })),
-      canonicalFolderNames: settings.canonicalFolderNames,
-      currentMonthKey,
-    });
+    // Archived clients are not checked (issue 06). A client without the month
+    // structure gets that one finding instead of its per-month ones, which have
+    // no months to report on.
+    let deviations: StructureDeviation[] = [];
+    if (!company.archived) {
+      const layoutDeviation = checkCompanyLayout({
+        company: { driveFolderId: company.driveFolderId, name: company.name },
+        folders: company.folders,
+        canonicalFolderNames: settings.canonicalFolderNames,
+        year: bookingYear,
+      });
+      deviations = layoutDeviation
+        ? [layoutDeviation]
+        : checkCompanyStructure({
+            company: { driveFolderId: company.driveFolderId, name: company.name },
+            months: company.months.map((month) => ({
+              driveFolderId: month.driveFolderId,
+              name: month.key,
+              children: month.folderSlots.map((slot) => ({
+                driveFolderId: slot.driveFolderId,
+                name: observedSlotName(slot.classification),
+              })),
+            })),
+            canonicalFolderNames: settings.canonicalFolderNames,
+            currentMonthKey,
+          });
+    }
     for (const deviation of deviations) {
       structureRows.push({ companyId: row.id, deviation, detectedAt: sweepAt });
     }
@@ -159,6 +197,24 @@ async function sweep(driveClient: DriveClient): Promise<SweepResult> {
   });
 
   await updateLastSweepAt(sweepAt);
+  if (changedFileIds.size > 0) {
+    await saveDriveLastChangeAt(sweepAt);
+  }
+  // Every sweep, not only one that changed a month: the Drive panel shows when the last one ran.
+  announce({ type: "queue-changed" });
+  // After the files are written: a failed read of sharing is recorded per company and never stops a sweep.
+  const parentIdByFileId = new Map(driveFiles.map((file) => [file.id, file.parents[0] ?? null]));
+  const accessTargets = companiesForAccessRefresh({
+    companies: [...companyIdByDriveFolderId].map(([driveFolderId, companyId]) => ({
+      companyId,
+      driveFolderId,
+      parentId: parentIdByFileId.get(driveFolderId) ?? null,
+    })),
+    driveParentFolderId,
+    changedFileIds: logChangedFileIds,
+    all: options.allAccess === true || mode === "full",
+  });
+  await refreshCompanyAccess(driveClient, accessTargets);
   announceChangedMonths(events, storedFiles, persistedFiles, companyIdByDriveFolderId);
 
   return {

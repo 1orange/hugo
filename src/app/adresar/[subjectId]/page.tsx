@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
+import { visibleCompanies } from "@/lib/access/visibility";
 import { loadSubjectDetail, type DetailField, type VerdictTone } from "@/lib/subject-directory/screen";
 import { correctSubjectAction, restoreRegisterValueAction } from "../actions";
 import { SubjectCorrectionForm, type CorrectableFieldView } from "../subject-correction-form";
@@ -61,7 +62,8 @@ export default async function SubjectPage({ params }: SubjectPageProps) {
     notFound();
   }
 
-  const detail = await loadSubjectDetail(id);
+  // The subject is office-wide; the companies it belongs to and the documents that reference it are shown only where she may see them (ADR 0023).
+  const detail = await loadSubjectDetail(id, (await visibleCompanies(session.user.email)).ids);
   if (!detail) {
     notFound();
   }

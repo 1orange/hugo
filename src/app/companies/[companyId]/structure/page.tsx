@@ -4,12 +4,15 @@ import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getCompanyById } from "@/adapters/store/companies";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { getMonthFolder } from "@/adapters/store/month-folders";
 import { listActiveRenamesForCompany } from "@/adapters/store/drive-mutations";
 import { listStructureDeviationsForCompany } from "@/adapters/store/structure-deviations";
 import { getSettings } from "@/adapters/store/settings";
 import { companyDisplayName } from "@/modules/company-display-name";
+import { describeExpectedLayout, describeFoundLayout } from "@/modules/company-layout";
 import { DEVIATION_FORMS, type StructureDeviation } from "@/modules/drive-structure";
+import { driveFolderViewUrl } from "@/modules/file-preview";
 import { countWithNoun, monthLabel } from "@/modules/format-sk";
 import { RepairButton, UndoRenameButton } from "./structure-actions";
 
@@ -25,6 +28,8 @@ function titleFor(deviation: StructureDeviation): string {
       return `„${deviation.observedName}“ je blízky názvu „${deviation.repair?.targetName}“`;
     case "folder-unrecognised":
       return `Nerozpoznaný priečinok „${deviation.observedName}“`;
+    case "month-structure-missing":
+      return "Chýba mesačná štruktúra";
   }
 }
 
@@ -36,6 +41,8 @@ function adviceFor(deviation: StructureDeviation): string {
       return "Doklady v tomto priečinku sa nezobrazia, kým sa názov neopraví. Premenovanie v Drive nerozbije odkazy klientov.";
     case "folder-unrecognised":
       return "Ak patrí do štruktúry mesiaca, premenuj ho v Drive na štandardný názov. Ak ide o rozhodnutie klienta, nechaj ho tak. Hugo ho nebude meniť.";
+    case "month-structure-missing":
+      return "Hugo z tejto štruktúry nečíta doklady a nič v nej nepresúva ani nepremenúva. Vytvor mesačné priečinky v Drive a doklady presuň do nich; ďalšia kontrola odchýlku odstráni.";
   }
 }
 
@@ -54,6 +61,11 @@ export default async function CompanyStructurePage({ params }: StructurePageProp
   const { companyId } = await params;
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
+    notFound();
+  }
+
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyIdNum))) {
     notFound();
   }
 
@@ -153,6 +165,29 @@ export default async function CompanyStructurePage({ params }: StructurePageProp
                   <p className="font-medium text-ink">{titleFor(deviation)}</p>
                   <p className="font-mono text-[11.5px] text-ink-3">{deviation.path}</p>
                   <p className="text-ink-2">{adviceFor(deviation)}</p>
+                  {deviation.kind === "month-structure-missing" && deviation.layout ? (
+                    <>
+                      <p data-testid="structure-found" className="text-ink-2">
+                        <span className="font-medium text-ink">Nájdené: </span>
+                        {describeFoundLayout(deviation.layout)}
+                      </p>
+                      <p data-testid="structure-expected" className="text-ink-2">
+                        <span className="font-medium text-ink">Očakáva sa: </span>
+                        {describeExpectedLayout(deviation.layout.year)}
+                      </p>
+                    </>
+                  ) : null}
+                  {deviation.kind === "month-structure-missing" && deviation.folderId ? (
+                    <a
+                      href={driveFolderViewUrl(deviation.folderId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-testid="structure-drive-link"
+                      className="w-fit text-[11.5px] text-accent underline"
+                    >
+                      Otvoriť priečinok klienta v Drive
+                    </a>
+                  ) : null}
                   {deviation.kind === "subfolder-repair" &&
                   deviation.folderId &&
                   deviation.monthKey &&

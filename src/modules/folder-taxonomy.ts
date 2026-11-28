@@ -1,7 +1,8 @@
 /**
  * The document types of a month, as the office defined them from 2027_01 ("Štruktúra
- * disku Doklady klientov", 2026-11-11). The code is the type: from 2027_01 a folder
- * is read by its two-digit code, whatever follows it; older months by their names.
+ * disku Doklady klientov", 2026-11-11). The code is the type, in every month: a folder
+ * is read by its two-digit code, whatever follows it. Older months also accept their
+ * old names, which win over the code there (see classifyFolder).
  */
 export const CANONICAL_FOLDER_NAMES = [
   "01 Vystavené faktúry",
@@ -88,6 +89,9 @@ export const ACCEPTED_FOLDER_NAMES: Readonly<Record<string, { slot: string }>> =
   "06 Cestovné príkazy": { slot: "05 Cestovné príkazy" },
   "06 Mzdy": { slot: "07 Mzdy" },
   "07 DPH": { slot: "08 DPH" },
+  // Seen on the live drive (2026-11-23), not in the office's table.
+  "Bločky": { slot: "04 Bločky" },
+  "08 Cestovné náhrady": { slot: "05 Cestovné príkazy" },
 };
 
 function acceptedClassification(
@@ -111,14 +115,16 @@ function acceptedClassification(
 const TYPE_CODE = /^(0[1-8])(?=\s|$)/u;
 
 /**
- * From 2027_01 a folder is its code: `04 Bločky`, `04 bločky a pokladňa` and `04` are
- * all the receipts. No near-misses there: a folder without a code is unknown.
+ * A folder is its code: `04 Bločky`, `04 bločky a pokladňa` and `04` are all the receipts.
+ * Null when the name has no code, or the code's slot is no longer in the settings; the
+ * caller decides what that folder is. The code is the same in every month, so only the
+ * steps around it differ between older months and 2027_01 on.
  */
-function classifyByCode(name: string, canonicalFolderNames: readonly string[]): FolderClassification {
+function classifyByCode(name: string, canonicalFolderNames: readonly string[]): FolderClassification | null {
   const code = TYPE_CODE.exec(name)?.[1];
   const slot = code ? canonicalFolderNames.find((canonical) => canonical.startsWith(`${code} `)) : undefined;
   if (!slot) {
-    return { kind: "unknown", name };
+    return null;
   }
   return slot.normalize("NFC") === name ? { kind: "canonical", name: slot } : { kind: "canonical", name: slot, observedName: name };
 }
@@ -203,35 +209,11 @@ export function parseMonthFolder(name: string): MonthFolder | null {
 }
 
 /**
- * What a month's subfolder is. `monthKey` is the month it is in: from 2027_01 the
- * folder is read by its code; before, and when the month is not known, by its name
- * (canonical, an older accepted name, or a near-miss of one of them).
+ * A near-miss of a name the settings know (a canonical name or an accepted older one),
+ * repaired to that name's slot. Null when nothing is that close; unknown when it is
+ * close to two names equally, since guessing would rename the folder into the wrong slot.
  */
-export function classifyFolder(
-  name: string,
-  settings: FolderTaxonomySettings,
-  monthKey?: string | null,
-): FolderClassification {
-  if (usesCodeScheme(monthKey)) {
-    return classifyByCode(name.normalize("NFC").trim(), settings.canonicalFolderNames);
-  }
-  // Both sides are normalised because either can arrive in NFD: Drive names
-  // from the uploader's filesystem, canonical names from her settings. Without
-  // this, a folder identical on screen to its canonical name is classified as
-  // needing a rename that would change nothing visible.
-  const normalized = name.normalize("NFC");
-  const canonical = settings.canonicalFolderNames.find(
-    (candidate) => candidate.normalize("NFC") === normalized,
-  );
-  if (canonical) {
-    return { kind: "canonical", name: canonical };
-  }
-  const accepted = acceptedClassification(normalized, settings.canonicalFolderNames);
-  if (accepted) {
-    return accepted;
-  }
-
-  // A near-miss of an older name is repaired to the slot's current name.
+function nearMissRepair(name: string, settings: FolderTaxonomySettings): FolderClassification | null {
   const folded = fold(name);
   const candidates = [
     ...settings.canonicalFolderNames.map((canonical) => ({ spelled: canonical, canonical })),
@@ -252,10 +234,10 @@ export function classifyFolder(
     .sort((a, b) => a.distance - b.distance);
 
   const [best, runnerUp] = ranked;
-
-  // An ambiguous near-miss is not a typo we can resolve; guessing would rename
-  // the folder into the wrong slot.
-  if (!best || (runnerUp && runnerUp.distance === best.distance)) {
+  if (!best) {
+    return null;
+  }
+  if (runnerUp && runnerUp.distance === best.distance) {
     return { kind: "unknown", name };
   }
 
@@ -265,6 +247,65 @@ export function classifyFolder(
     targetName: best.canonical,
   };
 }
+
+/**
+ * What a month's subfolder is. The rule, in this order:
+ *
+ * - the exact canonical name, in every month;
+ * - before 2027_01, and when the month is not known: an accepted older name, then a
+ *   near-miss of a canonical or older name (repaired, never guessed);
+ * - the two-digit code, in every month;
+ * - unknown.
+ *
+ * The near-miss comes before the code in older months on purpose: a typo of an old
+ * name keeps the old name's type. Read by its number, `05 Platby kartu` would be a
+ * travel order, because the number's type changed in 2027. From 2027_01 a folder is
+ * its code and nothing else (ADR 0007, 2026-11-12), so the name steps do not apply
+ * there. `monthKey` is the month the folder is in.
+ */
+export function classifyFolder(
+  name: string,
+  settings: FolderTaxonomySettings,
+  monthKey?: string | null,
+): FolderClassification {
+  // Both sides are normalised because either can arrive in NFD: Drive names
+  // from the uploader's filesystem, canonical names from her settings. Without
+  // this, a folder identical on screen to its canonical name is classified as
+  // needing a rename that would change nothing visible.
+  const normalized = name.normalize("NFC");
+  const canonical = settings.canonicalFolderNames.find(
+    (candidate) => candidate.normalize("NFC") === normalized,
+  );
+  if (canonical) {
+    return { kind: "canonical", name: canonical };
+  }
+
+  if (usesCodeScheme(monthKey)) {
+    const trimmed = normalized.trim();
+    return classifyByCode(trimmed, settings.canonicalFolderNames) ?? { kind: "unknown", name: trimmed };
+  }
+
+  const accepted = acceptedClassification(normalized, settings.canonicalFolderNames);
+  if (accepted) {
+    return accepted;
+  }
+  const repair = nearMissRepair(name, settings);
+  if (repair) {
+    return repair;
+  }
+  // Before 2027_01 only the codes whose meaning did not change are read by number:
+  // an old 04, 05 or 06 is cash, card or other documents, not 2027's receipts,
+  // travel orders or other documents ("staré mesiace treba mapovať podľa názvu,
+  // nie podľa čísla", the office's structure, 2026-11-11). Such a folder with an
+  // unknown name is left unknown, for the office to rename, never guessed.
+  const coded = OLDER_MONTH_STABLE_CODES.has(TYPE_CODE.exec(normalized.trim())?.[1] ?? "")
+    ? classifyByCode(normalized.trim(), settings.canonicalFolderNames)
+    : null;
+  return coded ?? { kind: "unknown", name };
+}
+
+/** The codes that mean the same before and from 2027_01: issued and received invoices, statements, payroll. */
+const OLDER_MONTH_STABLE_CODES: ReadonlySet<string> = new Set(["01", "02", "03", "07"]);
 
 export function isMovableFolder(
   name: string,

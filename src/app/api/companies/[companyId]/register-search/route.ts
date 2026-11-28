@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { searchCompanyRegister } from "@/lib/company-profile/service";
+import { isCompanyVisible } from "@/lib/access/visibility";
 
 type RouteContext = {
   params: Promise<{ companyId: string }>;
@@ -21,6 +22,10 @@ export async function GET(request: Request, context: RouteContext) {
   const { companyId: companyIdRaw } = await context.params;
   const companyId = Number.parseInt(companyIdRaw, 10);
   if (!Number.isFinite(companyId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  checkCompanyLayout,
   checkCompanyStructure,
   structureBadgeLabel,
   type StructureCheckInput,
@@ -160,35 +161,28 @@ const mutationCases: MutationCase[] = [
     },
   },
   {
-    name: "a folder the client created on purpose is folder-unrecognised, not a repair",
+    name: "a folder the client created with a type's number fills that type, and no rename is proposed",
     change: (children) =>
       children.map((child) =>
-        child.name.normalize("NFC") === "04 Platby hotovosťou" ? { ...child, name: "04 Pokladňa" } : child,
+        child.name.normalize("NFC") === "02 Prijaté faktúry" ? { ...child, name: "02 Faktúry od dodávateľov" } : child,
       ),
-    // The card folder still holds the receipts type, so nothing is missing.
-    expected: [
-      {
-        kind: "folder-unrecognised",
-        severity: "attention",
-        path: `Konto A/${MONTH}/04 Pokladňa`,
-        monthKey: MONTH,
-      },
-    ],
+    // From the number: 02 means received invoices before and from 2027, so the slot is filled and nothing is missing.
+    expected: [],
   },
   {
     name: "an extra subfolder added to a month is folder-unrecognised",
-    change: (children) => [...children, { driveFolderId: "f-extra", name: "08 Ostatné" }],
+    change: (children) => [...children, { driveFolderId: "f-extra", name: "Poznámky" }],
     expected: [
       {
         kind: "folder-unrecognised",
         severity: "attention",
-        path: `Konto A/${MONTH}/08 Ostatné`,
+        path: `Konto A/${MONTH}/Poznámky`,
         monthKey: MONTH,
       },
     ],
     details: (deviation) => {
       assert.equal(deviation.folderId, "f-extra");
-      assert.equal(deviation.observedName, "08 Ostatné");
+      assert.equal(deviation.observedName, "Poznámky");
       assert.equal(deviation.repair, null);
     },
   },
@@ -380,4 +374,43 @@ test("a month from 2027_01 is read by code: any 0X-named folder is its type", ()
   assert.deepEqual(summary(checkCompanyStructure(input)), [
     { kind: "folder-unrecognised", severity: "attention", path: "Doklady Alivion/2027_01/Poznámky", monthKey: "2027_01" },
   ]);
+});
+
+/**
+ * Issue 06: a client without the month structure is one company-level finding,
+ * blocking, on the client folder, and a client with it has none.
+ */
+test("a client with the month structure has no company-level finding", () => {
+  const folders = [
+    { name: "2026_01", childNames: ["01 Vystavené faktúry"] },
+    { name: "2025", childNames: ["2025_01"] },
+  ];
+  assert.equal(
+    checkCompanyLayout({ company: { driveFolderId: "co-m", name: "Konto M" }, folders, canonicalFolderNames: CANONICAL_FOLDER_NAMES, year: 2026 }),
+    null,
+  );
+});
+
+test("a client whose type folders sit directly in it gets one blocking month-structure-missing finding", () => {
+  const folders = [
+    { name: "01 Vystavené faktúry", childNames: [] },
+    { name: "03 Bankové výpisy", childNames: [] },
+  ];
+  const deviation = checkCompanyLayout({
+    company: { driveFolderId: "co-t", name: "Konto T" },
+    folders,
+    canonicalFolderNames: CANONICAL_FOLDER_NAMES,
+    year: 2026,
+  });
+  assert.deepEqual(deviation, {
+    kind: "month-structure-missing",
+    severity: "blocking",
+    path: "Konto T",
+    monthKey: null,
+    folderId: "co-t",
+    observedName: null,
+    expectedName: null,
+    repair: null,
+    layout: { kind: "types", year: 2026, examples: ["01 Vystavené faktúry", "03 Bankové výpisy"] },
+  });
 });

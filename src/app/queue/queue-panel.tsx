@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { Cpu, LoaderCircle } from "lucide-react";
 import { useExtractionQueue } from "@/components/app/use-extraction-queue";
-import type { FinishedJobView, ModelLimitSource, QueueJobView, QueueLane } from "@/lib/extraction-queue/types";
+import { LANE_LABEL, type FinishedJobView, type ModelLimitSource, type QueueJobView, type QueueLane } from "@/lib/extraction-queue/types";
+import type { WaitingMonth } from "@/lib/extraction-queue/waiting";
+import { waitingTotals } from "@/lib/extraction-queue/waiting";
 import type { ServiceHealth, ServiceState } from "@/lib/extraction-queue/service-health";
 import type { ExtractionQueueView } from "@/lib/extraction-queue/view";
+import type { DriveSyncPanel } from "@/modules/drive-sync";
 import { companyDisplayName } from "@/modules/company-display-name";
 import { extractionFailureMessage } from "@/modules/extraction-failure";
 import { formatElapsed } from "@/modules/extraction-progress";
 import { countWithNoun, DOKLAD_FORMS, formatTime, monthLabel } from "@/modules/format-sk";
+import { estimateText, MIN_ESTIMATE_RECORDS, type QueueEstimate } from "@/modules/queue-estimate";
+import type { ReadingTier } from "@/modules/reading-planner";
 import {
   formatStageDuration,
   stageDetail,
@@ -63,6 +68,52 @@ function ServiceCard({ title, health, subtitle }: { title: string; health: Servi
       {health.detail ? <p className="mt-2 text-[13px] text-ink-2">{health.detail}</p> : null}
       {hint ? <p className="mt-2 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn-strong">{hint}</p> : null}
     </div>
+  );
+}
+
+function InfoRow({ label, value, testId }: { label: string; value: string; testId: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-t border-line px-4 py-2.5 first:border-t-0">
+      <span className="text-[14px] text-ink-3">{label}</span>
+      <span className="text-right text-[14px]" data-testid={testId}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * How documents reach Hugo from Drive (0007/03): push when its webhook is set
+ * and a channel exists, otherwise the poll alone. A silent webhook is said so.
+ */
+function DrivePanelSection({ drive }: { drive: DriveSyncPanel }) {
+  const pushOn = drive.mode === "push";
+  return (
+    <section data-testid="queue-drive">
+      <header className="px-1 pb-2">
+        <h2 className="text-[20px] font-bold tracking-[-0.015em]">Google Drive</h2>
+      </header>
+      <div className="inset-group">
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          <span aria-hidden className={`size-2 shrink-0 rounded-full ${pushOn ? "bg-good-dot" : "bg-warn-dot"}`} />
+          <span className={`text-[14px] font-medium ${pushOn ? "text-good" : "text-warn"}`} data-testid="queue-drive-mode">
+            {drive.modeLabel}
+          </span>
+        </div>
+        {drive.channelExpiryLabel ? (
+          <InfoRow label="Kanál platí do" value={drive.channelExpiryLabel} testId="queue-drive-expiry" />
+        ) : null}
+        <InfoRow label="Posledné oznámenie od Drive" value={drive.lastNotificationLabel} testId="queue-drive-notification" />
+        <InfoRow label="Posledná kontrola" value={drive.lastSweepLabel} testId="queue-drive-sweep" />
+        <InfoRow label="Pravidelná kontrola" value={drive.pollLabel} testId="queue-drive-poll" />
+        {drive.silent ? (
+          <p className="mx-4 mb-3.5 mt-1 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn-strong" data-testid="queue-drive-silent" role="alert">
+            Push je zapnutý, no viac ako 24 hodín neprišlo žiadne oznámenie, hoci kontrola od vtedy našla zmeny v Drive.
+            Oznámenia pravdepodobne nedorážajú do Hugo.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -180,6 +231,67 @@ function StageSummary({ records }: { records: FinishedJobView[] }) {
   );
 }
 
+/** Which of the three tiers a waiting month is in, as the screen names it. */
+const TIER_LABEL: Record<ReadingTier, string> = {
+  raised: "Otvorený mesiac",
+  recent: "Minulý a tento mesiac",
+  backlog: "Staršie mesiace",
+};
+
+/**
+ * The documents not yet read, per company and month, in the order the queue
+ * reads them, with when the queue will be empty. The server sends only the
+ * viewer's companies here, and the estimate over their waiting documents (ADR 0023).
+ */
+function WaitingSection({ months, estimate }: { months: WaitingMonth[]; estimate: QueueEstimate }) {
+  const totals = waitingTotals(months);
+  const estimateLabel = estimateText(estimate);
+  return (
+    <Section title="Čaká na prečítanie" count={totals.reading + totals.model}>
+      {months.length > 0 ? (
+        <>
+          <p className="px-4 pt-3 text-[12.5px] text-ink-3">
+            Doklady, ktoré ešte nie sú prečítané. Najprv otvorený mesiac, potom minulý a tento, potom staršie.
+          </p>
+          {estimateLabel ? (
+            <div className="mt-2 border-t border-line">
+              <InfoRow label="Rad bude prázdny" value={estimateLabel} testId="queue-estimate" />
+              {estimate.kind === "unknown" ? (
+                <p className="border-t border-line px-4 py-2.5 text-[12.5px] text-ink-3">
+                  Odhad potrebuje aspoň {MIN_ESTIMATE_RECORDS} nedávnych dokladov s rozpisom fáz.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          <ol className="mt-2">
+            {months.map((month) => (
+              <li
+                key={`${month.companyId}-${month.monthKey}`}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line px-4 py-2.5 first:border-t-0"
+                data-testid="queue-waiting-month"
+              >
+                <span className="min-w-0 flex-1">
+                  <Link href={`/companies/${month.companyId}/${month.monthKey}`} className="text-[14px] hover:text-accent hover:underline">
+                    {companyDisplayName(month.companyName)} · {monthLabel(month.monthKey)}
+                  </Link>
+                  <span className="block text-[12.5px] text-ink-3">{TIER_LABEL[month.tier]}</span>
+                </span>
+                <span className="tabular shrink-0 text-[13px] text-ink-2">
+                  {LANE_LABEL.read} {month.reading} · {LANE_LABEL.model} {month.model}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <p className="px-4 py-3.5 text-[14px] text-ink-3" data-testid="queue-waiting-empty">
+          Nič nečaká na prečítanie.
+        </p>
+      )}
+    </Section>
+  );
+}
+
 function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
     <section>
@@ -270,6 +382,8 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
         <ServiceCard title="OCR" health={ocr} subtitle={ocr.url} />
       </div>
 
+      <DrivePanelSection drive={view.drive} />
+
       {!view.workerAlive ? (
         <p
           className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-strong"
@@ -302,6 +416,8 @@ export function QueuePanel({ initial }: { initial: ExtractionQueueView }) {
         running={view.running.filter((job) => job.lane === "model")}
         waiting={view.waiting.filter((job) => job.lane === "model")}
       />
+
+      <WaitingSection months={view.waitingMonths} estimate={view.estimate} />
 
       {view.delayed.length > 0 ? (
         <Section title="Čaká na službu" count={view.delayed.length}>

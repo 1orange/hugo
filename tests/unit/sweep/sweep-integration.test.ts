@@ -7,6 +7,8 @@ import { runSweep } from "../../../src/lib/sweep/run-sweep.ts";
 import { getDb } from "../../../src/lib/db/client.ts";
 import { freshTestDb } from "../support/test-db.ts";
 import { companies, documents, events, files } from "../../../src/lib/db/schema.ts";
+import { MemoryExtractionJobQueue } from "../../../src/adapters/job-queue/memory-extraction-queue.ts";
+import { enqueueMonthExtraction } from "../../../src/lib/extraction-queue/enqueue.ts";
 
 const PARENT_ID = "integration-parent";
 const COMPANY_ID = "integration-company";
@@ -87,6 +89,45 @@ test("runSweep persists tree, events and files; second run is a no-op", async ()
   const second = await runSweep(client);
   assert.equal(second.eventCount, 0);
   assert.equal((await db.select().from(events).orderBy(events.id)).length, 2);
+});
+
+// A folder the client named with a type's code, not the canonical name, was unknown before
+// the one rule: its files were discovered but had no slot. Now the code files them.
+test("a sweep over a month with a coded folder discovers its files and files them into the type", async () => {
+  await freshTestDb();
+  await setDriveParentFolderId(PARENT_ID);
+  const withCodedFolder = [
+    ...fixture,
+    {
+      id: "integration-coded",
+      name: "02 Faktúry od dodávateľov",
+      parents: [MONTH_ID],
+      createdTime: "2026-01-01T00:00:00.000Z",
+      mimeType: FOLDER_MIME,
+    },
+    {
+      id: "integration-receipt",
+      name: "invoice-001.pdf",
+      parents: ["integration-coded"],
+      createdTime: "2026-02-10T00:00:00.000Z",
+      mimeType: "application/pdf",
+    },
+  ];
+
+  const first = await runSweep(new FakeDriveClient(withCodedFolder));
+  // Two files from the fixture and the receipt, each discovered once.
+  assert.equal(first.eventCount, 3);
+
+  const receipt = (await getDb().select().from(files)).find((row) => row.name === "invoice-001.pdf");
+  assert.equal(receipt?.folderSlot, "02 Prijaté faktúry");
+
+  // The extraction queue takes the coded invoice as a document, with the slot the sweep recorded.
+  const queue = new MemoryExtractionJobQueue();
+  const companyId = (await getDb().select().from(companies))[0]!.id;
+  await enqueueMonthExtraction(queue, companyId, "2026_02");
+  const queued = queue.jobs.get("integration-receipt");
+  assert.equal(queued?.data.kind, "document");
+  assert.equal(queued?.data.folderSlot, "02 Prijaté faktúry");
 });
 
 // Sweeps before the system-files rule recorded desktop.ini as a document,

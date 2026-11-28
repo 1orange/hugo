@@ -15,7 +15,11 @@ import { getSettings, type SettingsRow } from "@/adapters/store/settings";
 import { appendUserEvent } from "@/adapters/store/events";
 import type { CompanyCountry } from "@/modules/company-profile";
 import { homeCurrencyForCountry } from "@/modules/company-profile";
-import { mergeDocumentFields, type FieldProvenance } from "@/modules/document-fields";
+import {
+  deriveVariableSymbol,
+  mergeDocumentFields,
+  type FieldProvenance,
+} from "@/modules/document-fields";
 import {
   mergeDocumentFieldsWithDirectory,
   type DirectoryFactsCache,
@@ -36,6 +40,7 @@ import {
   nextExportSequence,
 } from "@/modules/export-numbering";
 import { organizationNameFromOpd } from "@/modules/ekasa-lookup-mapping";
+import { isStatementFolderSlot } from "@/modules/document-state";
 import { resolveExportSection } from "@/modules/omega-export-section";
 import { receiptUidOfDocument } from "@/modules/receipt-identity";
 import {
@@ -205,8 +210,11 @@ function buildInvoiceDraft(input: {
   counterparty: OmegaPartnerRecord;
   merged: ReturnType<typeof mergeDocumentFields>;
 }): OmegaInvoiceDraft | { heldBack: true; reason: string } {
+  // The fallback is the number's digits, never the raw number, so `SK-26001` is not written as a symbol.
   const variableSymbol =
-    input.merged.fields.variableSymbol.trim() || input.merged.fields.documentNumber.trim();
+    input.merged.fields.variableSymbol.trim() ||
+    deriveVariableSymbol(input.merged.fields.documentNumber) ||
+    "";
   if (variableSymbol.length === 0) {
     return { heldBack: true, reason: "Chýba VS alebo číslo dokladu." };
   }
@@ -333,7 +341,11 @@ export async function buildMonthOmegaExport(input: {
         ? directoryDepsFor({ register, refreshDays: settings.subjectRefreshDays, now: () => now })
         : null;
 
-  const confirmed = monthDocuments.filter((document) => document.decision === "confirmed");
+  // Statements are left out until statement import is designed (PRD 0007, ADR 0013): a
+  // confirmed statement is listed as done, and it has no values to write.
+  const confirmed = monthDocuments.filter(
+    (document) => document.decision === "confirmed" && !isStatementFolderSlot(document.folderSlot),
+  );
 
   const exportNumbers = await assignMissingExportNumbers({
     companyId: input.companyId,

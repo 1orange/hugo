@@ -20,3 +20,8 @@ export function shouldExtractWithModel(input: {
   }
   return true;
 }
+
+/** A receipt the eKasa lookup reads, by its UID or its printed eKasa form, not the model. */
+export function looksLikeEkasaReceipt(lines: string[]): boolean {
+  return lines.length > 0 && (findEkasaUidInLines(lines) !== null || isEkasaReceipt(lines));
+}

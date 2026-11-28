@@ -78,6 +78,7 @@ async function readExtractionJob(
                 fileName: data.fileName,
                 folderSlot: data.folderSlot,
                 source: text.source ?? "model",
+                tier: data.tier,
                 lines: text.lines,
                 readStartedAt: reporter.current.startedAt,
                 stages: reporter.stages,
@@ -91,7 +92,14 @@ async function readExtractionJob(
     if (data.kind === "receipt") {
       await processCashReceiptFile(input, jobDeps);
     } else {
-      written = await processModelExtractionFile(input, jobDeps);
+      written = await processModelExtractionFile(input, {
+        ...jobDeps,
+        // An eKasa receipt filed among documents is read the way receipts are.
+        readAsEkasaReceipt: async () => {
+          await processCashReceiptFile(input, jobDeps);
+          return true;
+        },
+      });
     }
   } catch (error) {
     // A queue that refused the hand-off is no fault of the document: the job

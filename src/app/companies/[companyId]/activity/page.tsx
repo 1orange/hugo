@@ -4,6 +4,7 @@ import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
 import { getSettings } from "@/adapters/store/settings";
 import { buildCompanyActivityView } from "@/lib/activity-log/view";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { getOpenMonthKey } from "@/adapters/store/months";
 import { ActivityLogPanel } from "./activity-log-panel";
 
@@ -56,6 +57,10 @@ export default async function CompanyActivityPage({
   const { companyId } = await params;
   const companyIdNum = Number(companyId);
   if (!Number.isInteger(companyIdNum)) {
+    notFound();
+  }
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyIdNum))) {
     notFound();
   }
 

@@ -31,6 +31,26 @@ export function monthKeyAt(instant: Date, timeZone: string = OFFICE_TIME_ZONE): 
 }
 
 /**
+ * The booking month: the calendar month before the current one on the office
+ * clock. The office books last month (in November, October), so the home
+ * screen and the reading window's recent tier start from it. In January it is
+ * December of the previous year. Callers pass the instant, as with monthKeyAt.
+ */
+export function bookingMonthKey(instant: Date, timeZone: string = OFFICE_TIME_ZONE): string {
+  const [yearText, monthText] = monthKeyAt(instant, timeZone).split("_");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  return month === 1
+    ? `${year - 1}_12`
+    : `${year}_${String(month - 1).padStart(2, "0")}`;
+}
+
+/** Whether a string is a month key: `YYYY_MM` with the month 01 to 12. */
+export function isMonthKey(value: string): boolean {
+  return /^\d{4}_(0[1-9]|1[0-2])$/.test(value);
+}
+
+/**
  * A future month is one whose key is after the current calendar month. Keys
  * are zero-padded `YYYY_MM`, so they compare correctly as strings.
  */
@@ -58,6 +78,41 @@ export function selectOpenMonthKey(
     }
   }
   return open;
+}
+
+/**
+ * Where a late arrival is proposed to go (ADR 0006, amended 2026-11-24): the
+ * month being booked, the previous one on the office clock; if that one is
+ * closed or missing, the next unclosed month up to the current one; with none
+ * of those, the open month.
+ */
+export function selectLateArrivalTargetMonthKey(
+  months: ReadonlyArray<{ monthKey: string; closedAt: string | null }>,
+  instant: Date,
+  timeZone: string = OFFICE_TIME_ZONE,
+): string | null {
+  const booking = bookingMonthKey(instant, timeZone);
+  const current = monthKeyAt(instant, timeZone);
+  const candidates = months
+    .filter((month) => month.closedAt === null && month.monthKey >= booking && month.monthKey <= current)
+    .map((month) => month.monthKey)
+    .sort();
+  // A client with no month from the booked one on (a dormant client, an old
+  // layout) keeps the open month, as before.
+  return candidates[0] ?? selectOpenMonthKey(months, current);
+}
+
+/**
+ * Whether a file uploaded at `uploadedAt` into `monthKey` came after that month
+ * stopped being booked: from November on, anything put into September or earlier.
+ */
+export function uploadedAfterMonthWasBooked(
+  monthKey: string,
+  uploadedAt: string,
+  timeZone: string = OFFICE_TIME_ZONE,
+): boolean {
+  const instant = new Date(uploadedAt);
+  return !Number.isNaN(instant.getTime()) && bookingMonthKey(instant, timeZone) > monthKey;
 }
 
 function folderSlotPrefix(name: string): string | null {

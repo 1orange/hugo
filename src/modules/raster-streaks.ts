@@ -12,6 +12,10 @@ import type { RgbaRaster } from "./raster-contrast";
  *
  * `across: "x"` looks at left and right neighbours and so closes streaks that
  * run vertically; `across: "y"` closes streaks that run horizontally.
+ *
+ * The minimum over each window is taken with a monotonic deque (a sliding-window
+ * minimum), so the cost is linear in the pixel count and does not grow with
+ * `width`. Neighbours outside the image are ignored at the edges.
  */
 export function closeLightStreaks(
   image: RgbaRaster,
@@ -29,27 +33,71 @@ export function closeLightStreaks(
   }
 
   const reach = Math.floor(options.width / 2);
+  const darkest = new Uint8Array(pixelCount);
+  if (!(reach >= 0)) {
+    // A negative or NaN width leaves the window empty: nothing is darkened.
+    darkest.fill(255);
+  } else if (options.across === "x") {
+    // Rows: samples are adjacent, lines are `width` apart.
+    minimumAlongLines(luminance, darkest, height, width, width, 1, reach);
+  } else if (options.across === "y") {
+    // Columns: samples are `width` apart, lines are adjacent.
+    minimumAlongLines(luminance, darkest, width, height, 1, width, reach);
+  } else {
+    darkest.set(luminance);
+  }
+
   const data = new Uint8ClampedArray(pixelCount * 4);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let darkest = 255;
-      for (let step = -reach; step <= reach; step += 1) {
-        const nx = options.across === "x" ? x + step : x;
-        const ny = options.across === "y" ? y + step : y;
-        if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
-          continue;
-        }
-        const value = luminance[ny * width + nx]!;
-        if (value < darkest) {
-          darkest = value;
-        }
-      }
-      const offset = (y * width + x) * 4;
-      data[offset] = darkest;
-      data[offset + 1] = darkest;
-      data[offset + 2] = darkest;
-      data[offset + 3] = 255;
-    }
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const offset = pixel * 4;
+    const value = darkest[pixel]!;
+    data[offset] = value;
+    data[offset + 1] = value;
+    data[offset + 2] = value;
+    data[offset + 3] = 255;
   }
   return { data, width, height };
+}
+
+/**
+ * For every sample of every line, writes the minimum of the samples within
+ * `reach` of it (clipped to the line) into `target`.
+ *
+ * Sample `k` of line `l` lives at `l * lineStep + k * sampleStep` in both arrays.
+ * The deque holds sample positions whose values increase from front to back;
+ * the front is the window minimum.
+ */
+function minimumAlongLines(
+  source: Uint8Array,
+  target: Uint8Array,
+  lineCount: number,
+  lineLength: number,
+  lineStep: number,
+  sampleStep: number,
+  reach: number,
+): void {
+  const queue = new Int32Array(lineLength);
+  for (let line = 0; line < lineCount; line += 1) {
+    const base = line * lineStep;
+    let head = 0;
+    let tail = 0;
+    let nextToEnter = 0;
+    for (let k = 0; k < lineLength; k += 1) {
+      const enterUpTo = Math.min(lineLength - 1, k + reach);
+      while (nextToEnter <= enterUpTo) {
+        const value = source[base + nextToEnter * sampleStep]!;
+        while (tail > head && source[base + queue[tail - 1]! * sampleStep]! >= value) {
+          tail -= 1;
+        }
+        queue[tail] = nextToEnter;
+        tail += 1;
+        nextToEnter += 1;
+      }
+      const leaveBefore = k - reach;
+      while (queue[head]! < leaveBefore) {
+        head += 1;
+      }
+      target[base + k * sampleStep] = source[base + queue[head]! * sampleStep]!;
+    }
+  }
 }

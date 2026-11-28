@@ -1,9 +1,10 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { canWatchChanges, type DriveClient } from "@/adapters/drive/port";
 import { createDriveClient } from "@/adapters/drive/create-drive-client";
-import { getDriveWatchChannel, saveDriveWatchChannel } from "@/adapters/store/settings";
+import { getDriveWatchChannel, saveDriveWatchChannel, saveDriveLastNotificationAt } from "@/adapters/store/settings";
 import { sweepQueue } from "@/adapters/job-queue/bullmq-queues";
 import { isDriveConfigured } from "@/lib/sweep/ensure-fresh-sweep";
+import { announce } from "@/lib/events/bus";
 
 /**
  * Documents are read as they arrive in Drive, not when she opens the app
@@ -13,7 +14,7 @@ import { isDriveConfigured } from "@/lib/sweep/ensure-fresh-sweep";
  */
 
 /** The longest Google grants a changes channel. */
-const CHANNEL_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+export const CHANNEL_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 /** Re-watched a day early, so a quiet week never lets it lapse. */
 const RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
 /** A client dropping twelve files causes one sweep (ADR 0003). */
@@ -69,11 +70,13 @@ export type NotificationOutcome = "accepted" | "ignored" | "rejected";
 /**
  * A notification from Google, by its headers. Only the channel this app made,
  * with its token, is trusted; `sync` is the ping a new channel sends once.
- * An accepted one asks for a sweep (`requestDriveSync`).
+ * An accepted one is stamped (the queue screen's Drive panel shows when it last
+ * came) and asks for a sweep (`requestDriveSync`).
  */
 export async function acceptDriveNotification(
   headers: { channelId: string | null; token: string | null; resourceState: string | null },
   requestSync: () => Promise<void> = requestDriveSync,
+  now: Date = new Date(),
 ): Promise<NotificationOutcome> {
   const channel = await getDriveWatchChannel();
   if (!channel || headers.channelId !== channel.id || !sameToken(headers.token ?? "", channel.token)) {
@@ -82,6 +85,8 @@ export async function acceptDriveNotification(
   if (headers.resourceState === "sync") {
     return "ignored";
   }
+  await saveDriveLastNotificationAt(now.toISOString());
+  announce({ type: "queue-changed" });
   await requestSync();
   return "accepted";
 }

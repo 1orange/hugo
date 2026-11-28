@@ -3,9 +3,10 @@ import { after } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
 import { AppBar } from "@/components/app/app-bar";
-import { scheduleDocumentExtractionForMonth } from "@/lib/cash-discovery/schedule";
 import { raiseMonthForReading } from "@/lib/extraction-queue/raise-month";
+import { queueReadingWindowForExtraction } from "@/lib/extraction-queue/reading-window";
 import { scheduleSubjectChecksForMonth } from "@/lib/subject-directory/schedule";
+import { isCompanyVisible } from "@/lib/access/visibility";
 import { buildMonthView } from "@/lib/sweep/views";
 import { buildMonthDocumentView } from "@/lib/documents/view";
 import { getSettings } from "@/adapters/store/settings";
@@ -43,6 +44,10 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
   if (!Number.isInteger(companyIdNum)) {
     notFound();
   }
+  // A company the person's Drive sharing does not reach does not exist for them (ADR 0023).
+  if (!(await isCompanyVisible(session.user.email, companyIdNum))) {
+    notFound();
+  }
 
   const view = await buildMonthView(companyIdNum, monthKey);
   const documentView = await buildMonthDocumentView(
@@ -55,14 +60,13 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
     notFound();
   }
 
-  // Queued after the page is sent: the month's unread documents, and the party
-  // checks of documents first looked at now (ADR 0022), closed months too.
-  // The month is raised after its unread documents are queued, so the ones found
-  // just now move ahead with the rest. Raising never fails the page.
+  // Queued after the page is sent: the reading window's unread documents, with
+  // the month she opened as the raised one (ADR 0020, amended 2026-11-23), and the
+  // party checks of documents first looked at now (ADR 0022). A closed month is
+  // not raised, as it is not read. The month is raised after the window is queued,
+  // so the documents found just now move ahead with the rest. Raising never fails the page.
   after(async () => {
-    if (!view.readOnly) {
-      await scheduleDocumentExtractionForMonth(companyIdNum, monthKey);
-    }
+    await queueReadingWindowForExtraction(view.readOnly ? null : { companyId: companyIdNum, monthKey });
     await raiseMonthForReading(companyIdNum, monthKey);
     await scheduleSubjectChecksForMonth(companyIdNum, monthKey);
   });
@@ -137,7 +141,7 @@ export default async function MonthPage({ params, searchParams }: MonthPageProps
       <LateArrivalsPanel
         companyId={companyIdNum}
         monthKey={monthKey}
-        isOpenMonth={view.isOpenMonth}
+        isTargetMonth={lateArrivals.targetMonthKey === monthKey}
         view={lateArrivals}
       />
 

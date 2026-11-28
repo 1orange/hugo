@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth/config";
 import { isEmailAllowed, loadAllowlistFromEnv } from "@/lib/auth/allowlist";
+import { companyActionRefusal } from "@/lib/access/guard";
 import {
   lookupCompanyRegister,
   saveCompanyProfileForUser,
@@ -87,6 +88,10 @@ export async function saveCompanyProfileAction(
   if (denied) {
     return denied;
   }
+  const refused = await companyActionRefusal(companyId);
+  if (refused) {
+    return refused;
+  }
 
   const result = await saveCompanyProfileForUser(companyId, input, new Date().toISOString());
   if (!result.ok) {
@@ -106,6 +111,10 @@ export async function saveCompanyProfileFormAction(
   const denied = await assertAllowed();
   if (denied) {
     redirect(`/companies/${companyId}/profile?error=${encodeURIComponent(denied.message)}`);
+  }
+  const refused = await companyActionRefusal(companyId);
+  if (refused) {
+    redirect(`/companies/${companyId}/profile?error=${encodeURIComponent(refused.message)}`);
   }
 
   const country = parseCountry(String(formData.get("country") ?? "SK"));

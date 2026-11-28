@@ -32,6 +32,7 @@ export const USER_COMPANY_EVENT_TYPES = [
   "ExportSectionChanged",
   "PartiesSwapped",
   "PartyTakenFromRegister",
+  "PartyTakenFromProfile",
   "AdvanceSettlementOverridden",
   "ReextractionRequested",
   "ReextractionCompleted",
@@ -82,6 +83,7 @@ export const EVENT_TYPE_LABELS: Record<KnownEventType, string> = {
   ExportSectionChanged: "Zmenená sekcia exportu",
   PartiesSwapped: "Strany dokladu vymenené",
   PartyTakenFromRegister: "Údaje strany prevzaté z registra",
+  PartyTakenFromProfile: "Údaje strany prevzaté z profilu",
   AdvanceSettlementOverridden: "Vyúčtovanie zálohy určené ručne",
   ReextractionRequested: "Doklad znova načítaný",
   ReextractionCompleted: "Doklad znova načítaný — údaje nahradené",
@@ -106,6 +108,8 @@ export type StoredActivityEvent = {
 export type ActivityEntry = {
   id: number;
   timestamp: string;
+  /** The company the event belongs to; null for an office-wide event. */
+  companyId: number | null;
   actorLabel: string;
   type: string;
   typeLabel: string;
@@ -166,6 +170,7 @@ export function eventMonthKey(
     case "ExportSectionChanged":
     case "PartiesSwapped":
     case "PartyTakenFromRegister":
+    case "PartyTakenFromProfile":
     case "AdvanceSettlementOverridden":
     case "ReextractionRequested":
     case "ReextractionCompleted":
@@ -325,6 +330,8 @@ export function summarizeEventPayload(
       return `Vymenené strany dokladu ${text(payload.driveFileId) ?? "?"}`;
     case "PartyTakenFromRegister":
       return `${text(payload.driveFileId) ?? "doklad"} → ${payload.side === "customer" ? "odberateľ" : "dodávateľ"} z registra`;
+    case "PartyTakenFromProfile":
+      return `${text(payload.driveFileId) ?? "doklad"} → ${payload.side === "customer" ? "odberateľ" : "dodávateľ"} z profilu`;
     case "AdvanceSettlementOverridden": {
       const driveFileId = text(payload.driveFileId) ?? "doklad";
       return payload.settled === true
@@ -366,6 +373,7 @@ export function formatActivityEntry(event: StoredActivityEvent): ActivityEntry {
   return {
     id: event.id,
     timestamp: event.timestamp,
+    companyId: event.companyId,
     actorLabel: formatActor(event.actor),
     type: event.type,
     typeLabel: eventTypeLabel(event.type),

@@ -43,7 +43,7 @@ export { summariseChaseList, type ChaseSummary };
 
 export type CompanyListItem = {
   id: number;
-  /** Stable across database rebuilds; what *Moje firmy* is keyed by (PRD 0004). */
+  /** Stable across database rebuilds; what Drive sharing and the group chips are keyed by (PRD 0004). */
   driveFolderId: string;
   name: string;
   /** The accountant's folder on the shared drive ("Eva"); null for a company at the root. */
@@ -146,13 +146,18 @@ function standingOf(status: string | undefined): "dissolved" | "suspended" | nul
  */
 export async function listCompanySummaries(
   monthKey?: string | null,
+  visibleIds?: ReadonlySet<number>,
 ): Promise<CompanyListItem[]> {
   // A future month is never the one the dashboard reports, even when asked for.
   const currentMonthKey = monthKeyAt(new Date());
   const requested =
     monthKey && !isFutureMonth(monthKey, currentMonthKey) ? monthKey : null;
 
-  const companiesList = await listCompanies();
+  // A person's view passes the companies the visibility guard lets them see (ADR 0023);
+  // the sweep and other system callers pass nothing and get every company.
+  const companiesList = (await listCompanies()).filter(
+    (company) => !visibleIds || visibleIds.has(company.id),
+  );
   const missingProfiles = await listCompanyIdsWithoutProfile(companiesList.map((c) => c.id));
   const registerStatuses = await listClientRegisterStatuses(companiesList.map((c) => c.id));
   const deviationCounts = await countStructureDeviationsByCompany();
@@ -211,10 +216,13 @@ export async function listCompanySummaries(
  * Every month key any company has that has started, newest first. Drives the
  * month picker on the chase list. Pre-created future months are left out.
  */
-export async function listAllMonthKeys(): Promise<string[]> {
+export async function listAllMonthKeys(visibleIds?: ReadonlySet<number>): Promise<string[]> {
   const currentMonthKey = monthKeyAt(new Date());
   const keys = new Set<string>();
   for (const company of await listCompanies()) {
+    if (visibleIds && !visibleIds.has(company.id)) {
+      continue;
+    }
     for (const month of await listMonthsForCompany(company.id)) {
       if (!isFutureMonth(month.monthKey, currentMonthKey)) {
         keys.add(month.monthKey);
